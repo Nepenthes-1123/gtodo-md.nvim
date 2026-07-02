@@ -166,37 +166,40 @@ end
 
 -- グローバルキーマップの設定
 function M.setup_global_keymaps()
+  local prefix = config.options.keymap_prefix or "<Leader>t"
+  
   -- 表示系
-  vim.keymap.set('n', '<Leader>tt', function() ui_mod.open_todo_float() end, { desc = "Toggle Todo float" })
-  vim.keymap.set('n', '<Leader>ti', function() ui_mod.open_inbox_float() end, { desc = "Toggle Inbox float" })
+  vim.keymap.set('n', prefix .. 't', function() ui_mod.open_todo_float() end, { desc = "Toggle Todo float" })
+  vim.keymap.set('n', prefix .. 'i', function() ui_mod.open_inbox_float() end, { desc = "Toggle Inbox float" })
   
   -- 検索
-  vim.keymap.set('n', '<Leader>t/', function() ui_mod.search_tasks() end, { desc = "Search tasks" })
+  vim.keymap.set('n', prefix .. '/', function() ui_mod.search_tasks() end, { desc = "Search tasks" })
   
   -- 追加・編集系 (適応的)
-  vim.keymap.set('n', '<Leader>ta', function() M.add_or_edit_task() end, { desc = "Add or edit task" })
+  vim.keymap.set('n', prefix .. 'a', function() M.add_or_edit_task() end, { desc = "Add or edit task" })
 end
 
 -- バッファローカルなキーマップを設定する
 function M.setup_buffer_keymaps(bufnr)
+  local prefix = config.options.keymap_prefix or "<Leader>t"
   local function map(mode, lhs, rhs, desc)
     vim.keymap.set(mode, lhs, rhs, { buffer = bufnr, silent = true, desc = desc })
   end
   
   -- 移動系
-  map('n', '<Leader>td', function() file_mod.move_current_task_to("Today") end, "Move task to Today")
-  map('n', '<Leader>tn', function() file_mod.move_current_task_to("Next") end, "Move task to Next")
-  map('n', '<Leader>tw', function() file_mod.move_current_task_to("Waiting") end, "Move task to Waiting")
-  map('n', '<Leader>ts', function() file_mod.move_current_task_to("Someday") end, "Move task to Someday")
+  map('n', prefix .. 'd', function() file_mod.move_current_task_to("Today") end, "Move task to Today")
+  map('n', prefix .. 'n', function() file_mod.move_current_task_to("Next") end, "Move task to Next")
+  map('n', prefix .. 'w', function() file_mod.move_current_task_to("Waiting") end, "Move task to Waiting")
+  map('n', prefix .. 's', function() file_mod.move_current_task_to("Someday") end, "Move task to Someday")
   
-  map('n', '<Leader>tx', function() file_mod.toggle_complete() end, "Toggle task completion")
-  map('n', '<Leader>tc', function() file_mod.cancel_current_task() end, "Cancel task")
+  map('n', prefix .. 'x', function() file_mod.toggle_complete() end, "Toggle task completion")
+  map('n', prefix .. 'c', function() file_mod.cancel_current_task() end, "Cancel task")
   
   -- ジャンプ系
-  map('n', '<Leader>tjp', function() ui_mod.jump_to_project() end, "Jump to project file")
+  map('n', prefix .. 'jp', function() ui_mod.jump_to_project() end, "Jump to project file")
   
   -- 機能系
-  map('n', '<Leader>to', function() M.sort_and_check_dues() end, "Sort and check due dates")
+  map('n', prefix .. 'o', function() M.sort_and_check_dues() end, "Sort and check due dates")
 end
 
 return M

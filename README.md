@@ -38,6 +38,7 @@ require("gtodo_md").setup({
   data_dir = vim.fn.stdpath("data") .. "/todo", 
   use_default_keymaps = true,
   picker = "auto", -- "auto" | "snacks" | "telescope" | "fzf-lua" | "builtin"
+  keymap_prefix = "<Leader>t", -- キーマップの接頭辞 (他のプラグインと競合する場合は変更してください)
 })
 ```
 
@@ -85,7 +86,33 @@ require('gtodo_md').setup({
 
 ## キーバインド
 
-### グローバルキーマップ (すべてのバッファで有効)
+デフォルトでは `<Leader>t` がキーマップの接頭辞（プレフィックス）として使用されます。
+
+### キーバインドのカスタマイズと競合対策
+`<Leader>t` が他のプラグイン（ターミナル呼び出しや Telescope など）と競合する場合は、`setup` オプションの `keymap_prefix` を使用して**接頭辞を一括で変更**できます。
+
+また、`keymap_prefix` は 3打キー（例: `<Leader>to`）に設定して、キーの階層を深くすることも可能です。
+
+#### 設定例（接頭辞を `<Leader>o` (Organizerの頭文字) に一括変更する場合）:
+```lua
+require("gtodo_md").setup({
+  keymap_prefix = "<Leader>o", 
+})
+```
+これにより、Todoを開くキーは `<Leader>ot`、タスク追加は `<Leader>oa` のように一括で安全に変更されます。
+
+#### 設定例（キーバインドを完全に無効化して個別に割り当てる場合）:
+```lua
+require("gtodo_md").setup({
+  use_default_keymaps = false, -- デフォルトキーマップを登録しない
+})
+
+-- 個別に好きなキーで割り当てる
+vim.keymap.set('n', '<Leader>tt', function() require('gtodo_md.ui').open_todo_float() end, { desc = "Toggle Todo float" })
+vim.keymap.set('n', '<Leader>ta', function() require('gtodo_md').add_or_edit_task() end, { desc = "Add or edit task" })
+```
+
+### グローバルキーマップ (すべてのバッファで有効、以下はデフォルト `<Leader>t` の例)
 | キー | 動作 |
 |---|---|
 | `<Leader>tt` | `todo.md` をフローティング表示で開く |
@@ -93,7 +120,7 @@ require('gtodo_md').setup({
 | `<Leader>ta` | 空行や他のバッファでは新規タスク追加。タスク行にいる場合はタスクの編集。 |
 | `<Leader>t/` | タグ（`+`）、コンテキスト（`@`）、完了状態（`[ ]` / `[x]`）でのAND検索 |
 
-### バッファローカルキーマップ (`todo.md` / `inbox.md` でのみ有効)
+### バッファローカルキーマップ (`todo.md` / `inbox.md` でのみ有効、以下はデフォルト `<Leader>t` の例)
 | キー | 動作 |
 |---|---|
 | `<Leader>td` | カーソル行を `Today` セクションへ移動 |
