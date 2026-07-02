@@ -93,6 +93,77 @@ function M.setup_autocmds()
   })
 end
 
+-- 適応的なタスクの追加または編集 (外部呼び出し可能)
+function M.add_or_edit_task()
+  local bufname = vim.api.nvim_buf_get_name(0)
+  local filename = vim.fn.fnamemodify(bufname, ":t")
+  
+  if filename == "todo.md" or filename == "inbox.md" then
+    local task, row = file_mod.get_current_task()
+    if task then
+      -- 編集
+      require('gtodo_md.task').prompt_task(task, function(updated_task)
+        local newline = require('gtodo_md.task').serialize(updated_task)
+        vim.api.nvim_buf_set_lines(0, row - 1, row, false, { newline })
+        vim.cmd("silent! write")
+        if filename == "todo.md" then
+          local todo_path = config.options.data_dir .. "/todo.md"
+          file_mod.sort_todo_file(todo_path)
+        end
+      end)
+      return
+    end
+  end
+  
+  -- 新規追加
+  require('gtodo_md.task').prompt_task(nil, function(new_task)
+    local newline = require('gtodo_md.task').serialize(new_task)
+    local bufname = vim.api.nvim_buf_get_name(0)
+    local filename = vim.fn.fnamemodify(bufname, ":t")
+    
+    if filename == "inbox.md" then
+      local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+      table.insert(lines, newline)
+      vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
+      vim.cmd("silent! write")
+    elseif filename == "todo.md" then
+      local current_sec = file_mod.get_current_section()
+      if current_sec == "default" then current_sec = "Today" end
+      local todo_path = config.options.data_dir .. "/todo.md"
+      local todo_data = file_mod.read_todo_file(todo_path)
+      if not todo_data.sections[current_sec] then
+        todo_data.sections[current_sec] = {}
+      end
+      table.insert(todo_data.sections[current_sec], { type = "task", task = new_task })
+      file_mod.write_todo_file(todo_path, todo_data)
+      file_mod.sort_todo_file(todo_path)
+    else
+      local inbox_path = config.options.data_dir .. "/inbox.md"
+      local inbox_data = file_mod.read_todo_file(inbox_path)
+      if not inbox_data.sections["default"] then
+        inbox_data.sections["default"] = {}
+      end
+      table.insert(inbox_data.sections["default"], { type = "task", task = new_task })
+      file_mod.write_todo_file(inbox_path, inbox_data)
+      vim.notify("Created new task in inbox.md", vim.log.levels.INFO)
+    end
+  end)
+end
+
+-- 手動ソートと期日チェック (外部呼び出し可能)
+function M.sort_and_check_dues()
+  local bufname = vim.api.nvim_buf_get_name(0)
+  local filename = vim.fn.fnamemodify(bufname, ":t")
+  if filename == "inbox.md" then
+    return
+  end
+  local data_dir = config.options.data_dir
+  local inbox_path = data_dir .. "/inbox.md"
+  local todo_path = data_dir .. "/todo.md"
+  file_mod.check_dues(inbox_path, todo_path)
+  file_mod.sort_todo_file(todo_path)
+end
+
 -- グローバルキーマップの設定
 function M.setup_global_keymaps()
   -- 表示系
@@ -103,61 +174,7 @@ function M.setup_global_keymaps()
   vim.keymap.set('n', '<Leader>t/', function() ui_mod.search_tasks() end, { desc = "Search tasks" })
   
   -- 追加・編集系 (適応的)
-  vim.keymap.set('n', '<Leader>ta', function()
-    local bufname = vim.api.nvim_buf_get_name(0)
-    local filename = vim.fn.fnamemodify(bufname, ":t")
-    
-    if filename == "todo.md" or filename == "inbox.md" then
-      local task, row = file_mod.get_current_task()
-      if task then
-        -- 編集
-        require('gtodo_md.task').prompt_task(task, function(updated_task)
-          local newline = require('gtodo_md.task').serialize(updated_task)
-          vim.api.nvim_buf_set_lines(0, row - 1, row, false, { newline })
-          vim.cmd("silent! write")
-          if filename == "todo.md" then
-            local todo_path = config.options.data_dir .. "/todo.md"
-            file_mod.sort_todo_file(todo_path)
-          end
-        end)
-        return
-      end
-    end
-    
-    -- 新規追加
-    require('gtodo_md.task').prompt_task(nil, function(new_task)
-      local newline = require('gtodo_md.task').serialize(new_task)
-      local bufname = vim.api.nvim_buf_get_name(0)
-      local filename = vim.fn.fnamemodify(bufname, ":t")
-      
-      if filename == "inbox.md" then
-        local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-        table.insert(lines, newline)
-        vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
-        vim.cmd("silent! write")
-      elseif filename == "todo.md" then
-        local current_sec = file_mod.get_current_section()
-        if current_sec == "default" then current_sec = "Today" end
-        local todo_path = config.options.data_dir .. "/todo.md"
-        local todo_data = file_mod.read_todo_file(todo_path)
-        if not todo_data.sections[current_sec] then
-          todo_data.sections[current_sec] = {}
-        end
-        table.insert(todo_data.sections[current_sec], { type = "task", task = new_task })
-        file_mod.write_todo_file(todo_path, todo_data)
-        file_mod.sort_todo_file(todo_path)
-      else
-        local inbox_path = config.options.data_dir .. "/inbox.md"
-        local inbox_data = file_mod.read_todo_file(inbox_path)
-        if not inbox_data.sections["default"] then
-          inbox_data.sections["default"] = {}
-        end
-        table.insert(inbox_data.sections["default"], { type = "task", task = new_task })
-        file_mod.write_todo_file(inbox_path, inbox_data)
-        vim.notify("Created new task in inbox.md", vim.log.levels.INFO)
-      end
-    end)
-  end, { desc = "Add or edit task" })
+  vim.keymap.set('n', '<Leader>ta', function() M.add_or_edit_task() end, { desc = "Add or edit task" })
 end
 
 -- バッファローカルなキーマップを設定する
@@ -179,18 +196,7 @@ function M.setup_buffer_keymaps(bufnr)
   map('n', '<Leader>tjp', function() ui_mod.jump_to_project() end, "Jump to project file")
   
   -- 機能系
-  map('n', '<Leader>to', function()
-    local bufname = vim.api.nvim_buf_get_name(0)
-    local filename = vim.fn.fnamemodify(bufname, ":t")
-    if filename == "inbox.md" then
-      return
-    end
-    local data_dir = config.options.data_dir
-    local inbox_path = data_dir .. "/inbox.md"
-    local todo_path = data_dir .. "/todo.md"
-    file_mod.check_dues(inbox_path, todo_path)
-    file_mod.sort_todo_file(todo_path)
-  end, "Sort and check due dates")
+  map('n', '<Leader>to', function() M.sort_and_check_dues() end, "Sort and check due dates")
 end
 
 return M
