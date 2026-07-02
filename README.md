@@ -24,21 +24,63 @@ stdpath("data")/todo/
 
 ## インストールと設定
 
-### lazy.nvim の場合
+### 1. vim.pack (Neovim v0.12+ 組み込み) の場合
+`plugins/init.lua` 等の `vim.pack.add` の中に以下を追記します。
+```lua
+vim.pack.add({
+  "https://github.com/Nepenthes-1123/gtodo-md.nvim",
+})
+```
+そして、設定ファイル（`init.lua` など）でセットアップを実行します。
+```lua
+require("gtodo_md").setup({
+  -- オプション (省略した場合はデフォルト値が使用されます)
+  data_dir = vim.fn.stdpath("data") .. "/todo", 
+  use_default_keymaps = true,
+  picker = "auto", -- "auto" | "snacks" | "telescope" | "fzf-lua" | "builtin"
+})
+```
+
+### 2. lazy.nvim の場合
 ```lua
 {
-  "gtodo-md.nvim",
-  dir = "~/development/gtodo-md.nvim", -- 開発用パス
+  "Nepenthes-1123/gtodo-md.nvim",
+  dependencies = { "nvim-lua/plenary.nvim" },
   config = function()
     require("gtodo_md").setup({
-      -- 必要に応じてデータ保存先を変更してください
-      data_dir = vim.fn.expand("~/todo/personal"), 
       use_default_keymaps = true,
-      -- タスク検索時のファインダー指定 ("auto" | "snacks" | "telescope" | "fzf-lua" | "builtin")
-      picker = "auto", 
+      picker = "auto",
     })
   end
 }
+```
+
+### 3. pckr.nvim の場合
+```lua
+require('pckr').add({
+  { 'Nepenthes-1123/gtodo-md.nvim',
+    requires = { 'nvim-lua/plenary.nvim' },
+    config = function()
+      require('gtodo_md').setup({
+        use_default_keymaps = true,
+        picker = "auto",
+      })
+    end
+  };
+})
+```
+
+### 4. mini.deps の場合
+```lua
+local MiniDeps = require('mini.deps')
+MiniDeps.add({
+  source = 'Nepenthes-1123/gtodo-md.nvim',
+  depends = { 'nvim-lua/plenary.nvim' }
+})
+require('gtodo_md').setup({
+  use_default_keymaps = true,
+  picker = "auto",
+})
 ```
 
 ## キーバインド
