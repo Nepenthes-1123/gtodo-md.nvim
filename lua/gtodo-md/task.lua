@@ -35,7 +35,7 @@ function M.parse(line)
   task.from = extract_field("from:(%w+)")
   local raw_due = extract_field("due:(%S+)")
   if raw_due then
-    local normalized = require('gtodo_md.utils').parse_due_date(raw_due)
+    local normalized = require('gtodo-md.utils').parse_due_date(raw_due)
     task.due = normalized or raw_due
   end
   task.created = extract_field("created:(%d%d%d%d%-%d%d%-%d%d)")
@@ -118,7 +118,7 @@ function M.prompt_task(initial_task, callback)
   -- 既存プロジェクト一覧の取得 (最近更新された順)
   local function get_projects()
     local proj_list = {}
-    local data_dir = require('gtodo_md.config').options.data_dir
+    local data_dir = require('gtodo-md.config').options.data_dir
     local projects_dir = data_dir .. "/projects"
     if vim.fn.isdirectory(projects_dir) == 1 then
       local files = vim.fn.globpath(projects_dir, "*.md", false, true)
@@ -140,7 +140,7 @@ function M.prompt_task(initial_task, callback)
 
   -- 新しいプロジェクトファイルの自動作成
   local function create_project_file(project_tag)
-    local data_dir = require('gtodo_md.config').options.data_dir
+    local data_dir = require('gtodo-md.config').options.data_dir
     local proj_file = string.format("%s/projects/%s.md", data_dir, project_tag)
     if vim.fn.filereadable(proj_file) == 0 then
       local today = os.date("%Y-%m-%d")
@@ -196,7 +196,7 @@ function M.prompt_task(initial_task, callback)
       local final_due = nil
       if due_input and vim.trim(due_input) ~= "" then
         due_input = vim.trim(due_input)
-        local normalized = require('gtodo_md.utils').parse_due_date(due_input)
+        local normalized = require('gtodo-md.utils').parse_due_date(due_input)
         if not normalized then
           vim.notify("Invalid date format. Skipping due date.", vim.log.levels.WARN)
         else

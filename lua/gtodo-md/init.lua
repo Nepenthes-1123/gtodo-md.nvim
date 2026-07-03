@@ -1,8 +1,8 @@
 local M = {}
-local config = require('gtodo_md.config')
-local file_mod = require('gtodo_md.file')
-local ui_mod = require('gtodo_md.ui')
-local timer_mod = require('gtodo_md.timer')
+local config = require('gtodo-md.config')
+local file_mod = require('gtodo-md.file')
+local ui_mod = require('gtodo-md.ui')
+local timer_mod = require('gtodo-md.timer')
 
 function M.setup(opts)
   config.setup(opts)
@@ -58,12 +58,12 @@ function M.handle_buf_enter(bufnr)
   local done_path = data_dir .. "/done.md"
   
   -- 1. 完了タスク移動（日付変更後の初回BufEnterのみ）
-  local last_opened = require('gtodo_md.utils').read_last_opened()
+  local last_opened = require('gtodo-md.utils').read_last_opened()
   local today = os.date("%Y-%m-%d")
   
   if last_opened ~= today then
     file_mod.move_completed_tasks(inbox_path, todo_path, done_path)
-    require('gtodo_md.utils').write_last_opened(today)
+    require('gtodo-md.utils').write_last_opened(today)
   end
   
   -- 2. dueチェック・自動移動
@@ -102,8 +102,8 @@ function M.add_or_edit_task()
     local task, row = file_mod.get_current_task()
     if task then
       -- 編集
-      require('gtodo_md.task').prompt_task(task, function(updated_task)
-        local newline = require('gtodo_md.task').serialize(updated_task)
+      require('gtodo-md.task').prompt_task(task, function(updated_task)
+        local newline = require('gtodo-md.task').serialize(updated_task)
         vim.api.nvim_buf_set_lines(0, row - 1, row, false, { newline })
         vim.cmd("silent! write")
         if filename == "todo.md" then
@@ -116,8 +116,8 @@ function M.add_or_edit_task()
   end
   
   -- 新規追加
-  require('gtodo_md.task').prompt_task(nil, function(new_task)
-    local newline = require('gtodo_md.task').serialize(new_task)
+  require('gtodo-md.task').prompt_task(nil, function(new_task)
+    local newline = require('gtodo-md.task').serialize(new_task)
     local bufname = vim.api.nvim_buf_get_name(0)
     local filename = vim.fn.fnamemodify(bufname, ":t")
     

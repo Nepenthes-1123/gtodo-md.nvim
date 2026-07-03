@@ -33,7 +33,7 @@ vim.pack.add({
 ```
 そして、設定ファイル（`init.lua` など）でセットアップを実行します。
 ```lua
-require("gtodo_md").setup({
+require("gtodo-md").setup({
   -- オプション (省略した場合はデフォルト値が使用されます)
   data_dir = vim.fn.stdpath("data") .. "/todo", 
   use_default_keymaps = true,
@@ -48,7 +48,7 @@ require("gtodo_md").setup({
   "Nepenthes-1123/gtodo-md.nvim",
   dependencies = { "nvim-lua/plenary.nvim" },
   config = function()
-    require("gtodo_md").setup({
+    require("gtodo-md").setup({
       use_default_keymaps = true,
       picker = "auto",
     })
@@ -62,7 +62,7 @@ require('pckr').add({
   { 'Nepenthes-1123/gtodo-md.nvim',
     requires = { 'nvim-lua/plenary.nvim' },
     config = function()
-      require('gtodo_md').setup({
+      require('gtodo-md').setup({
         use_default_keymaps = true,
         picker = "auto",
       })
@@ -78,7 +78,7 @@ MiniDeps.add({
   source = 'Nepenthes-1123/gtodo-md.nvim',
   depends = { 'nvim-lua/plenary.nvim' }
 })
-require('gtodo_md').setup({
+require('gtodo-md').setup({
   use_default_keymaps = true,
   picker = "auto",
 })
@@ -95,7 +95,7 @@ require('gtodo_md').setup({
 
 #### 設定例（接頭辞を `<Leader>o` (Organizerの頭文字) に一括変更する場合）:
 ```lua
-require("gtodo_md").setup({
+require("gtodo-md").setup({
   keymap_prefix = "<Leader>o", 
 })
 ```
@@ -103,13 +103,13 @@ require("gtodo_md").setup({
 
 #### 設定例（キーバインドを完全に無効化して個別に割り当てる場合）:
 ```lua
-require("gtodo_md").setup({
+require("gtodo-md").setup({
   use_default_keymaps = false, -- デフォルトキーマップを登録しない
 })
 
 -- 個別に好きなキーで割り当てる
-vim.keymap.set('n', '<Leader>tt', function() require('gtodo_md.ui').open_todo_float() end, { desc = "Toggle Todo float" })
-vim.keymap.set('n', '<Leader>ta', function() require('gtodo_md').add_or_edit_task() end, { desc = "Add or edit task" })
+vim.keymap.set('n', '<Leader>tt', function() require('gtodo-md.ui').open_todo_float() end, { desc = "Toggle Todo float" })
+vim.keymap.set('n', '<Leader>ta', function() require('gtodo-md').add_or_edit_task() end, { desc = "Add or edit task" })
 ```
 
 ### グローバルキーマップ (すべてのバッファで有効、以下はデフォルト `<Leader>t` の例)

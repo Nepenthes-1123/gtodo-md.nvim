@@ -1,5 +1,5 @@
 local M = {}
-local config = require('gtodo_md.config')
+local config = require('gtodo-md.config')
 
 -- フローティングウィンドウでファイルを開く
 function M.open_float(filepath, title)
@@ -54,7 +54,7 @@ function M.search_tasks()
     data_dir .. "/done.md"
   }
   
-  local task_mod = require('gtodo_md.task')
+  local task_mod = require('gtodo-md.task')
   local items = {}
   
   for _, filepath in ipairs(files) do

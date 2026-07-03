@@ -1,6 +1,6 @@
 local M = {}
-local config = require('gtodo_md.config')
-local file_mod = require('gtodo_md.file')
+local config = require('gtodo-md.config')
+local file_mod = require('gtodo-md.file')
 
 local uv = vim.uv or vim.loop
 
@@ -9,11 +9,11 @@ local waiting_timer = nil
 
 -- 日付変更検知と自動移動
 function M.check_date_change()
-  local last_date = require('gtodo_md.utils').read_last_opened()
+  local last_date = require('gtodo-md.utils').read_last_opened()
   local today = os.date("%Y-%m-%d")
   
   if not last_date then
-    require('gtodo_md.utils').write_last_opened(today)
+    require('gtodo-md.utils').write_last_opened(today)
     return false
   end
   
@@ -24,7 +24,7 @@ function M.check_date_change()
     local done_path = data_dir .. "/done.md"
     
     file_mod.move_completed_tasks(inbox_path, todo_path, done_path)
-    require('gtodo_md.utils').write_last_opened(today)
+    require('gtodo-md.utils').write_last_opened(today)
     return true
   end
   

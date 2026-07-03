@@ -1,6 +1,6 @@
 local M = {}
-local task_mod = require('gtodo_md.task')
-local config = require('gtodo_md.config')
+local task_mod = require('gtodo-md.task')
+local config = require('gtodo-md.config')
 
 -- 指定されたパスのバッファが存在し、ロードされているか確認
 local function get_buf_by_name(path)
