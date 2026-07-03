@@ -11,9 +11,9 @@ GTD（Getting Things Done）の軽量版を Neovim 内で Markdown を使用し�
 - **AND絞り込み検索**: クイックフィックスリストを利用した、タグ・コンテキスト・完了状態でのAND検索が可能です。
 
 ## ディレクトリ構成
-指定した `data_dir`（未指定時のデフォルト: `stdpath("data") .. "/todo"`）配下に以下の構造が自動生成されます。
+指定した `data_dir`（未指定時のデフォルト: `stdpath("data") .. "/gtodo-md"`）配下に以下の構造が自動生成されます。
 ```
-stdpath("data")/todo/
+stdpath("data")/gtodo-md/
 ├── inbox.md
 ├── todo.md
 ├── done.md
@@ -35,7 +35,7 @@ vim.pack.add({
 ```lua
 require("gtodo-md").setup({
   -- オプション (省略した場合はデフォルト値が使用されます)
-  data_dir = vim.fn.stdpath("data") .. "/todo", 
+  data_dir = vim.fn.stdpath("data") .. "/gtodo-md", 
   use_default_keymaps = true,
   picker = "auto", -- "auto" | "snacks" | "telescope" | "fzf-lua" | "builtin"
   keymap_prefix = "<Leader>t", -- キーマップの接頭辞 (他のプラグインと競合する場合は変更してください)

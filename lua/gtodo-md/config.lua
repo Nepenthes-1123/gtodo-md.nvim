@@ -1,7 +1,7 @@
 local M = {}
 
 M.defaults = {
-  data_dir = vim.fn.stdpath("data") .. "/todo", -- デフォルトはNeovimのデータディレクトリ
+  data_dir = vim.fn.stdpath("data") .. "/gtodo-md", -- デフォルトはNeovimのデータディレクトリ
   use_default_keymaps = true,
   picker = "auto", -- ピッカー指定 ("auto" | "snacks" | "telescope" | "fzf-lua" | "builtin")
   keymap_prefix = "<Leader>t", -- キーマップのプレフィックス接頭辞
