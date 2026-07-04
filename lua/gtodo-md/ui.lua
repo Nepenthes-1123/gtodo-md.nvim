@@ -1,6 +1,20 @@
 local M = {}
 local config = require('gtodo-md.config')
 
+-- 現在開いているgtodoフローティングウィンドウ (1つだけ管理)
+local gtodo_float_win = nil
+
+local function close_current_float()
+  if gtodo_float_win and vim.api.nvim_win_is_valid(gtodo_float_win) then
+    vim.api.nvim_win_close(gtodo_float_win, true)
+  end
+  gtodo_float_win = nil
+end
+
+local function register_float_win(win)
+  gtodo_float_win = win
+end
+
 -- done.md のカウントキャッシュ
 local done_cache = {
   mtime = 0,
@@ -41,13 +55,16 @@ end
 
 -- フローティングウィンドウでファイルを開く
 function M.open_float(filepath, title)
+  -- 既存のgtodoフロートを閉じてから新しく開く
+  close_current_float()
+
   local width = math.floor(vim.o.columns * 0.8)
   local height = math.floor(vim.o.lines * 0.8)
   local col = math.floor((vim.o.columns - width) / 2)
   local row = math.floor((vim.o.lines - height) / 2)
-  
+
   local buf = vim.api.nvim_create_buf(false, true)
-  
+
   local opts = {
     relative = "editor",
     width = width,
@@ -59,17 +76,19 @@ function M.open_float(filepath, title)
     title = " " .. title .. " ",
     title_pos = "center",
   }
-  
+
   local win = vim.api.nvim_open_win(buf, true, opts)
-  
+  register_float_win(win)
+
   vim.cmd("edit " .. vim.fn.fnameescape(filepath))
-  
+
   local file_buf = vim.api.nvim_get_current_buf()
   vim.bo[file_buf].buflisted = false
   vim.bo[file_buf].bufhidden = "wipe"
-  
-  vim.api.nvim_buf_set_keymap(file_buf, 'n', 'q', ':q<CR>', { noremap = true, silent = true })
-  
+
+  vim.api.nvim_buf_set_keymap(file_buf, 'n', 'q',     ':q<CR>', { noremap = true, silent = true })
+  vim.api.nvim_buf_set_keymap(file_buf, 'n', '<Esc>', ':q<CR>', { noremap = true, silent = true })
+
   return file_buf, win
 end
 
@@ -449,6 +468,7 @@ function M.open_queue()
   local file_mod = require('gtodo-md.file')
 
   -- inbox.md と todo.md から due: 付き未完了タスクを収集
+  -- 各エントリは { task, filepath } のテーブル
   local source_files = {
     data_dir .. "/inbox.md",
     data_dir .. "/todo.md",
@@ -477,7 +497,7 @@ function M.open_queue()
         if sec then
           for _, item in ipairs(sec) do
             if item.type == "task" and item.task.status ~= "x" and item.task.due then
-              table.insert(tasks_with_due, item.task)
+              table.insert(tasks_with_due, { task = item.task, filepath = filepath })
             end
           end
         end
@@ -504,17 +524,17 @@ function M.open_queue()
   local by_date   = {}
   local later     = {}
 
-  for _, task in ipairs(tasks_with_due) do
-    local due_time = date_to_time(task.due)
+  for _, entry in ipairs(tasks_with_due) do
+    local due_time = date_to_time(entry.task.due)
     if due_time < today_time then
-      table.insert(overdue, task)
+      table.insert(overdue, entry)
     elseif due_time <= week_end_time then
-      if not by_date[task.due] then
-        by_date[task.due] = {}
+      if not by_date[entry.task.due] then
+        by_date[entry.task.due] = {}
       end
-      table.insert(by_date[task.due], task)
+      table.insert(by_date[entry.task.due], entry)
     else
-      table.insert(later, task)
+      table.insert(later, entry)
     end
   end
 
@@ -524,21 +544,27 @@ function M.open_queue()
     table.insert(sorted_dates, d)
   end
   table.sort(sorted_dates)
-  table.sort(overdue, function(a, b) return a.due < b.due end)
-  table.sort(later,   function(a, b) return a.due < b.due end)
+  table.sort(overdue, function(a, b) return a.task.due < b.task.due end)
+  table.sort(later,   function(a, b) return a.task.due < b.task.due end)
 
-  -- バッファ行 / ハイライト構築ヘルパー
-  local lines = {}
-  local hls   = {} -- { line_idx(0-based), hl_group }
+  -- バッファ行 / ハイライト / ジャンプ先マップ
+  local lines    = {}
+  local hls      = {} -- { line_idx(0-based), hl_group }
+  local line_map = {} -- line_idx(0-based) -> { filepath, original_line }
 
-  local function add(text, hl_group)
+  local function add(text, hl_group, source)
     table.insert(lines, text)
+    local idx = #lines - 1
     if hl_group then
-      table.insert(hls, { #lines - 1, hl_group })
+      table.insert(hls, { idx, hl_group })
+    end
+    if source then
+      line_map[idx] = source
     end
   end
 
-  local function task_line(task, prefix)
+  local function task_line(entry, prefix)
+    local task = entry.task
     local line = (prefix or "  \xe2\x96\xb6 ") .. task.content
     if task.project then line = line .. " +" .. task.project end
     if task.context then line = line .. " " .. task.context end
@@ -574,9 +600,13 @@ function M.open_queue()
     add("", nil)
     add(" \xe6\x9c\x9f\xe9\x99\x90\xe5\x88\x87\xe3\x82\x8c", "DiagnosticError")
     add(sep, "Comment")
-    for _, task in ipairs(overdue) do
-      local days_over = math.floor((today_time - date_to_time(task.due)) / 86400)
-      add(task_line(task, "  \xe2\x9a\xa0 ") .. string.format(" (%d\xe6\x97\xa5\xe8\xb6\x85\xe9\x81\x8e)", days_over), "DiagnosticError")
+    for _, entry in ipairs(overdue) do
+      local days_over = math.floor((today_time - date_to_time(entry.task.due)) / 86400)
+      add(
+        task_line(entry, "  \xe2\x9a\xa0 ") .. string.format(" (%d\xe6\x97\xa5\xe8\xb6\x85\xe9\x81\x8e)", days_over),
+        "DiagnosticError",
+        { filepath = entry.filepath, original_line = entry.task.original_line }
+      )
     end
   end
 
@@ -586,8 +616,12 @@ function M.open_queue()
     add("", nil)
     add(label, hl)
     add(sep, "Comment")
-    for _, task in ipairs(by_date[date]) do
-      add(task_line(task), nil)
+    for _, entry in ipairs(by_date[date]) do
+      add(
+        task_line(entry),
+        nil,
+        { filepath = entry.filepath, original_line = entry.task.original_line }
+      )
     end
   end
 
@@ -596,10 +630,14 @@ function M.open_queue()
     add("", nil)
     add(" \xe3\x81\x9d\xe3\x82\x8c\xe4\xbb\xa5\xe9\x99\x8d", "Comment")
     add(sep, "Comment")
-    for _, task in ipairs(later) do
-      local mo = tonumber(task.due:sub(6, 7))
-      local d  = tonumber(task.due:sub(9, 10))
-      add(task_line(task) .. string.format("  due:%d/%d", mo, d), "Comment")
+    for _, entry in ipairs(later) do
+      local mo = tonumber(entry.task.due:sub(6, 7))
+      local d  = tonumber(entry.task.due:sub(9, 10))
+      add(
+        task_line(entry) .. string.format("  due:%d/%d", mo, d),
+        "Comment",
+        { filepath = entry.filepath, original_line = entry.task.original_line }
+      )
     end
   end
 
@@ -615,13 +653,16 @@ function M.open_queue()
   local col    = math.floor((vim.o.columns - width) / 2)
   local row    = math.floor((vim.o.lines - height) / 2)
 
+  -- 既存のgtodoフロートを閉じてから Queue を開く
+  close_current_float()
+
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.bo[buf].modifiable = false
   vim.bo[buf].buftype    = "nofile"
   vim.bo[buf].bufhidden  = "wipe"
 
-  vim.api.nvim_open_win(buf, true, {
+  local queue_win = vim.api.nvim_open_win(buf, true, {
     relative  = "editor",
     width     = width,
     height    = height,
@@ -632,6 +673,7 @@ function M.open_queue()
     title     = " Queue ",
     title_pos = "center",
   })
+  register_float_win(queue_win)
 
   -- ハイライト適用
   local ns = vim.api.nvim_create_namespace("gtodo_queue")
@@ -642,7 +684,34 @@ function M.open_queue()
   -- バッファローカルキーマップ
   vim.keymap.set('n', 'q',     ':q<CR>', { buffer = buf, noremap = true, silent = true })
   vim.keymap.set('n', '<Esc>', ':q<CR>', { buffer = buf, noremap = true, silent = true })
+
+  -- Enter: カーソル行のタスクのファイル・行へジャンプ
+  vim.keymap.set('n', '<CR>', function()
+    local cursor_idx = vim.api.nvim_win_get_cursor(0)[1] - 1 -- 0-based
+    local source = line_map[cursor_idx]
+    if not source then return end
+
+    -- ソースファイル内で original_line を検索して行番号を取得
+    local src_lines = file_mod.read_lines(source.filepath)
+    local target_lnum = nil
+    for i, l in ipairs(src_lines) do
+      if l == source.original_line then
+        target_lnum = i
+        break
+      end
+    end
+
+    if not target_lnum then
+      vim.notify("\xe3\x82\xbf\xe3\x82\xb9\xe3\x82\xaf\xe3\x81\x8c\xe8\xa6\x8b\xe3\x81\xa4\xe3\x81\x8b\xe3\x82\x8a\xe3\x81\xbe\xe3\x81\x9b\xe3\x82\x93\xe3\x81\xa7\xe3\x81\x97\xe3\x81\x9f", vim.log.levels.WARN)
+      return
+    end
+
+    -- Queue ウィンドウを閉じてフローティングでファイルを開き該当行へ移動
+    vim.cmd("q")
+    local fname = vim.fn.fnamemodify(source.filepath, ":t:r"):upper()
+    local _, new_win = M.open_float(source.filepath, fname)
+    vim.api.nvim_win_set_cursor(new_win, { target_lnum, 0 })
+  end, { buffer = buf, noremap = true, silent = true })
 end
 
 return M
-
