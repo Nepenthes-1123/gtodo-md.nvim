@@ -8,6 +8,8 @@ M.defaults = {
   due_notification_cooldown = 1800, -- 期限切れ通知の最小間隔（秒）。デフォルト30分
   due_notification_persist = true, -- trueでNeovim終了後も時間を維持、falseで起動中のみ
   waiting_warning_days = 2, -- Waitingタスクの期限警告日数
+  enable_waiting_warning = true, -- Waitingタスクの期限警告通知を有効にするか
+  waiting_warning_interval = 3600, -- Waitingタスク警告のチェック間隔（秒）。デフォルト1時間
 }
 
 M.options = {}

@@ -36,8 +36,11 @@ function M.check_waiting_tasks()
   end
 end
 
--- Waiting監視タイマーの開始 (1時間おき)
+-- Waiting監視タイマーの開始
 function M.start_waiting_timer()
+  local enabled = config.options.enable_waiting_warning
+  if enabled == nil then enabled = true end
+  if not enabled then return end
   if waiting_timer then return end
   
   -- 起動時に一度即時チェックを実行 (遅延ロードや起動シーケンスと競合しないよう非同期にスケジューリング)
@@ -45,9 +48,9 @@ function M.start_waiting_timer()
     M.check_waiting_tasks()
   end)
   
+  local interval = (config.options.waiting_warning_interval or 3600) * 1000
   waiting_timer = uv.new_timer()
-  -- 1時間（3600000ミリ秒）おきにチェックする
-  waiting_timer:start(3600000, 3600000, vim.schedule_wrap(function()
+  waiting_timer:start(interval, interval, vim.schedule_wrap(function()
     M.check_waiting_tasks()
   end))
 end
