@@ -41,6 +41,9 @@ require("gtodo-md").setup({
   keymap_prefix = "<Leader>t", -- キーマップの接頭辞 (他のプラグインと競合する場合は変更してください)
   due_notification_cooldown = 1800, -- 期限切れ通知の最小間隔 (秒)。デフォルト 30 分
   due_notification_persist = true, -- Neovim 終了後も通知制限時間を維持するかどうか (false で起動中のみ)
+  waiting_warning_days = 2, -- Waiting タスクの期限警告日数 (デフォルト 2 日)
+  enable_waiting_warning = true, -- Waiting タスクの期限警告通知を有効にするかどうか (デフォルト true)
+  waiting_warning_interval = 3600, -- Waiting タスク警告のチェック間隔 (秒) (デフォルト 3600 秒 = 1時間)
 })
 ```
 

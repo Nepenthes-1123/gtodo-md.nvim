@@ -46,6 +46,15 @@ Done）の軽量版を実現するためのTodo管理プラグインです。
 
       -- Neovim終了後も通知制限の時間をディスクに保存して維持するかどうか
       due_notification_persist = true,
+      
+      -- Waitingタスクの期限警告日数。デフォルト2日
+      waiting_warning_days = 2,
+      
+      -- Waitingタスクの期限警告通知を有効にするかどうか
+      enable_waiting_warning = true,
+      
+      -- Waitingタスク警告のチェック間隔（秒）。デフォルト3600秒 (1時間)
+      waiting_warning_interval = 3600,
     })
 <
 
