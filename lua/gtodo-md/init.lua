@@ -24,6 +24,7 @@ function M.setup(opts)
   
   -- Autocmdの設定
   M.setup_autocmds()
+  require("gtodo-md.highlight").setup()
   
   -- グローバルキーマップの設定
   if config.get("use_default_keymaps") then
@@ -97,7 +98,14 @@ function M.handle_buf_enter(bufnr)
   
   -- バッファローカルキーマップを登録
   if config.get("use_default_keymaps") then
-    M.setup_buffer_keymaps(bufnr)
+    if is_todo or is_inbox then
+      M.setup_buffer_keymaps(bufnr)
+    end
+  end
+  
+  -- 構文ハイライトのアタッチ
+  if is_todo or is_inbox then
+    require("gtodo-md.highlight").attach(bufnr)
   end
   
   -- キャッシュを最新化
