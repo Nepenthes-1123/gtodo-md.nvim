@@ -2,6 +2,10 @@ local M = {}
 local task_mod = require('gtodo-md.task')
 local config = require('gtodo-md.config')
 
+-- メモリ管理用 (due_notification_persist = false の場合)
+local mem_last_notify_time = 0
+local mem_last_notify_content = ""
+
 -- 指定されたパスのバッファが存在し、ロードされているか確認
 local function get_buf_by_name(path)
   local realpath = vim.fn.fnamemodify(path, ":p")
@@ -205,6 +209,25 @@ function M.sort_todo_file(filepath)
   M.write_todo_file(filepath, data)
 end
 
+local function get_last_notify_state(persist)
+  if persist then
+    local utils = require('gtodo-md.utils')
+    return utils.read_notify_state()
+  else
+    return mem_last_notify_time, mem_last_notify_content
+  end
+end
+
+local function set_last_notify_state(persist, time, content)
+  if persist then
+    local utils = require('gtodo-md.utils')
+    utils.write_notify_state(time, content)
+  else
+    mem_last_notify_time = time
+    mem_last_notify_content = content
+  end
+end
+
 -- dueチェック・自動移動
 function M.check_dues(inbox_path, todo_path)
   local today = os.date("%Y-%m-%d")
@@ -224,8 +247,21 @@ function M.check_dues(inbox_path, todo_path)
     end
   end
   
+  local persist = config.options.due_notification_persist
+  if persist == nil then persist = true end
+
   if #inbox_warnings > 0 then
-    vim.notify("Overdue/Due tasks in Inbox:\n" .. table.concat(inbox_warnings, "\n"), vim.log.levels.WARN)
+    local warning_str = table.concat(inbox_warnings, "\n")
+    local cooldown = config.options.due_notification_cooldown or 1800
+    local last_time, last_content = get_last_notify_state(persist)
+    local now = os.time()
+    
+    if not last_time or last_time == 0 or warning_str ~= last_content or (now - last_time) >= cooldown then
+      vim.notify("Overdue/Due tasks in Inbox:\n" .. warning_str, vim.log.levels.WARN)
+      set_last_notify_state(persist, now, warning_str)
+    end
+  else
+    set_last_notify_state(persist, 0, "")
   end
 
   -- 2. todo.md の dueチェック (Next/Someday -> Today)

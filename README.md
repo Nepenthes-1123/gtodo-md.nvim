@@ -39,6 +39,8 @@ require("gtodo-md").setup({
   use_default_keymaps = true,
   picker = "auto", -- "auto" | "snacks" | "telescope" | "fzf-lua" | "builtin"
   keymap_prefix = "<Leader>t", -- キーマップの接頭辞 (他のプラグインと競合する場合は変更してください)
+  due_notification_cooldown = 1800, -- 期限切れ通知の最小間隔 (秒)。デフォルト 30 分
+  due_notification_persist = true, -- Neovim 終了後も通知制限時間を維持するかどうか (false で起動中のみ)
 })
 ```
 

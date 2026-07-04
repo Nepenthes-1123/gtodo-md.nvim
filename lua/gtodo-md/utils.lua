@@ -63,26 +63,63 @@ function M.parse_due_date(str)
   return nil
 end
 
-function M.get_last_opened_path()
-  return vim.fn.stdpath("data") .. "/todo_last_opened"
+local function get_state_path()
+  local config = require('gtodo-md.config')
+  local data_dir = config.options.data_dir or (vim.fn.stdpath("data") .. "/gtodo-md")
+  return data_dir .. "/.state.json"
+end
+
+local function read_state()
+  local path = get_state_path()
+  local f = io.open(path, "r")
+  if not f then return {} end
+  local content = f:read("*all")
+  f:close()
+  if not content or content == "" then return {} end
+  local ok, data = pcall(vim.json.decode, content)
+  if ok and type(data) == "table" then
+    return data
+  end
+  return {}
+end
+
+local function write_state(data)
+  local path = get_state_path()
+  local dir = vim.fn.fnamemodify(path, ":h")
+  if vim.fn.isdirectory(dir) == 0 then
+    vim.fn.mkdir(dir, "p")
+  end
+  local f = io.open(path, "w")
+  if f then
+    local ok, content = pcall(vim.json.encode, data)
+    if ok then
+      f:write(content)
+    end
+    f:close()
+  end
 end
 
 function M.read_last_opened()
-  local path = M.get_last_opened_path()
-  local f = io.open(path, "r")
-  if not f then return nil end
-  local content = f:read("*all")
-  f:close()
-  return vim.trim(content)
+  local state = read_state()
+  return state.last_opened
 end
 
 function M.write_last_opened(date_str)
-  local path = M.get_last_opened_path()
-  local f = io.open(path, "w")
-  if f then
-    f:write(date_str)
-    f:close()
-  end
+  local state = read_state()
+  state.last_opened = date_str
+  write_state(state)
+end
+
+function M.read_notify_state()
+  local state = read_state()
+  return state.last_notify_time or 0, state.last_notify_content or ""
+end
+
+function M.write_notify_state(time, content)
+  local state = read_state()
+  state.last_notify_time = time
+  state.last_notify_content = content
+  write_state(state)
 end
 
 return M
