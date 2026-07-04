@@ -4,6 +4,13 @@ local file_mod = require('gtodo-md.file')
 local ui_mod = require('gtodo-md.ui')
 local timer_mod = require('gtodo-md.timer')
 
+-- 自動処理のキャッシュ用変数
+local last_processed_mtimes = {
+  inbox = 0,
+  todo = 0,
+}
+local last_processed_date = ""
+
 function M.setup(opts)
   config.setup(opts)
   
@@ -57,9 +64,33 @@ function M.handle_buf_enter(bufnr)
   local todo_path = data_dir .. "/todo.md"
   local done_path = data_dir .. "/done.md"
   
+  local today = os.date("%Y-%m-%d")
+  local current_inbox_mtime = vim.fn.getftime(inbox_path)
+  local current_todo_mtime = vim.fn.getftime(todo_path)
+  local is_modified = vim.bo[bufnr].modified
+  
+  -- スキップ判定
+  local skip_process = true
+  if last_processed_date ~= today then
+    skip_process = false
+  elseif current_inbox_mtime ~= last_processed_mtimes.inbox then
+    skip_process = false
+  elseif current_todo_mtime ~= last_processed_mtimes.todo then
+    skip_process = false
+  elseif is_modified then
+    skip_process = false
+  end
+  
+  if skip_process then
+    -- 重い自動処理はスキップするが、キーマップ登録だけは毎回行う
+    if config.options.use_default_keymaps then
+      M.setup_buffer_keymaps(bufnr)
+    end
+    return
+  end
+  
   -- 1. 完了タスク移動（日付変更後の初回BufEnterのみ）
   local last_opened = require('gtodo-md.utils').read_last_opened()
-  local today = os.date("%Y-%m-%d")
   
   if last_opened ~= today then
     file_mod.move_completed_tasks(inbox_path, todo_path, done_path)
@@ -78,6 +109,11 @@ function M.handle_buf_enter(bufnr)
   if config.options.use_default_keymaps then
     M.setup_buffer_keymaps(bufnr)
   end
+  
+  -- キャッシュを最新化
+  last_processed_mtimes.inbox = vim.fn.getftime(inbox_path)
+  last_processed_mtimes.todo = vim.fn.getftime(todo_path)
+  last_processed_date = today
 end
 
 function M.setup_autocmds()
