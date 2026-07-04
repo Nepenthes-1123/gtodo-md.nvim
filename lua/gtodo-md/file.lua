@@ -356,36 +356,59 @@ function M.move_completed_tasks(inbox_path, todo_path, done_path)
     return false
   end
   
-  -- 3. done.md へ追加
-  local done_data = M.read_todo_file(done_path)
-  if #done_data.header == 0 then
-    done_data.header = { "# Done" }
+-- 履歴ファイルへの追記 (高速かつアトミック)
+local function append_to_history(filepath, header_title, section_name, tasks)
+  local lines = {}
+  local file_exists = vim.fn.filereadable(filepath) == 1
+  
+  if file_exists then
+    local f = io.open(filepath, "r")
+    if f then
+      for line in f:lines() do
+        table.insert(lines, line)
+      end
+      f:close()
+    end
+  else
+    table.insert(lines, "# " .. header_title)
+    table.insert(lines, "")
   end
   
-  local sec_name = current_month
-  if not done_data.sections[sec_name] then
-    done_data.sections[sec_name] = {}
-    table.insert(done_data.section_order, 1, sec_name)
+  -- セクションがすでに存在するかチェック
+  local has_section = false
+  for _, line in ipairs(lines) do
+    if line == "## " .. section_name then
+      has_section = true
+      break
+    end
   end
   
-  local new_done_items = {}
+  if not has_section then
+    if #lines > 0 and lines[#lines] ~= "" then
+      table.insert(lines, "")
+    end
+    table.insert(lines, "## " .. section_name)
+  end
+  
+  for _, t in ipairs(tasks) do
+    table.insert(lines, task_mod.serialize(t))
+  end
+  
+  M.write_lines(filepath, lines)
+end
+
+-- 3. done.md へ追加
+  local done_tasks = {}
   for _, entry in ipairs(moved_tasks) do
     local t = entry.task
     local comp_date = t.completed_at or today
     t.completed_at = nil
     t.done = comp_date
     t.from = entry.from
-    
-    table.insert(new_done_items, { type = "task", task = t })
+    table.insert(done_tasks, t)
   end
   
-  local existing_items = done_data.sections[sec_name] or {}
-  for _, item in ipairs(existing_items) do
-    table.insert(new_done_items, item)
-  end
-  
-  done_data.sections[sec_name] = new_done_items
-  M.write_todo_file(done_path, done_data)
+  append_to_history(done_path, "Done", current_month, done_tasks)
   
   vim.notify(string.format("Moved %d completed tasks to done.md", #moved_tasks), vim.log.levels.INFO)
   return true
@@ -561,20 +584,7 @@ function M.cancel_current_task()
   local data_dir = config.options.data_dir
   local cancelled_path = data_dir .. "/cancelled.md"
   
-  local cancelled_data = M.read_todo_file(cancelled_path)
-  if #cancelled_data.header == 0 then
-    cancelled_data.header = { "# Cancelled" }
-  end
-  
-  local sec_name = current_month
-  if not cancelled_data.sections[sec_name] then
-    cancelled_data.sections[sec_name] = {}
-    table.insert(cancelled_data.section_order, 1, sec_name)
-  end
-  
-  table.insert(cancelled_data.sections[sec_name], 1, { type = "task", task = task })
-  
-  M.write_todo_file(cancelled_path, cancelled_data)
+  append_to_history(cancelled_path, "Cancelled", current_month, { task })
   vim.notify("Task cancelled and moved to cancelled.md", vim.log.levels.INFO)
 end
 
