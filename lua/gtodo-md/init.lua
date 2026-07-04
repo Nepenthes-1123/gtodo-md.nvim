@@ -118,12 +118,40 @@ end
 
 function M.setup_autocmds()
   local group = vim.api.nvim_create_augroup("TodoNvimGroup", { clear = true })
+  
+  -- inbox.md, todo.md 用
   vim.api.nvim_create_autocmd("BufEnter", {
     group = group,
     pattern = { "inbox.md", "todo.md" },
     callback = function(args)
       vim.schedule(function()
         M.handle_buf_enter(args.buf)
+      end)
+    end
+  })
+  
+  -- projects/*.md 用 (仮想テキストの描画)
+  vim.api.nvim_create_autocmd({ "BufEnter", "BufWritePost" }, {
+    group = group,
+    pattern = { "*/projects/*.md" },
+    callback = function(args)
+      vim.schedule(function()
+        require('gtodo-md.ui').render_project_tasks(args.buf)
+      end)
+    end
+  })
+  
+  -- todo.md/inbox.md 保存時に、現在開いている全プロジェクトバッファの仮想テキストを更新する
+  vim.api.nvim_create_autocmd("BufWritePost", {
+    group = group,
+    pattern = { "inbox.md", "todo.md" },
+    callback = function()
+      vim.schedule(function()
+        for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+          if vim.api.nvim_buf_is_loaded(buf) then
+            require('gtodo-md.ui').render_project_tasks(buf)
+          end
+        end
       end)
     end
   })

@@ -277,4 +277,91 @@ function M.jump_to_project()
   M.open_float(proj_file, "Project: " .. project_tag)
 end
 
+function M.render_project_tasks(bufnr)
+  if not bufnr or bufnr == 0 then
+    bufnr = vim.api.nvim_get_current_buf()
+  end
+  
+  local bufname = vim.api.nvim_buf_get_name(bufnr)
+  local filedir = vim.fn.fnamemodify(bufname, ":h:t")
+  local filename = vim.fn.fnamemodify(bufname, ":t:r")
+  
+  -- projects ディレクトリ配下の markdown ファイルのみ対象
+  if filedir ~= "projects" or vim.fn.fnamemodify(bufname, ":e") ~= "md" then
+    return
+  end
+  
+  local data_dir = config.options.data_dir
+  local inbox_path = data_dir .. "/inbox.md"
+  local todo_path = data_dir .. "/todo.md"
+  
+  local file_mod = require('gtodo-md.file')
+  local project_tag = filename
+  
+  local active_tasks = {}
+  
+  -- inbox.md から該当プロジェクトの未完了タスクを取得
+  if vim.fn.filereadable(inbox_path) == 1 then
+    local inbox_data = file_mod.read_todo_file(inbox_path)
+    if inbox_data.sections["default"] then
+      for _, item in ipairs(inbox_data.sections["default"]) do
+        if item.type == "task" and item.task.status ~= "x" and item.task.project == project_tag then
+          table.insert(active_tasks, item.task)
+        end
+      end
+    end
+  end
+  
+  -- todo.md から該当プロジェクトの未完了タスクを取得
+  if vim.fn.filereadable(todo_path) == 1 then
+    local todo_data = file_mod.read_todo_file(todo_path)
+    for _, sec in ipairs(todo_data.section_order) do
+      if todo_data.sections[sec] then
+        for _, item in ipairs(todo_data.sections[sec]) do
+          if item.type == "task" and item.task.status ~= "x" and item.task.project == project_tag then
+            table.insert(active_tasks, item.task)
+          end
+        end
+      end
+    end
+  end
+  
+  -- 仮想テキストの描画処理
+  local ns_id = vim.api.nvim_create_namespace("gtodo_project_tasks")
+  vim.api.nvim_buf_clear_namespace(bufnr, ns_id, 0, -1)
+  
+  if #active_tasks == 0 then
+    return
+  end
+  
+  -- 仮想行の組み立て (標準的な Markdown テキスト表現と Comment グループによるポータブルな表示)
+  local virt_lines = {
+    { { "", "" } },
+    { { "----------------------------------------", "Comment" } },
+    { { "[gtodo-md] 進行中のタスク (+" .. project_tag .. "):", "Comment" } },
+  }
+  
+  for _, task in ipairs(active_tasks) do
+    local line_parts = {}
+    table.insert(line_parts, { "  - [ ] ", "Comment" })
+    table.insert(line_parts, { task.content, "Comment" })
+    
+    if task.context then
+      table.insert(line_parts, { " @" .. task.context, "Comment" })
+    end
+    
+    if task.due then
+      table.insert(line_parts, { " due:" .. task.due, "Comment" })
+    end
+    
+    table.insert(virt_lines, line_parts)
+  end
+  
+  local line_count = vim.api.nvim_buf_line_count(bufnr)
+  vim.api.nvim_buf_set_extmark(bufnr, ns_id, line_count - 1, 0, {
+    virt_lines = virt_lines,
+    virt_lines_above = false,
+  })
+end
+
 return M
