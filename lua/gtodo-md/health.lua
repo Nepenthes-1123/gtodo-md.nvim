@@ -49,14 +49,12 @@ function M.check()
 
 	-- 2. 設定 & データディレクトリのチェック
 	local config_ok, config = pcall(require, "gtodo-md.config")
-	if not config_ok or not config.options or not config.options.data_dir then
-		vim.health.warn("Plugin setup has not been run yet.", {
-			"Add `require('gtodo-md').setup({})` to your Neovim configurations.",
-		})
+	if not config_ok then
+		vim.health.warn("Config module is missing.")
 		return
 	end
 
-	local data_dir = config.options.data_dir
+	local data_dir = config.get("data_dir")
 	vim.health.ok("data_dir is set to: " .. data_dir)
 
 	if vim.fn.isdirectory(data_dir) == 1 then

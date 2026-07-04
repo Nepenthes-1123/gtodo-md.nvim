@@ -75,7 +75,7 @@ end
 
 local function get_state_path()
   local config = require('gtodo-md.config')
-  local data_dir = config.options.data_dir or (vim.fn.stdpath("data") .. "/gtodo-md")
+  local data_dir = config.get("data_dir")
   return data_dir .. "/.state.json"
 end
 

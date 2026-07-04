@@ -258,12 +258,11 @@ function M.check_dues(inbox_path, todo_path)
     end
   end
   
-  local persist = config.options.due_notification_persist
-  if persist == nil then persist = true end
+  local persist = config.get("due_notification_persist")
 
   if #inbox_warnings > 0 then
     local warning_str = table.concat(inbox_warnings, "\n")
-    local cooldown = config.options.due_notification_cooldown or 1800
+    local cooldown = config.get("due_notification_cooldown")
     local last_time, last_content = get_last_notify_state(persist)
     local now = os.time()
     
@@ -441,7 +440,7 @@ function M.toggle_complete()
   local is_completed = (task.status == "x")
   
   if filename == "todo.md" then
-    local todo_path = config.options.data_dir .. "/todo.md"
+    local todo_path = config.get("data_dir") .. "/todo.md"
     local todo_data = M.read_todo_file(todo_path)
     local current_sec = M.get_current_section()
     
@@ -500,7 +499,7 @@ function M.move_current_task_to(target_section)
   local bufname = vim.api.nvim_buf_get_name(0)
   local filename = vim.fn.fnamemodify(bufname, ":t")
   
-  local data_dir = config.options.data_dir
+  local data_dir = config.get("data_dir")
   local inbox_path = data_dir .. "/inbox.md"
   local todo_path = data_dir .. "/todo.md"
   
@@ -584,7 +583,7 @@ function M.cancel_current_task()
   vim.api.nvim_buf_set_lines(0, row - 1, row, false, {})
   vim.cmd("silent! write")
   
-  local data_dir = config.options.data_dir
+  local data_dir = config.get("data_dir")
   local cancelled_path = data_dir .. "/cancelled.md"
   
   append_to_history(cancelled_path, "Cancelled", current_month, { task })

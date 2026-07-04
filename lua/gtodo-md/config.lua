@@ -24,4 +24,14 @@ function M.setup(opts)
   end
 end
 
+-- オプション値を取得する。未設定の場合はデフォルト値を返す
+function M.get(key)
+  local val = M.options[key]
+  if val == nil then
+    return M.defaults[key]
+  end
+  return val
+end
+
+
 return M

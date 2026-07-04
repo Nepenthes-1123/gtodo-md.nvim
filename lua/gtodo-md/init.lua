@@ -24,7 +24,7 @@ function M.setup(opts)
   M.setup_autocmds()
   
   -- グローバルキーマップの設定
-  if config.options.use_default_keymaps then
+  if config.get("use_default_keymaps") then
     M.setup_global_keymaps()
   end
 
@@ -33,7 +33,7 @@ function M.setup(opts)
 end
 
 function M.ensure_files()
-  local data_dir = config.options.data_dir
+  local data_dir = config.get("data_dir")
   local files = {
     { path = data_dir .. "/inbox.md", title = "# Inbox" },
     { path = data_dir .. "/todo.md", title = "# Todo\n\n## Today\n\n## Next\n\n## Waiting\n\n## Someday" },
@@ -61,7 +61,7 @@ function M.handle_buf_enter(bufnr)
     return
   end
   
-  local data_dir = config.options.data_dir
+  local data_dir = config.get("data_dir")
   local inbox_path = data_dir .. "/inbox.md"
   local todo_path = data_dir .. "/todo.md"
   local done_path = data_dir .. "/done.md"
@@ -85,7 +85,7 @@ function M.handle_buf_enter(bufnr)
   
   if skip_process then
     -- 重い自動処理はスキップするが、キーマップ登録だけは毎回行う
-    if config.options.use_default_keymaps then
+    if config.get("use_default_keymaps") then
       M.setup_buffer_keymaps(bufnr)
     end
     return
@@ -108,7 +108,7 @@ function M.handle_buf_enter(bufnr)
   end
   
   -- バッファローカルキーマップを登録
-  if config.options.use_default_keymaps then
+  if config.get("use_default_keymaps") then
     M.setup_buffer_keymaps(bufnr)
   end
   
@@ -507,7 +507,7 @@ function M.add_or_edit_task()
         vim.api.nvim_buf_set_lines(0, row - 1, row, false, { newline })
         vim.cmd("silent! write")
         if filename == "todo.md" then
-          local todo_path = config.options.data_dir .. "/todo.md"
+          local todo_path = config.get("data_dir") .. "/todo.md"
           file_mod.sort_todo_file(todo_path)
         end
       end)
@@ -529,7 +529,7 @@ function M.add_or_edit_task()
     elseif filename == "todo.md" then
       local current_sec = file_mod.get_current_section()
       if current_sec == "default" then current_sec = "Today" end
-      local todo_path = config.options.data_dir .. "/todo.md"
+      local todo_path = config.get("data_dir") .. "/todo.md"
       local todo_data = file_mod.read_todo_file(todo_path)
       if not todo_data.sections[current_sec] then
         todo_data.sections[current_sec] = {}
@@ -538,7 +538,7 @@ function M.add_or_edit_task()
       file_mod.write_todo_file(todo_path, todo_data)
       file_mod.sort_todo_file(todo_path)
     else
-      local inbox_path = config.options.data_dir .. "/inbox.md"
+      local inbox_path = config.get("data_dir") .. "/inbox.md"
       local inbox_data = file_mod.read_todo_file(inbox_path)
       if not inbox_data.sections["default"] then
         inbox_data.sections["default"] = {}
@@ -557,7 +557,7 @@ function M.sort_and_check_dues()
   if filename == "inbox.md" then
     return
   end
-  local data_dir = config.options.data_dir
+  local data_dir = config.get("data_dir")
   local inbox_path = data_dir .. "/inbox.md"
   local todo_path = data_dir .. "/todo.md"
   file_mod.check_dues(inbox_path, todo_path)
@@ -566,7 +566,7 @@ end
 
 -- グローバルキーマップの設定
 function M.setup_global_keymaps()
-  local prefix = config.options.keymap_prefix or "<Leader>t"
+  local prefix = config.get("keymap_prefix")
   
   -- 表示系
   vim.keymap.set('n', prefix .. 't', function() ui_mod.open_todo_float() end, { desc = "Toggle Todo float" })
@@ -588,7 +588,7 @@ end
 
 -- バッファローカルなキーマップを設定する
 function M.setup_buffer_keymaps(bufnr)
-  local prefix = config.options.keymap_prefix or "<Leader>t"
+  local prefix = config.get("keymap_prefix")
   local function map(mode, lhs, rhs, desc)
     vim.keymap.set(mode, lhs, rhs, { buffer = bufnr, silent = true, desc = desc })
   end

@@ -94,28 +94,28 @@ function M.open_float(filepath, title)
 end
 
 function M.open_todo_float()
-  local path = config.options.data_dir .. "/todo.md"
+  local path = config.get("data_dir") .. "/todo.md"
   M.open_float(path, "Todo")
 end
 
 function M.open_inbox_float()
-  local path = config.options.data_dir .. "/inbox.md"
+  local path = config.get("data_dir") .. "/inbox.md"
   M.open_float(path, "Inbox")
 end
 
 function M.open_done_float()
-  local path = config.options.data_dir .. "/done.md"
+  local path = config.get("data_dir") .. "/done.md"
   M.open_float(path, "Done")
 end
 
 function M.open_cancelled_float()
-  local path = config.options.data_dir .. "/cancelled.md"
+  local path = config.get("data_dir") .. "/cancelled.md"
   M.open_float(path, "Cancelled")
 end
 
 -- AND絞り込み検索
 function M.search_tasks()
-  local data_dir = config.options.data_dir
+  local data_dir = config.get("data_dir")
   local files = {
     data_dir .. "/inbox.md",
     data_dir .. "/todo.md",
@@ -151,7 +151,7 @@ function M.search_tasks()
     end
   end
   
-  local picker_opt = config.options.picker or "auto"
+  local picker_opt = config.get("picker")
 
   local function try_snacks()
     local has_snacks, snacks = pcall(require, "snacks")
@@ -297,7 +297,7 @@ function M.jump_to_project()
     return
   end
   
-  local data_dir = config.options.data_dir
+  local data_dir = config.get("data_dir")
   local proj_file = string.format("%s/projects/%s.md", data_dir, project_tag)
   
   if vim.fn.filereadable(proj_file) == 0 then
@@ -349,7 +349,7 @@ function M.render_project_tasks(bufnr)
     return
   end
   
-  local data_dir = config.options.data_dir
+  local data_dir = config.get("data_dir")
   local inbox_path = data_dir .. "/inbox.md"
   local todo_path = data_dir .. "/todo.md"
   
@@ -413,7 +413,7 @@ function M.render_project_tasks(bufnr)
     { { "----------------------------------------", "Comment" } },
   }
   
-  local show_progress = config.options.enable_project_progress
+  local show_progress = config.get("enable_project_progress")
   if show_progress == nil then show_progress = true end
   
   if show_progress then
@@ -465,7 +465,7 @@ end
 
 -- Queue ビュー: due付き未完了タスクを日付グループ別に表示する
 function M.open_queue()
-  local data_dir = config.options.data_dir
+  local data_dir = config.get("data_dir")
   local file_mod = require('gtodo-md.file')
 
   -- inbox.md と todo.md から due: 付き未完了タスクを収集
