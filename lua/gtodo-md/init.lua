@@ -1,7 +1,9 @@
 local M = {}
 local config = require('gtodo-md.config')
-local file_mod = require('gtodo-md.file')
 local ui_mod = require('gtodo-md.ui')
+local io_mod = require('gtodo-md.io')
+local logic_mod = require('gtodo-md.logic')
+local editor_mod = require('gtodo-md.editor')
 local timer_mod = require('gtodo-md.timer')
 
 -- 自動処理のキャッシュ用変数
@@ -15,7 +17,7 @@ function M.setup(opts)
   config.setup(opts)
   
   -- ディレクトリ内のデフォルトファイルを用意する
-  M.ensure_files()
+  io_mod.ensure_files()
   
   -- タイマー開始
   timer_mod.start_waiting_timer()
@@ -30,26 +32,6 @@ function M.setup(opts)
 
   -- ユーザーコマンドの登録
   vim.api.nvim_create_user_command('GtodoQueue', function() ui_mod.open_queue() end, { desc = "Open Gtodo Queue view" })
-end
-
-function M.ensure_files()
-  local data_dir = config.get("data_dir")
-  local files = {
-    { path = data_dir .. "/inbox.md", title = "# Inbox" },
-    { path = data_dir .. "/todo.md", title = "# Todo\n\n## Today\n\n## Next\n\n## Waiting\n\n## Someday" },
-    { path = data_dir .. "/done.md", title = "# Done" },
-    { path = data_dir .. "/cancelled.md", title = "# Cancelled" },
-  }
-  
-  for _, f in ipairs(files) do
-    if vim.fn.filereadable(f.path) == 0 then
-      local file = io.open(f.path, "w")
-      if file then
-        file:write(f.title .. "\n")
-        file:close()
-      end
-    end
-  end
 end
 
 -- BufEnter時の自動処理
@@ -95,16 +77,22 @@ function M.handle_buf_enter(bufnr)
   local last_opened = require('gtodo-md.utils').read_last_opened()
   
   if last_opened ~= today then
-    file_mod.move_completed_tasks(inbox_path, todo_path, done_path)
+    local todo_changed = logic_mod.move_completed_tasks(inbox_path, todo_path, done_path)
+    if logic_mod.check_dues(inbox_path, todo_path) then
+      todo_changed = true
+    end
+    if todo_changed then
+      logic_mod.sort_todo_file(todo_path)
+    end
     require('gtodo-md.utils').write_last_opened(today)
   end
   
   -- 2. dueチェック・自動移動
-  file_mod.check_dues(inbox_path, todo_path)
+  logic_mod.check_dues(inbox_path, todo_path)
   
   -- 3. 自動ソート（todo.mdのみ）
   if filename == "todo.md" then
-    file_mod.sort_todo_file(todo_path)
+    logic_mod.sort_todo_file(todo_path)
   end
   
   -- バッファローカルキーマップを登録
@@ -499,7 +487,7 @@ function M.add_or_edit_task()
   local filename = vim.fn.fnamemodify(bufname, ":t")
   
   if filename == "todo.md" or filename == "inbox.md" then
-    local task, row = file_mod.get_current_task()
+    local task, row = editor_mod.get_current_task()
     if task then
       -- 編集
       require('gtodo-md.task').prompt_task(task, function(updated_task)
@@ -508,7 +496,7 @@ function M.add_or_edit_task()
         vim.cmd("silent! write")
         if filename == "todo.md" then
           local todo_path = config.get("data_dir") .. "/todo.md"
-          file_mod.sort_todo_file(todo_path)
+          logic_mod.sort_todo_file(todo_path)
         end
       end)
       return
@@ -527,24 +515,24 @@ function M.add_or_edit_task()
       vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
       vim.cmd("silent! write")
     elseif filename == "todo.md" then
-      local current_sec = file_mod.get_current_section()
+      local current_sec = editor_mod.get_current_section()
       if current_sec == "default" then current_sec = config.sections.TODAY end
       local todo_path = config.get("data_dir") .. "/todo.md"
-      local todo_data = file_mod.read_todo_file(todo_path)
+      local todo_data = io_mod.read_todo_file(todo_path)
       if not todo_data.sections[current_sec] then
         todo_data.sections[current_sec] = {}
       end
       table.insert(todo_data.sections[current_sec], { type = "task", task = new_task })
-      file_mod.write_todo_file(todo_path, todo_data)
-      file_mod.sort_todo_file(todo_path)
+      io_mod.write_todo_file(todo_path, todo_data)
+      logic_mod.sort_todo_file(todo_path)
     else
       local inbox_path = config.get("data_dir") .. "/inbox.md"
-      local inbox_data = file_mod.read_todo_file(inbox_path)
+      local inbox_data = io_mod.read_todo_file(inbox_path)
       if not inbox_data.sections["default"] then
         inbox_data.sections["default"] = {}
       end
       table.insert(inbox_data.sections["default"], { type = "task", task = new_task })
-      file_mod.write_todo_file(inbox_path, inbox_data)
+      io_mod.write_todo_file(inbox_path, inbox_data)
       vim.notify("Created new task in inbox.md", vim.log.levels.INFO)
     end
   end)
@@ -560,8 +548,8 @@ function M.sort_and_check_dues()
   local data_dir = config.get("data_dir")
   local inbox_path = data_dir .. "/inbox.md"
   local todo_path = data_dir .. "/todo.md"
-  file_mod.check_dues(inbox_path, todo_path)
-  file_mod.sort_todo_file(todo_path)
+  logic_mod.check_dues(inbox_path, todo_path)
+  logic_mod.sort_todo_file(todo_path)
 end
 
 -- グローバルキーマップの設定
@@ -594,13 +582,13 @@ function M.setup_buffer_keymaps(bufnr)
   end
   
   -- 移動系
-  map('n', prefix .. 'd', function() file_mod.move_current_task_to(config.sections.TODAY) end, "Move task to " .. config.sections.TODAY)
-  map('n', prefix .. 'n', function() file_mod.move_current_task_to(config.sections.NEXT) end, "Move task to " .. config.sections.NEXT)
-  map('n', prefix .. 'w', function() file_mod.move_current_task_to(config.sections.WAITING) end, "Move task to " .. config.sections.WAITING)
-  map('n', prefix .. 's', function() file_mod.move_current_task_to(config.sections.SOMEDAY) end, "Move task to " .. config.sections.SOMEDAY)
+  map('n', prefix .. 'd', function() editor_mod.move_current_task_to(config.sections.TODAY) end, "Move task to " .. config.sections.TODAY)
+  map('n', prefix .. 'n', function() editor_mod.move_current_task_to(config.sections.NEXT) end, "Move task to " .. config.sections.NEXT)
+  map('n', prefix .. 'w', function() editor_mod.move_current_task_to(config.sections.WAITING) end, "Move task to " .. config.sections.WAITING)
+  map('n', prefix .. 's', function() editor_mod.move_current_task_to(config.sections.SOMEDAY) end, "Move task to " .. config.sections.SOMEDAY)
   
-  map('n', prefix .. 'x', function() file_mod.toggle_complete() end, "Toggle task completion")
-  map('n', prefix .. 'c', function() file_mod.cancel_current_task() end, "Cancel task")
+  map('n', prefix .. 'x', function() editor_mod.toggle_complete() end, "Toggle task completion")
+  map('n', prefix .. 'c', function() editor_mod.cancel_current_task() end, "Cancel task")
   
   -- ジャンプ系
   map('n', prefix .. 'jp', function() ui_mod.jump_to_project() end, "Jump to project file")

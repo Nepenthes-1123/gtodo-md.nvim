@@ -346,7 +346,7 @@ function M.render_project_tasks(bufnr)
   local inbox_path = data_dir .. "/inbox.md"
   local todo_path = data_dir .. "/todo.md"
   
-  local file_mod = require('gtodo-md.file')
+  local io_mod = require('gtodo-md.io')
   local project_tag = filename
   
   local active_tasks = {}
@@ -359,7 +359,7 @@ function M.render_project_tasks(bufnr)
   
   -- inbox.md から該当プロジェクトのタスクを取得
   if vim.fn.filereadable(inbox_path) == 1 then
-    local inbox_data = file_mod.read_todo_file(inbox_path)
+    local inbox_data = io_mod.read_todo_file(inbox_path)
     if inbox_data.sections["default"] then
       for _, item in ipairs(inbox_data.sections["default"]) do
         if item.type == "task" and item.task.project == project_tag then
@@ -375,7 +375,7 @@ function M.render_project_tasks(bufnr)
   
   -- todo.md から該当プロジェクトのタスクを取得
   if vim.fn.filereadable(todo_path) == 1 then
-    local todo_data = file_mod.read_todo_file(todo_path)
+    local todo_data = io_mod.read_todo_file(todo_path)
     for _, sec in ipairs(todo_data.section_order) do
       if todo_data.sections[sec] then
         for _, item in ipairs(todo_data.sections[sec]) do
@@ -459,7 +459,7 @@ end
 -- Queue ビュー: due付き未完了タスクを日付グループ別に表示する
 function M.open_queue()
   local data_dir = config.get("data_dir")
-  local file_mod = require('gtodo-md.file')
+  local io_mod = require('gtodo-md.io')
 
   -- inbox.md と todo.md から due: 付き未完了タスクを収集
   -- 各エントリは { task, filepath } のテーブル
@@ -472,7 +472,7 @@ function M.open_queue()
 
   for _, filepath in ipairs(source_files) do
     if vim.fn.filereadable(filepath) == 1 then
-      local data = file_mod.read_todo_file(filepath)
+      local data = io_mod.read_todo_file(filepath)
       -- section_order + default セクションを網羅
       local seen = {}
       local all_sections = {}
@@ -676,7 +676,7 @@ function M.open_queue()
     if not source then return end
 
     -- ソースファイル内で original_line を検索して行番号を取得
-    local src_lines = file_mod.read_lines(source.filepath)
+    local src_lines = io_mod.read_lines(source.filepath)
     local target_lnum = nil
     for i, l in ipairs(src_lines) do
       if l == source.original_line then

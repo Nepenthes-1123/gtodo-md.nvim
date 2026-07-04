@@ -1,6 +1,6 @@
 local M = {}
 local config = require('gtodo-md.config')
-local file_mod = require('gtodo-md.file')
+local io_mod = require('gtodo-md.io')
 
 local uv = vim.uv or vim.loop
 
@@ -13,7 +13,7 @@ function M.check_waiting_tasks()
   
   if vim.fn.filereadable(todo_path) == 0 then return end
   
-  local todo_data = file_mod.read_todo_file(todo_path)
+  local todo_data = io_mod.read_todo_file(todo_path)
   local waiting_tasks = todo_data.sections[config.sections.WAITING]
   if not waiting_tasks or #waiting_tasks == 0 then return end
   
