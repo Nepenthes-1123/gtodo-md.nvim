@@ -246,12 +246,12 @@ function M.jump_to_project()
     local today = os.date("%Y-%m-%d")
     local template = {
       "---",
-      "title:                 ",
+      "title: ",
       "tag: " .. project_tag,
       "created: " .. today,
-      "due:                   ",
-      "status: active         ",
-      "members: []            ",
+      "due: ",
+      "status: active",
+      "members: []",
       "---",
       "",
       "## Overview",
