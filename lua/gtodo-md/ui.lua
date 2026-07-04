@@ -1,5 +1,6 @@
 local M = {}
 local config = require('gtodo-md.config')
+local utils  = require('gtodo-md.utils')
 
 -- 現在開いているgtodoフローティングウィンドウ (1つだけ管理)
 local gtodo_float_win = nil
@@ -505,18 +506,8 @@ function M.open_queue()
     end
   end
 
-  -- 日付文字列 (YYYY-MM-DD) → os.time 変換ヘルパー
-  local function date_to_time(date_str)
-    return os.time({
-      year  = tonumber(date_str:sub(1, 4)),
-      month = tonumber(date_str:sub(6, 7)),
-      day   = tonumber(date_str:sub(9, 10)),
-      hour = 0, min = 0, sec = 0,
-    })
-  end
-
   local today_str      = os.date("%Y-%m-%d")
-  local today_time     = date_to_time(today_str)
+  local today_time     = utils.date_to_time(today_str)
   local week_end_time  = today_time + 7 * 24 * 60 * 60
 
   -- グループ分け: 期限切れ / 今日〜7日後 / それ以降
@@ -525,7 +516,7 @@ function M.open_queue()
   local later     = {}
 
   for _, entry in ipairs(tasks_with_due) do
-    local due_time = date_to_time(entry.task.due)
+    local due_time = utils.date_to_time(entry.task.due)
     if due_time < today_time then
       table.insert(overdue, entry)
     elseif due_time <= week_end_time then
@@ -574,7 +565,7 @@ function M.open_queue()
   local weekdays_jp = { "\xe6\x97\xa5", "\xe6\x9c\x88", "\xe7\x81\xab", "\xe6\xb0\xb4", "\xe6\x9c\xa8", "\xe9\x87\x91", "\xe5\x9c\x9f" }
 
   local function date_label(date_str)
-    local t    = date_to_time(date_str)
+    local t    = utils.date_to_time(date_str)
     local diff = math.floor((t - today_time) / 86400)
     local mo   = tonumber(date_str:sub(6, 7))
     local d    = tonumber(date_str:sub(9, 10))
@@ -601,7 +592,7 @@ function M.open_queue()
     add(" \xe6\x9c\x9f\xe9\x99\x90\xe5\x88\x87\xe3\x82\x8c", "DiagnosticError")
     add(sep, "Comment")
     for _, entry in ipairs(overdue) do
-      local days_over = math.floor((today_time - date_to_time(entry.task.due)) / 86400)
+      local days_over = math.floor((today_time - utils.date_to_time(entry.task.due)) / 86400)
       add(
         task_line(entry, "  \xe2\x9a\xa0 ") .. string.format(" (%d\xe6\x97\xa5\xe8\xb6\x85\xe9\x81\x8e)", days_over),
         "DiagnosticError",

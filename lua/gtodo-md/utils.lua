@@ -1,5 +1,15 @@
 local M = {}
 
+-- 日付文字列 (YYYY-MM-DD) → os.time に変換する
+function M.date_to_time(date_str)
+  return os.time({
+    year  = tonumber(date_str:sub(1, 4)),
+    month = tonumber(date_str:sub(6, 7)),
+    day   = tonumber(date_str:sub(9, 10)),
+    hour = 0, min = 0, sec = 0,
+  })
+end
+
 function M.parse_due_date(str)
   if not str or str == "" then return nil end
   str = vim.trim(str):lower()
