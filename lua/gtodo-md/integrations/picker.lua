@@ -89,6 +89,12 @@ function M.snacks(items)
       input = {
         keys = {
           ["<c-x>"] = { "toggle_task", desc = "Toggle Task Done/Undone", mode = { "n", "i" } },
+          ["x"] = { "toggle_task", desc = "Toggle Task Done/Undone", mode = "n" },
+        }
+      },
+      list = {
+        keys = {
+          ["x"] = { "toggle_task", desc = "Toggle Task Done/Undone", mode = "n" },
         }
       }
     }
@@ -137,6 +143,7 @@ function M.telescope(items)
       
       map('i', '<C-x>', toggle_task)
       map('n', '<C-x>', toggle_task)
+      map('n', 'x', toggle_task)
       return true
     end,
   }):find()
