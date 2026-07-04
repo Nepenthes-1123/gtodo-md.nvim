@@ -4,43 +4,7 @@ local file_mod = require('gtodo-md.file')
 
 local uv = vim.uv or vim.loop
 
-local date_timer = nil
 local waiting_timer = nil
-
--- 日付変更検知と自動移動
-function M.check_date_change()
-  local last_date = require('gtodo-md.utils').read_last_opened()
-  local today = os.date("%Y-%m-%d")
-  
-  if not last_date then
-    require('gtodo-md.utils').write_last_opened(today)
-    return false
-  end
-  
-  if last_date ~= today then
-    local data_dir = config.options.data_dir
-    local inbox_path = data_dir .. "/inbox.md"
-    local todo_path = data_dir .. "/todo.md"
-    local done_path = data_dir .. "/done.md"
-    
-    file_mod.move_completed_tasks(inbox_path, todo_path, done_path)
-    require('gtodo-md.utils').write_last_opened(today)
-    return true
-  end
-  
-  return false
-end
-
--- 日付変更監視タイマーを開始
-function M.start_date_timer()
-  if date_timer then return end
-  
-  -- 1分おきにチェックする
-  date_timer = uv.new_timer()
-  date_timer:start(60000, 60000, vim.schedule_wrap(function()
-    M.check_date_change()
-  end))
-end
 
 -- Waitingタスクの期日チェックと通知
 function M.check_waiting_tasks()
@@ -54,7 +18,8 @@ function M.check_waiting_tasks()
   if not waiting_tasks or #waiting_tasks == 0 then return end
   
   local today = os.time()
-  local two_days_later = today + 2 * 24 * 3600
+  local warning_days = config.options.waiting_warning_days or 2
+  local two_days_later = today + warning_days * 24 * 3600
   local limit_str = os.date("%Y-%m-%d", two_days_later)
   
   local notify_list = {}
@@ -75,18 +40,19 @@ end
 function M.start_waiting_timer()
   if waiting_timer then return end
   
+  -- 起動時に一度即時チェックを実行 (遅延ロードや起動シーケンスと競合しないよう非同期にスケジューリング)
+  vim.schedule(function()
+    M.check_waiting_tasks()
+  end)
+  
   waiting_timer = uv.new_timer()
+  -- 1時間（3600000ミリ秒）おきにチェックする
   waiting_timer:start(3600000, 3600000, vim.schedule_wrap(function()
     M.check_waiting_tasks()
   end))
 end
 
 function M.stop_timers()
-  if date_timer then
-    date_timer:stop()
-    date_timer:close()
-    date_timer = nil
-  end
   if waiting_timer then
     waiting_timer:stop()
     waiting_timer:close()

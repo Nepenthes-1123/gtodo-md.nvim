@@ -7,6 +7,7 @@ M.defaults = {
   keymap_prefix = "<Leader>t", -- キーマップ of プレフィックス接頭辞
   due_notification_cooldown = 1800, -- 期限切れ通知の最小間隔（秒）。デフォルト30分
   due_notification_persist = true, -- trueでNeovim終了後も時間を維持、falseで起動中のみ
+  waiting_warning_days = 2, -- Waitingタスクの期限警告日数
 }
 
 M.options = {}

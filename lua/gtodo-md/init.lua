@@ -18,7 +18,6 @@ function M.setup(opts)
   M.ensure_files()
   
   -- タイマー開始
-  timer_mod.start_date_timer()
   timer_mod.start_waiting_timer()
   
   -- Autocmdの設定
