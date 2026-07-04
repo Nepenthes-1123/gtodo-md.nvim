@@ -152,76 +152,69 @@ function M.search_tasks()
   end
   
   local picker_opt = config.get("picker")
-
-  local function try_snacks()
-    local has_snacks, snacks = pcall(require, "snacks")
-    if has_snacks and snacks.picker then
-      snacks.picker.pick({
-        title = "Gtodo Search",
-        items = items,
-        format = "text",
-      })
-      return true
-    end
-    return false
-  end
-
-  local function try_telescope()
-    local has_telescope, telescope = pcall(require, "telescope")
-    if has_telescope then
-      local pickers = require("telescope.pickers")
-      local finders = require("telescope.finders")
-      local conf = require("telescope.config").values
-      pickers.new({}, {
-        prompt_title = "Gtodo Search",
-        finder = finders.new_table({
-          results = items,
-          entry_maker = function(entry)
-            return {
-              value = entry,
-              display = entry.text,
-              ordinal = entry.text,
-              filename = entry.file,
-              lnum = entry.pos[1],
-              col = entry.pos[2],
-            }
-          end,
-        }),
-        sorter = conf.generic_sorter({}),
-        previewer = conf.qflist_previewer({}),
-      }):find()
-      return true
-    end
-    return false
-  end
-
-  local function try_fzf()
-    local has_fzf, fzf = pcall(require, "fzf-lua")
-    if has_fzf then
-      local fzf_items = {}
-      for _, item in ipairs(items) do
-        table.insert(fzf_items, string.format("%s:%d:%d:%s", item.file, item.pos[1], item.pos[2], item.text))
+  
+  local pickers = {
+    snacks = function(items)
+      local ok, snacks = pcall(require, "snacks")
+      if ok and snacks.picker then
+        snacks.picker.pick({ title = "Gtodo Search", items = items, format = "text" })
+        return true
       end
-      fzf.fzf_exec(fzf_items, {
-        prompt = "Gtodo Search> ",
-        actions = fzf.defaults.actions.file_edit,
-        previewer = "builtin",
-      })
-      return true
+      return false
+    end,
+    
+    telescope = function(items)
+      local ok, telescope = pcall(require, "telescope")
+      if ok then
+        local t_pickers = require("telescope.pickers")
+        local finders = require("telescope.finders")
+        local conf = require("telescope.config").values
+        t_pickers.new({}, {
+          prompt_title = "Gtodo Search",
+          finder = finders.new_table({
+            results = items,
+            entry_maker = function(entry)
+              return {
+                value = entry,
+                display = entry.text,
+                ordinal = entry.text,
+                filename = entry.file,
+                lnum = entry.pos[1],
+                col = entry.pos[2],
+              }
+            end,
+          }),
+          sorter = conf.generic_sorter({}),
+          previewer = conf.qflist_previewer({}),
+        }):find()
+        return true
+      end
+      return false
+    end,
+    
+    ["fzf-lua"] = function(items)
+      local ok, fzf = pcall(require, "fzf-lua")
+      if ok then
+        local fzf_items = {}
+        for _, item in ipairs(items) do
+          table.insert(fzf_items, string.format("%s:%d:%d:%s", item.file, item.pos[1], item.pos[2], item.text))
+        end
+        fzf.fzf_exec(fzf_items, {
+          prompt = "Gtodo Search> ",
+          actions = fzf.defaults.actions.file_edit,
+          previewer = "builtin",
+        })
+        return true
+      end
+      return false
     end
-    return false
-  end
+  }
 
-  -- ピッカー実行分岐
   local launched = false
-  if picker_opt == "snacks" then
-    launched = try_snacks()
-  elseif picker_opt == "telescope" then
-    launched = try_telescope()
-  elseif picker_opt == "fzf-lua" then
-    launched = try_fzf()
-  elseif picker_opt == "auto" then
-    launched = try_snacks() or try_telescope() or try_fzf()
+  if picker_opt == "auto" then
+    launched = pickers.snacks(items) or pickers.telescope(items) or pickers["fzf-lua"](items)
+  elseif pickers[picker_opt] then
+    launched = pickers[picker_opt](items)
   end
 
   if launched then
