@@ -509,12 +509,7 @@ function M.add_or_edit_task()
     local bufname = vim.api.nvim_buf_get_name(0)
     local filename = vim.fn.fnamemodify(bufname, ":t")
     
-    if filename == "inbox.md" then
-      local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-      table.insert(lines, newline)
-      vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
-      vim.cmd("silent! write")
-    elseif filename == "todo.md" then
+    if filename == "todo.md" then
       local current_sec = editor_mod.get_current_section()
       if current_sec == "default" then current_sec = config.sections.TODAY end
       local todo_path = config.get("data_dir") .. "/todo.md"
@@ -533,7 +528,9 @@ function M.add_or_edit_task()
       end
       table.insert(inbox_data.sections["default"], { type = "task", task = new_task })
       io_mod.write_todo_file(inbox_path, inbox_data)
-      vim.notify("Created new task in inbox.md", vim.log.levels.INFO)
+      if filename ~= "inbox.md" then
+        vim.notify("Created new task in inbox.md", vim.log.levels.INFO)
+      end
     end
   end)
 end
