@@ -54,10 +54,10 @@ function M.write_lines(path, lines)
       end
       f:close()
       
-      local success, err = os.rename(tmp_path, path)
+      local success = (vim.fn.rename(tmp_path, path) == 0)
       if not success then
         os.remove(tmp_path)
-        vim.notify("Failed to write file atomically: " .. tostring(err), vim.log.levels.ERROR)
+        vim.notify("Failed to write file atomically", vim.log.levels.ERROR)
       end
     end
   end

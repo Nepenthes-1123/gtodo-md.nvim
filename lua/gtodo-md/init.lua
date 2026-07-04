@@ -119,6 +119,70 @@ end
 function M.setup_autocmds()
   local group = vim.api.nvim_create_augroup("TodoNvimGroup", { clear = true })
   
+  -- todo.md 保存処理の乗っ取り (バリデーションと安全な書き込み)
+  vim.api.nvim_create_autocmd("BufWriteCmd", {
+    group = group,
+    pattern = { "todo.md" },
+    callback = function(args)
+      local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
+      local required = { "Today", "Next", "Waiting", "Someday" }
+      local found = {
+        Today = false,
+        Next = false,
+        Waiting = false,
+        Someday = false,
+      }
+      
+      for _, line in ipairs(lines) do
+        local sec = line:match("^##%s+(.*)$")
+        if sec then
+          sec = vim.trim(sec)
+          if found[sec] ~= nil then
+            found[sec] = true
+          end
+        end
+      end
+      
+      local missing = {}
+      for _, sec in ipairs(required) do
+        if not found[sec] then
+          table.insert(missing, "## " .. sec)
+        end
+      end
+      
+      if #missing > 0 then
+        local msg = "[gtodo-md] 保存できません: 必須セクションが削除されています (" .. table.concat(missing, ", ") .. ")。'u' キー等で復元してください。"
+        vim.api.nvim_err_writeln(msg)
+        return
+      end
+      
+      -- バリデーション成功時のみ、ディスクに書き込む (アトミック書き込み)
+      local filepath = vim.api.nvim_buf_get_name(args.buf)
+      local tmp_path = filepath .. ".tmp"
+      local f = io.open(tmp_path, "w")
+      if f then
+        for _, line in ipairs(lines) do
+          f:write(line .. "\n")
+        end
+        f:close()
+        
+        local success = (vim.fn.rename(tmp_path, filepath) == 0)
+        if success then
+          -- 保存成功フラグを設定 (modifiedを解除し、書き込みメッセージを出力)
+          vim.bo[args.buf].modified = false
+          local line_count = #lines
+          local bytes = vim.fn.wordcount().bytes
+          print(string.format('"%s" %dL, %dB written', vim.fn.fnamemodify(filepath, ":~"), line_count, bytes))
+        else
+          os.remove(tmp_path)
+          vim.api.nvim_err_writeln("[gtodo-md] 保存に失敗しました (書き込みエラー)")
+        end
+      else
+        vim.api.nvim_err_writeln("[gtodo-md] 保存に失敗しました (ファイルオープンエラー): " .. filepath)
+      end
+    end
+  })
+  
   -- inbox.md, todo.md 用
   vim.api.nvim_create_autocmd("BufEnter", {
     group = group,
