@@ -16,7 +16,6 @@ function M.sort_section_tasks(items)
   table.sort(tasks, function(a, b)
     local t_a = a.task
     local t_b = b.task
-    
     -- 1. [x] 付きは最末尾に固定
     local done_a = (t_a.status == "x")
     local done_b = (t_b.status == "x")
@@ -37,7 +36,14 @@ function M.sort_section_tasks(items)
       end
     end
     
-    -- 3. stable sort
+    -- 3. 優先度 (A > B > C ... > Z) ※Zは優先度指定なし扱い
+    local p_a = t_a.content:match("^%(([A-Z])%)") or "Z"
+    local p_b = t_b.content:match("^%(([A-Z])%)") or "Z"
+    if p_a ~= p_b then
+      return p_a < p_b
+    end
+    
+    -- 4. stable sort
     return a.original_index < b.original_index
   end)
   
