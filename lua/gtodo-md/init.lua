@@ -157,7 +157,7 @@ function M.setup_autocmds()
       end
       
       -- バリデーション成功時のみ、ディスクに書き込む (アトミック書き込み)
-      local filepath = vim.api.nvim_buf_get_name(args.buf)
+      local filepath = args.match
       local tmp_path = filepath .. ".tmp"
       local f = io.open(tmp_path, "w")
       if f then
