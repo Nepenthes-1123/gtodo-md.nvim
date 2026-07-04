@@ -117,8 +117,8 @@ function M.setup_autocmds()
   local original_created_dates = {}
   local original_history_sections = {}
   
-  -- todo.md 保存処理の乗っ取り (バリデーションと安全な書き込み)
-  vim.api.nvim_create_autocmd("BufWriteCmd", {
+  -- todo.md 保存時のバリデーション
+  vim.api.nvim_create_autocmd("BufWritePre", {
     group = group,
     pattern = { "todo.md" },
     callback = function(args)
@@ -150,33 +150,7 @@ function M.setup_autocmds()
       
       if #missing > 0 then
         local msg = "[gtodo-md] 保存できません: 必須セクションが削除されています (" .. table.concat(missing, ", ") .. ")。'u' キー等で復元してください。"
-        vim.api.nvim_err_writeln(msg)
-        return
-      end
-      
-      -- バリデーション成功時のみ、ディスクに書き込む (アトミック書き込み)
-      local filepath = args.match
-      local tmp_path = filepath .. ".tmp"
-      local f = io.open(tmp_path, "w")
-      if f then
-        for _, line in ipairs(lines) do
-          f:write(line .. "\n")
-        end
-        f:close()
-        
-        local success = (vim.fn.rename(tmp_path, filepath) == 0)
-        if success then
-          -- 保存成功フラグを設定 (modifiedを解除し、書き込みメッセージを出力)
-          vim.bo[args.buf].modified = false
-          local line_count = #lines
-          local bytes = vim.fn.wordcount().bytes
-          print(string.format('"%s" %dL, %dB written', vim.fn.fnamemodify(filepath, ":~"), line_count, bytes))
-        else
-          os.remove(tmp_path)
-          vim.api.nvim_err_writeln("[gtodo-md] 保存に失敗しました (書き込みエラー)")
-        end
-      else
-        vim.api.nvim_err_writeln("[gtodo-md] 保存に失敗しました (ファイルオープンエラー): " .. filepath)
+        error(msg)
       end
     end
   })
@@ -200,7 +174,7 @@ function M.setup_autocmds()
     end
   })
   
-  -- inbox.md, done.md, cancelled.md 保存処理の乗っ取り (ヘッダー保護とアトミック保存)
+  -- inbox.md, done.md, cancelled.md 保存時のヘッダー保護
   local history_patterns = {
     ["inbox.md"] = "# Inbox",
     ["done.md"] = "# Done",
@@ -208,7 +182,7 @@ function M.setup_autocmds()
   }
   
   for fname, expected_header in pairs(history_patterns) do
-    vim.api.nvim_create_autocmd("BufWriteCmd", {
+    vim.api.nvim_create_autocmd("BufWritePre", {
       group = group,
       pattern = fname,
       callback = function(args)
@@ -223,8 +197,7 @@ function M.setup_autocmds()
         
         if not has_header then
           local msg = string.format("[gtodo-md] 保存できません: 必須ヘッダー (%s) が削除されています。'u' キー等で復元してください。", expected_header)
-          vim.api.nvim_err_writeln(msg)
-          return
+          error(msg)
         end
         
         -- 年月セクションの削除保護 (done.md と cancelled.md のみ)
@@ -247,33 +220,8 @@ function M.setup_autocmds()
           
           if #missing_secs > 0 then
             local msg = string.format("[gtodo-md] 保存できません: 既存の履歴セクションが削除されています (%s)。'u' キー等で復元してください。", table.concat(missing_secs, ", "))
-            vim.api.nvim_err_writeln(msg)
-            return
+            error(msg)
           end
-        end
-        
-        -- アトミック書き込みを実行
-        local filepath = args.match
-        local tmp_path = filepath .. ".tmp"
-        local f = io.open(tmp_path, "w")
-        if f then
-          for _, line in ipairs(lines) do
-            f:write(line .. "\n")
-          end
-          f:close()
-          
-          local success = (vim.fn.rename(tmp_path, filepath) == 0)
-          if success then
-            vim.bo[args.buf].modified = false
-            local line_count = #lines
-            local bytes = vim.fn.wordcount().bytes
-            print(string.format('"%s" %dL, %dB written', vim.fn.fnamemodify(filepath, ":~"), line_count, bytes))
-          else
-            os.remove(tmp_path)
-            vim.api.nvim_err_writeln("[gtodo-md] 保存に失敗しました (書き込みエラー)")
-          end
-        else
-          vim.api.nvim_err_writeln("[gtodo-md] 保存に失敗しました (ファイルオープンエラー): " .. filepath)
         end
       end
     })
@@ -310,8 +258,8 @@ function M.setup_autocmds()
     end
   })
   
-  -- projects/*.md 保存処理の乗っ取り (フロントマター保護とアトミック保存)
-  vim.api.nvim_create_autocmd("BufWriteCmd", {
+  -- projects/*.md 保存時のフロントマター保護
+  vim.api.nvim_create_autocmd("BufWritePre", {
     group = group,
     pattern = { "*/projects/*.md" },
     callback = function(args)
@@ -398,31 +346,7 @@ function M.setup_autocmds()
         end
         
         local msg = "[gtodo-md] 保存できません: " .. table.concat(errors, " / ") .. "。'u' 等で復元してください。"
-        vim.api.nvim_err_writeln(msg)
-        return
-      end
-      
-      -- アトミック書き込み
-      local tmp_path = filepath .. ".tmp"
-      local f = io.open(tmp_path, "w")
-      if f then
-        for _, line in ipairs(lines) do
-          f:write(line .. "\n")
-        end
-        f:close()
-        
-        local success = (vim.fn.rename(tmp_path, filepath) == 0)
-        if success then
-          vim.bo[args.buf].modified = false
-          local line_count = #lines
-          local bytes = vim.fn.wordcount().bytes
-          print(string.format('"%s" %dL, %dB written', vim.fn.fnamemodify(filepath, ":~"), line_count, bytes))
-        else
-          os.remove(tmp_path)
-          vim.api.nvim_err_writeln("[gtodo-md] 保存に失敗しました (書き込みエラー)")
-        end
-      else
-        vim.api.nvim_err_writeln("[gtodo-md] 保存に失敗しました (ファイルオープンエラー): " .. filepath)
+        error(msg)
       end
     end
   })
