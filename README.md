@@ -130,6 +130,7 @@ vim.keymap.set('n', '<Leader>ta', function() require('gtodo-md').add_or_edit_tas
 | `<Leader>thd` | `done.md` (完了履歴) をフローティング表示で開く |
 | `<Leader>thc` | `cancelled.md` (キャンセル履歴) をフローティング表示で開く |
 | `<Leader>ta` | 空行や他のバッファでは新規タスク追加。タスク行にいる場合はタスクの編集。 |
+| `<Leader>tq` | Queue ビューを開く（期限付きタスクを日付順に一覧表示） |
 | `<Leader>t/` | タグ（`+`）、コンテキスト（`@`）、完了状態（`[ ]` / `[x]`）でのAND検索 |
 
 ### バッファローカルキーマップ (`todo.md` / `inbox.md` でのみ有効、以下はデフォルト `<Leader>t` の例)
@@ -151,3 +152,4 @@ vim.keymap.set('n', '<Leader>ta', function() require('gtodo-md').add_or_edit_tas
 - `:GtodoCancelled` : `cancelled.md` をフローティング表示で開きます。
 - `:GtodoSort` : `todo.md` を手動で期日順にソートします。
 - `:GtodoSearch` : タグやコンテキストでタスクをAND絞り込み検索します。
+- `:GtodoQueue` : Queue ビューを開きます。期限付き未完了タスクを「期限切れ / 今日〜7日後 / それ以降」のグループで一覧表示します。

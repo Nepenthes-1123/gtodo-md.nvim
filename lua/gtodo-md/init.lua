@@ -27,6 +27,9 @@ function M.setup(opts)
   if config.options.use_default_keymaps then
     M.setup_global_keymaps()
   end
+
+  -- ユーザーコマンドの登録
+  vim.api.nvim_create_user_command('GtodoQueue', function() ui_mod.open_queue() end, { desc = "Open Gtodo Queue view" })
 end
 
 function M.ensure_files()
@@ -578,6 +581,9 @@ function M.setup_global_keymaps()
   
   -- 追加・編集系 (適応的)
   vim.keymap.set('n', prefix .. 'a', function() M.add_or_edit_task() end, { desc = "Add or edit task" })
+
+  -- Queue ビュー
+  vim.keymap.set('n', prefix .. 'q', function() ui_mod.open_queue() end, { desc = "Open Queue view" })
 end
 
 -- バッファローカルなキーマップを設定する
