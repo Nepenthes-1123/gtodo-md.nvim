@@ -80,9 +80,20 @@ function M.snacks(items)
     end,
     actions = {
       toggle_task = function(picker, item)
-        if not item or not item.file then return end
-        M.toggle_task_file_line(item.file, item.pos[1])
-        picker:close()
+        local sel = picker:selected()
+        local targets = (sel and #sel > 0) and sel or { item }
+        
+        local updated = false
+        for _, t in ipairs(targets) do
+          if t and t.file then
+            M.toggle_task_file_line(t.file, t.pos[1])
+            updated = true
+          end
+        end
+        
+        if updated then
+          picker:close()
+        end
       end,
     },
     win = {
@@ -134,9 +145,19 @@ function M.telescope(items)
     previewer = conf.qflist_previewer({}),
     attach_mappings = function(prompt_bufnr, map)
       local toggle_task = function()
-        local selection = action_state.get_selected_entry()
-        if selection then
-          M.toggle_task_file_line(selection.filename, selection.lnum)
+        local picker = action_state.get_current_picker(prompt_bufnr)
+        local selections = picker:get_multi_selection()
+        local targets = (selections and #selections > 0) and selections or { action_state.get_selected_entry() }
+        
+        local updated = false
+        for _, t in ipairs(targets) do
+          if t and t.filename then
+            M.toggle_task_file_line(t.filename, t.lnum)
+            updated = true
+          end
+        end
+        
+        if updated then
           actions.close(prompt_bufnr)
         end
       end
@@ -203,10 +224,11 @@ function M.fzf_lua(items)
     actions = vim.tbl_extend("force", fzf.defaults.actions.file_edit, {
       ["ctrl-x"] = function(selected, opts)
         if not selected or #selected == 0 then return end
-        local sel = selected[1]
-        local file, lnum = sel:match("^(.-):(%d+):")
-        if file and lnum then
-          M.toggle_task_file_line(file, tonumber(lnum))
+        for _, sel in ipairs(selected) do
+          local file, lnum = sel:match("^(.-):(%d+):")
+          if file and lnum then
+            M.toggle_task_file_line(file, tonumber(lnum))
+          end
         end
       end
     })
