@@ -150,7 +150,9 @@ function M.setup_autocmds()
       
       if #missing > 0 then
         local msg = "[gtodo-md] 保存できません: 必須セクションが削除されています (" .. table.concat(missing, ", ") .. ")。'u' キー等で復元してください。"
-        error(msg)
+        -- BufWritePreの中で標準の保存処理を中断させるには例外エラーを投げる必要がある。
+        -- 見栄えを良くするため、第2引数に0を渡してLuaのスタックトレースを非表示にしている。
+        error(msg, 0)
       end
     end
   })
@@ -197,7 +199,9 @@ function M.setup_autocmds()
         
         if not has_header then
           local msg = string.format("[gtodo-md] 保存できません: 必須ヘッダー (%s) が削除されています。'u' キー等で復元してください。", expected_header)
-          error(msg)
+          -- BufWritePreの中で標準の保存処理を中断させるには例外エラーを投げる必要がある。
+          -- 見栄えを良くするため、第2引数に0を渡してLuaのスタックトレースを非表示にしている。
+          error(msg, 0)
         end
         
         -- 年月セクションの削除保護 (done.md と cancelled.md のみ)
@@ -220,7 +224,9 @@ function M.setup_autocmds()
           
           if #missing_secs > 0 then
             local msg = string.format("[gtodo-md] 保存できません: 既存の履歴セクションが削除されています (%s)。'u' キー等で復元してください。", table.concat(missing_secs, ", "))
-            error(msg)
+            -- BufWritePreの中で標準の保存処理を中断させるには例外エラーを投げる必要がある。
+            -- 見栄えを良くするため、第2引数に0を渡してLuaのスタックトレースを非表示にしている。
+            error(msg, 0)
           end
         end
       end
@@ -346,7 +352,9 @@ function M.setup_autocmds()
         end
         
         local msg = "[gtodo-md] 保存できません: " .. table.concat(errors, " / ") .. "。'u' 等で復元してください。"
-        error(msg)
+        -- BufWritePreの中で標準の保存処理を中断させるには例外エラーを投げる必要がある。
+        -- 見栄えを良くするため、第2引数に0を渡してLuaのスタックトレースを非表示にしている。
+        error(msg, 0)
       end
     end
   })
