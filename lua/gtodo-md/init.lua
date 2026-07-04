@@ -183,6 +183,60 @@ function M.setup_autocmds()
     end
   })
   
+  -- inbox.md, done.md, cancelled.md 保存処理の乗っ取り (ヘッダー保護とアトミック保存)
+  local history_patterns = {
+    ["inbox.md"] = "# Inbox",
+    ["done.md"] = "# Done",
+    ["cancelled.md"] = "# Cancelled",
+  }
+  
+  for fname, expected_header in pairs(history_patterns) do
+    vim.api.nvim_create_autocmd("BufWriteCmd", {
+      group = group,
+      pattern = { fname },
+      callback = function(args)
+        local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
+        local has_header = false
+        for _, line in ipairs(lines) do
+          if line:match("^" .. expected_header) then
+            has_header = true
+            break
+          end
+        end
+        
+        if not has_header then
+          local msg = string.format("[gtodo-md] 保存できません: 必須ヘッダー (%s) が削除されています。'u' キー等で復元してください。", expected_header)
+          vim.api.nvim_err_writeln(msg)
+          return
+        end
+        
+        -- アトミック書き込みを実行
+        local filepath = args.match
+        local tmp_path = filepath .. ".tmp"
+        local f = io.open(tmp_path, "w")
+        if f then
+          for _, line in ipairs(lines) do
+            f:write(line .. "\n")
+          end
+          f:close()
+          
+          local success = (vim.fn.rename(tmp_path, filepath) == 0)
+          if success then
+            vim.bo[args.buf].modified = false
+            local line_count = #lines
+            local bytes = vim.fn.wordcount().bytes
+            print(string.format('"%s" %dL, %dB written', vim.fn.fnamemodify(filepath, ":~"), line_count, bytes))
+          else
+            os.remove(tmp_path)
+            vim.api.nvim_err_writeln("[gtodo-md] 保存に失敗しました (書き込みエラー)")
+          end
+        else
+          vim.api.nvim_err_writeln("[gtodo-md] 保存に失敗しました (ファイルオープンエラー): " .. filepath)
+        end
+      end
+    })
+  end
+  
   -- inbox.md, todo.md 用
   vim.api.nvim_create_autocmd("BufEnter", {
     group = group,
