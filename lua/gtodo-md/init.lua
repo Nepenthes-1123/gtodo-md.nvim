@@ -172,6 +172,10 @@ function M.setup_global_keymaps()
   vim.keymap.set('n', prefix .. 't', function() ui_mod.open_todo_float() end, { desc = "Toggle Todo float" })
   vim.keymap.set('n', prefix .. 'i', function() ui_mod.open_inbox_float() end, { desc = "Toggle Inbox float" })
   
+  -- 表示系 (履歴)
+  vim.keymap.set('n', prefix .. 'hd', function() ui_mod.open_done_float() end, { desc = "Toggle Done float" })
+  vim.keymap.set('n', prefix .. 'hc', function() ui_mod.open_cancelled_float() end, { desc = "Toggle Cancelled float" })
+  
   -- 検索
   vim.keymap.set('n', prefix .. '/', function() ui_mod.search_tasks() end, { desc = "Search tasks" })
   

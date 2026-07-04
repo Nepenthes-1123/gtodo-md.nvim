@@ -21,3 +21,35 @@ vim.api.nvim_create_user_command("GtodoSearch", function()
   end
   require('gtodo-md.ui').search_tasks()
 end, {})
+
+vim.api.nvim_create_user_command("GtodoTodo", function()
+  local config = require('gtodo-md.config')
+  if not config.options.data_dir then
+    require('gtodo-md').setup({})
+  end
+  require('gtodo-md.ui').open_todo_float()
+end, {})
+
+vim.api.nvim_create_user_command("GtodoInbox", function()
+  local config = require('gtodo-md.config')
+  if not config.options.data_dir then
+    require('gtodo-md').setup({})
+  end
+  require('gtodo-md.ui').open_inbox_float()
+end, {})
+
+vim.api.nvim_create_user_command("GtodoDone", function()
+  local config = require('gtodo-md.config')
+  if not config.options.data_dir then
+    require('gtodo-md').setup({})
+  end
+  require('gtodo-md.ui').open_done_float()
+end, {})
+
+vim.api.nvim_create_user_command("GtodoCancelled", function()
+  local config = require('gtodo-md.config')
+  if not config.options.data_dir then
+    require('gtodo-md').setup({})
+  end
+  require('gtodo-md.ui').open_cancelled_float()
+end, {})

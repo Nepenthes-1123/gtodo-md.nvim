@@ -45,6 +45,16 @@ function M.open_inbox_float()
   M.open_float(path, "Inbox")
 end
 
+function M.open_done_float()
+  local path = config.options.data_dir .. "/done.md"
+  M.open_float(path, "Done")
+end
+
+function M.open_cancelled_float()
+  local path = config.options.data_dir .. "/cancelled.md"
+  M.open_float(path, "Cancelled")
+end
+
 -- AND絞り込み検索
 function M.search_tasks()
   local data_dir = config.options.data_dir

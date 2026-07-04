@@ -119,6 +119,8 @@ vim.keymap.set('n', '<Leader>ta', function() require('gtodo-md').add_or_edit_tas
 |---|---|
 | `<Leader>tt` | `todo.md` をフローティング表示で開く |
 | `<Leader>ti` | `inbox.md` をフローティング表示で開く |
+| `<Leader>thd` | `done.md` (完了履歴) をフローティング表示で開く |
+| `<Leader>thc` | `cancelled.md` (キャンセル履歴) をフローティング表示で開く |
 | `<Leader>ta` | 空行や他のバッファでは新規タスク追加。タスク行にいる場合はタスクの編集。 |
 | `<Leader>t/` | タグ（`+`）、コンテキスト（`@`）、完了状態（`[ ]` / `[x]`）でのAND検索 |
 
@@ -135,5 +137,9 @@ vim.keymap.set('n', '<Leader>ta', function() require('gtodo-md').add_or_edit_tas
 | `<Leader>to` | 手動での期日チェック & 自動ソート実行 |
 
 ## コマンド
+- `:GtodoTodo` : `todo.md` をフローティング表示で開きます。
+- `:GtodoInbox` : `inbox.md` をフローティング表示で開きます。
+- `:GtodoDone` : `done.md` をフローティング表示で開きます。
+- `:GtodoCancelled` : `cancelled.md` をフローティング表示で開きます。
 - `:GtodoSort` : `todo.md` を手動で期日順にソートします。
 - `:GtodoSearch` : タグやコンテキストでタスクをAND絞り込み検索します。
