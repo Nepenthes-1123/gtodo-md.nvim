@@ -48,31 +48,39 @@ end
 
 -- Snacks Dashboard (snacks.nvim) 用のウィジェットセクション
 function M.snacks_section()
-  return {
-    pane = 2,
-    header = "📅 Today's Tasks",
-    icon = "📝 ",
-    action = function() vim.cmd("lua require('gtodo-md').open_todo()") end,
+  local lines = M.get_tasks_lines(5)
+  
+  -- Snacks.dashboard.Item の配列としてセクションを構築
+  local items = {}
+  
+  -- 見出し
+  table.insert(items, { 
+    text = { { "📝 Today's Tasks", hl = "Title" } }, 
+    padding = 1,
+    -- 最初の行にアクションとキーマップを付ける
+    action = function() vim.cmd("lua require('gtodo-md.ui').open_todo_float()") end,
     key = "t",
-    render = function()
-      local lines = M.get_tasks_lines(5)
-      local render_lines = {}
-      
-      table.insert(render_lines, { { "📝 Today's Tasks", "Title" } })
-      table.insert(render_lines, { { "", "Normal" } }) -- spacer
-      
-      for _, line in ipairs(lines) do
-        if line.icon then
-          table.insert(render_lines, { { line.icon, "Comment" }, { line.text, line.hl } })
-        else
-          table.insert(render_lines, { { line.text, line.hl } })
-        end
+  })
+  
+  if #lines == 0 then
+    table.insert(items, { text = { { "  ✨ すべてのタスクが完了しています", hl = "Comment" } } })
+  else
+    for _, line in ipairs(lines) do
+      local text_parts = {}
+      if line.icon then
+        table.insert(text_parts, { line.icon, hl = "Comment" })
       end
+      table.insert(text_parts, { line.text, hl = line.hl })
       
-      table.insert(render_lines, { { "", "Normal" } }) -- spacer
-      return render_lines
-    end,
-  }
+      table.insert(items, { 
+        text = text_parts,
+        -- actionを設定することでダッシュボード上で選択・フォーカス可能になる
+        action = function() vim.cmd("lua require('gtodo-md.ui').open_todo_float()") end,
+      })
+    end
+  end
+  
+  return items
 end
 
 -- Alpha (alpha-nvim) 用のウィジェットセクション
