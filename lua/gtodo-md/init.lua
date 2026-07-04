@@ -210,6 +210,31 @@ function M.setup_autocmds()
           return
         end
         
+        -- 年月セクションの削除保護 (done.md と cancelled.md のみ)
+        if fname == "done.md" or fname == "cancelled.md" then
+          local original_secs = vim.b[args.buf].gtodo_original_sections or {}
+          local found_secs = {}
+          for _, line in ipairs(lines) do
+            local sec = line:match("^##%s+(%d%d%d%d%-%d%d)$")
+            if sec then
+              found_secs[sec] = true
+            end
+          end
+          
+          local missing_secs = {}
+          for sec, _ in pairs(original_secs) do
+            if not found_secs[sec] then
+              table.insert(missing_secs, "## " .. sec)
+            end
+          end
+          
+          if #missing_secs > 0 then
+            local msg = string.format("[gtodo-md] 保存できません: 既存の履歴セクションが削除されています (%s)。'u' キー等で復元してください。", table.concat(missing_secs, ", "))
+            vim.api.nvim_err_writeln(msg)
+            return
+          end
+        end
+        
         -- アトミック書き込みを実行
         local filepath = args.match
         local tmp_path = filepath .. ".tmp"
@@ -236,6 +261,23 @@ function M.setup_autocmds()
       end
     })
   end
+  
+  -- done.md, cancelled.md ロード時に既存の年月セクション見出しをキャッシュする
+  vim.api.nvim_create_autocmd("BufReadPost", {
+    group = group,
+    pattern = { "done.md", "cancelled.md" },
+    callback = function(args)
+      local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
+      local original_secs = {}
+      for _, line in ipairs(lines) do
+        local sec = line:match("^##%s+(%d%d%d%d%-%d%d)$")
+        if sec then
+          original_secs[sec] = true
+        end
+      end
+      vim.b[args.buf].gtodo_original_sections = original_secs
+    end
+  })
   
   -- inbox.md, todo.md 用
   vim.api.nvim_create_autocmd("BufEnter", {
