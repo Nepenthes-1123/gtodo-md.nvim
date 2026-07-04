@@ -46,12 +46,19 @@ function M.write_lines(path, lines)
       vim.cmd("silent! write")
     end)
   else
-    local f = io.open(path, "w")
+    local tmp_path = path .. ".tmp"
+    local f = io.open(tmp_path, "w")
     if f then
       for _, line in ipairs(lines) do
         f:write(line .. "\n")
       end
       f:close()
+      
+      local success, err = os.rename(tmp_path, path)
+      if not success then
+        os.remove(tmp_path)
+        vim.notify("Failed to write file atomically: " .. tostring(err), vim.log.levels.ERROR)
+      end
     end
   end
 end
