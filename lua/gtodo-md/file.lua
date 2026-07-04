@@ -308,13 +308,55 @@ function M.check_dues(inbox_path, todo_path)
   return todo_changed
 end
 
+-- 履歴ファイル (done.md / cancelled.md) へタスクを追記する
+-- move_completed_tasks と cancel_current_task の両方から使用する
+local function append_to_history(filepath, header_title, section_name, tasks)
+  local lines = {}
+  local file_exists = vim.fn.filereadable(filepath) == 1
+
+  if file_exists then
+    local f = io.open(filepath, "r")
+    if f then
+      for line in f:lines() do
+        table.insert(lines, line)
+      end
+      f:close()
+    end
+  else
+    table.insert(lines, "# " .. header_title)
+    table.insert(lines, "")
+  end
+
+  -- セクションがすでに存在するかチェック
+  local has_section = false
+  for _, line in ipairs(lines) do
+    if line == "## " .. section_name then
+      has_section = true
+      break
+    end
+  end
+
+  if not has_section then
+    if #lines > 0 and lines[#lines] ~= "" then
+      table.insert(lines, "")
+    end
+    table.insert(lines, "## " .. section_name)
+  end
+
+  for _, t in ipairs(tasks) do
+    table.insert(lines, task_mod.serialize(t))
+  end
+
+  M.write_lines(filepath, lines)
+end
+
 -- 完了タスクを done.md へ移動
 function M.move_completed_tasks(inbox_path, todo_path, done_path)
   local today = os.date("%Y-%m-%d")
   local current_month = os.date("%Y-%m")
   local moved_tasks = {}
-  
-  -- 1. inbox.md から抽出
+
+  -- 1. inbox.md から完了タスクを抽出
   local inbox_data = M.read_todo_file(inbox_path)
   local inbox_changed = false
   if inbox_data.sections["default"] then
@@ -329,12 +371,11 @@ function M.move_completed_tasks(inbox_path, todo_path, done_path)
     end
     inbox_data.sections["default"] = remaining
   end
-  
   if inbox_changed then
     M.write_todo_file(inbox_path, inbox_data)
   end
-  
-  -- 2. todo.md から抽出
+
+  -- 2. todo.md から完了タスクを抽出
   local todo_data = M.read_todo_file(todo_path)
   local todo_changed = false
   for _, sec in ipairs({ "Today", "Next", "Waiting", "Someday" }) do
@@ -351,57 +392,15 @@ function M.move_completed_tasks(inbox_path, todo_path, done_path)
       todo_data.sections[sec] = remaining
     end
   end
-  
   if todo_changed then
     M.write_todo_file(todo_path, todo_data)
   end
-  
+
   if #moved_tasks == 0 then
     return false
   end
-  
--- 履歴ファイルへの追記 (高速かつアトミック)
-local function append_to_history(filepath, header_title, section_name, tasks)
-  local lines = {}
-  local file_exists = vim.fn.filereadable(filepath) == 1
-  
-  if file_exists then
-    local f = io.open(filepath, "r")
-    if f then
-      for line in f:lines() do
-        table.insert(lines, line)
-      end
-      f:close()
-    end
-  else
-    table.insert(lines, "# " .. header_title)
-    table.insert(lines, "")
-  end
-  
-  -- セクションがすでに存在するかチェック
-  local has_section = false
-  for _, line in ipairs(lines) do
-    if line == "## " .. section_name then
-      has_section = true
-      break
-    end
-  end
-  
-  if not has_section then
-    if #lines > 0 and lines[#lines] ~= "" then
-      table.insert(lines, "")
-    end
-    table.insert(lines, "## " .. section_name)
-  end
-  
-  for _, t in ipairs(tasks) do
-    table.insert(lines, task_mod.serialize(t))
-  end
-  
-  M.write_lines(filepath, lines)
-end
 
--- 3. done.md へ追加
+  -- 3. done.md へ追加
   local done_tasks = {}
   for _, entry in ipairs(moved_tasks) do
     local t = entry.task
@@ -411,12 +410,12 @@ end
     t.from = entry.from
     table.insert(done_tasks, t)
   end
-  
+
   append_to_history(done_path, "Done", current_month, done_tasks)
-  
   vim.notify(string.format("Moved %d completed tasks to done.md", #moved_tasks), vim.log.levels.INFO)
   return true
 end
+
 
 -- カーソル行がタスクか判定
 function M.get_current_task()
