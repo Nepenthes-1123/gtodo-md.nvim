@@ -155,58 +155,16 @@ function M.search_tasks()
   
   local pickers = {
     snacks = function(items)
-      local ok, snacks = pcall(require, "snacks")
-      if ok and snacks.picker then
-        snacks.picker.pick({ title = "Gtodo Search", items = items, format = "text" })
-        return true
-      end
-      return false
+      local ok, p = pcall(require, "gtodo-md.integrations.picker")
+      return ok and p.snacks(items)
     end,
-    
     telescope = function(items)
-      local ok, telescope = pcall(require, "telescope")
-      if ok then
-        local t_pickers = require("telescope.pickers")
-        local finders = require("telescope.finders")
-        local conf = require("telescope.config").values
-        t_pickers.new({}, {
-          prompt_title = "Gtodo Search",
-          finder = finders.new_table({
-            results = items,
-            entry_maker = function(entry)
-              return {
-                value = entry,
-                display = entry.text,
-                ordinal = entry.text,
-                filename = entry.file,
-                lnum = entry.pos[1],
-                col = entry.pos[2],
-              }
-            end,
-          }),
-          sorter = conf.generic_sorter({}),
-          previewer = conf.qflist_previewer({}),
-        }):find()
-        return true
-      end
-      return false
+      local ok, p = pcall(require, "gtodo-md.integrations.picker")
+      return ok and p.telescope(items)
     end,
-    
     ["fzf-lua"] = function(items)
-      local ok, fzf = pcall(require, "fzf-lua")
-      if ok then
-        local fzf_items = {}
-        for _, item in ipairs(items) do
-          table.insert(fzf_items, string.format("%s:%d:%d:%s", item.file, item.pos[1], item.pos[2], item.text))
-        end
-        fzf.fzf_exec(fzf_items, {
-          prompt = "Gtodo Search> ",
-          actions = fzf.defaults.actions.file_edit,
-          previewer = "builtin",
-        })
-        return true
-      end
-      return false
+      local ok, p = pcall(require, "gtodo-md.integrations.picker")
+      return ok and p.fzf_lua(items)
     end
   }
 
