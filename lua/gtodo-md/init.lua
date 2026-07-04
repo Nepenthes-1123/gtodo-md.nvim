@@ -113,6 +113,9 @@ function M.handle_buf_enter(bufnr)
   last_processed_mtimes.inbox = vim.fn.getftime(inbox_path)
   last_processed_mtimes.todo = vim.fn.getftime(todo_path)
   last_processed_date = today
+  
+  -- 自動処理によってディスク上のファイルが変更された場合、バッファを強制同期（リロード）する
+  vim.cmd("checktime")
 end
 
 function M.setup_autocmds()
