@@ -86,6 +86,8 @@ function M.parse_markdown(lines)
   
   for _, line in ipairs(lines) do
     local sec_name = line:match("^##%s+(.*)$")
+    local task = task_mod.parse(line)
+    
     if sec_name then
       sec_name = vim.trim(sec_name)
       current_section = sec_name
@@ -94,14 +96,14 @@ function M.parse_markdown(lines)
         table.insert(data.section_order, current_section)
       end
       header_done = true
+    elseif task then
+      header_done = true
+    end
+    
+    if not header_done then
+      table.insert(data.header, line)
     else
-      if not header_done and line:match("^#%s+") then
-        table.insert(data.header, line)
-        header_done = true
-      elseif not header_done and #data.header == 0 and line == "" then
-        table.insert(data.header, line)
-      else
-        local task = task_mod.parse(line)
+      if not sec_name then
         if task then
           table.insert(data.sections[current_section], { type = "task", task = task, line = line })
         else
@@ -133,7 +135,9 @@ function M.write_todo_file(filepath, data)
   end
   
   for _, sec in ipairs(data.section_order) do
-    table.insert(lines, "")
+    if #lines > 0 and lines[#lines] ~= "" then
+      table.insert(lines, "")
+    end
     table.insert(lines, "## " .. sec)
     
     local items = data.sections[sec] or {}
