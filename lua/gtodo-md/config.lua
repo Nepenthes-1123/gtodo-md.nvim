@@ -15,6 +15,14 @@ M.defaults = {
 
 M.options = {}
 
+M.sections = {
+  TODAY = "Today",
+  NEXT = "Next",
+  WAITING = "Waiting",
+  SOMEDAY = "Someday",
+}
+
+
 function M.setup(opts)
   M.options = vim.tbl_deep_extend("force", M.defaults, opts or {})
   -- ディレクトリが存在しない場合は作成

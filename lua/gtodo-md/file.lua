@@ -278,17 +278,17 @@ function M.check_dues(inbox_path, todo_path)
   local todo_data = M.read_todo_file(todo_path)
   local todo_changed = false
   
-  if not todo_data.sections["Today"] then
-    todo_data.sections["Today"] = {}
-    table.insert(todo_data.section_order, 1, "Today")
+  if not todo_data.sections[config.sections.TODAY] then
+    todo_data.sections[config.sections.TODAY] = {}
+    table.insert(todo_data.section_order, 1, config.sections.TODAY)
   end
   
-  for _, from_sec in ipairs({ "Next", "Someday" }) do
+  for _, from_sec in ipairs({ config.sections.NEXT, config.sections.SOMEDAY }) do
     if todo_data.sections[from_sec] then
       local remaining_items = {}
       for _, item in ipairs(todo_data.sections[from_sec]) do
         if item.type == "task" and item.task.status ~= "x" and item.task.due and item.task.due <= today then
-          table.insert(todo_data.sections["Today"], item)
+          table.insert(todo_data.sections[config.sections.TODAY], item)
           moved_count = moved_count + 1
           todo_changed = true
         else
@@ -377,7 +377,7 @@ function M.move_completed_tasks(inbox_path, todo_path, done_path)
   -- 2. todo.md から完了タスクを抽出
   local todo_data = M.read_todo_file(todo_path)
   local todo_changed = false
-  for _, sec in ipairs({ "Today", "Next", "Waiting", "Someday" }) do
+  for _, sec in ipairs({ config.sections.TODAY, config.sections.NEXT, config.sections.WAITING, config.sections.SOMEDAY }) do
     if todo_data.sections[sec] then
       local remaining = {}
       for _, item in ipairs(todo_data.sections[sec]) do
@@ -509,7 +509,7 @@ function M.move_current_task_to(target_section)
     
     local todo_data = M.read_todo_file(todo_path)
     if #todo_data.section_order == 0 then
-      todo_data.section_order = { "Today", "Next", "Waiting", "Someday" }
+      todo_data.section_order = { config.sections.TODAY, config.sections.NEXT, config.sections.WAITING, config.sections.SOMEDAY }
     end
     if not todo_data.sections[target_section] then
       todo_data.sections[target_section] = {}

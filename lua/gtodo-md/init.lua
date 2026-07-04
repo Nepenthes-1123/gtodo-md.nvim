@@ -135,7 +135,7 @@ function M.setup_autocmds()
     pattern = { "todo.md" },
     callback = function(args)
       local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
-      local required = { "Today", "Next", "Waiting", "Someday" }
+      local required = { config.sections.TODAY, config.sections.NEXT, config.sections.WAITING, config.sections.SOMEDAY }
       local found = {
         Today = false,
         Next = false,
@@ -528,7 +528,7 @@ function M.add_or_edit_task()
       vim.cmd("silent! write")
     elseif filename == "todo.md" then
       local current_sec = file_mod.get_current_section()
-      if current_sec == "default" then current_sec = "Today" end
+      if current_sec == "default" then current_sec = config.sections.TODAY end
       local todo_path = config.get("data_dir") .. "/todo.md"
       local todo_data = file_mod.read_todo_file(todo_path)
       if not todo_data.sections[current_sec] then
@@ -594,10 +594,10 @@ function M.setup_buffer_keymaps(bufnr)
   end
   
   -- 移動系
-  map('n', prefix .. 'd', function() file_mod.move_current_task_to("Today") end, "Move task to Today")
-  map('n', prefix .. 'n', function() file_mod.move_current_task_to("Next") end, "Move task to Next")
-  map('n', prefix .. 'w', function() file_mod.move_current_task_to("Waiting") end, "Move task to Waiting")
-  map('n', prefix .. 's', function() file_mod.move_current_task_to("Someday") end, "Move task to Someday")
+  map('n', prefix .. 'd', function() file_mod.move_current_task_to(config.sections.TODAY) end, "Move task to " .. config.sections.TODAY)
+  map('n', prefix .. 'n', function() file_mod.move_current_task_to(config.sections.NEXT) end, "Move task to " .. config.sections.NEXT)
+  map('n', prefix .. 'w', function() file_mod.move_current_task_to(config.sections.WAITING) end, "Move task to " .. config.sections.WAITING)
+  map('n', prefix .. 's', function() file_mod.move_current_task_to(config.sections.SOMEDAY) end, "Move task to " .. config.sections.SOMEDAY)
   
   map('n', prefix .. 'x', function() file_mod.toggle_complete() end, "Toggle task completion")
   map('n', prefix .. 'c', function() file_mod.cancel_current_task() end, "Cancel task")
