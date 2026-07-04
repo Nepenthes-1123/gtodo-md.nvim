@@ -68,4 +68,31 @@ function M.get_stats()
   return cache.stats
 end
 
+-- あらゆるステータスラインプラグイン（および標準の statusline）で使える
+-- 汎用的な文字列フォーマットを返すヘルパー関数
+function M.get_statusline_string(opts)
+  opts = vim.tbl_deep_extend("force", {
+    icon_today = "📝",
+    icon_inbox = "📥",
+    icon_done  = "✨",
+    separator  = " | ",
+  }, opts or {})
+
+  local stats = M.get_stats()
+  local parts = {}
+  
+  if stats.today > 0 then
+    table.insert(parts, opts.icon_today .. " Today: " .. stats.today)
+  end
+  if stats.inbox > 0 then
+    table.insert(parts, opts.icon_inbox .. " Inbox: " .. stats.inbox)
+  end
+  
+  if #parts == 0 then
+    return opts.icon_done .. " All Done!"
+  end
+  
+  return table.concat(parts, opts.separator)
+end
+
 return M
