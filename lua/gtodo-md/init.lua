@@ -526,7 +526,13 @@ function M.add_or_edit_task()
       if not inbox_data.sections["default"] then
         inbox_data.sections["default"] = {}
       end
-      table.insert(inbox_data.sections["default"], { type = "task", task = new_task })
+      
+      local sec = inbox_data.sections["default"]
+      while #sec > 0 and sec[#sec].type == "text" and vim.trim(sec[#sec].line) == "" do
+        table.remove(sec)
+      end
+      
+      table.insert(sec, { type = "task", task = new_task })
       io_mod.write_todo_file(inbox_path, inbox_data)
       if filename ~= "inbox.md" then
         vim.notify("Created new task in inbox.md", vim.log.levels.INFO)
