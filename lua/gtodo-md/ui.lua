@@ -1,6 +1,44 @@
 local M = {}
 local config = require('gtodo-md.config')
 
+-- done.md のカウントキャッシュ
+local done_cache = {
+  mtime = 0,
+  counts = {}
+}
+
+-- done.md から高速にプロジェクトごとの完了件数を取得するヘルパー
+local function get_done_project_counts(done_path)
+  if vim.fn.filereadable(done_path) == 0 then
+    return {}
+  end
+  local current_mtime = vim.fn.getftime(done_path)
+  if current_mtime == done_cache.mtime then
+    return done_cache.counts
+  end
+  
+  local counts = {}
+  local f = io.open(done_path, "r")
+  if f then
+    local content = f:read("*all")
+    f:close()
+    
+    -- 高速テキスト走査で完了タスクとプロジェクトタグをカウント
+    for line in content:gmatch("[^\r\n]+") do
+      if line:match("^%s*-%s*%[x%]") then
+        local tag = line:match("%+([%w%-]+)")
+        if tag then
+          counts[tag] = (counts[tag] or 0) + 1
+        end
+      end
+    end
+  end
+  
+  done_cache.mtime = current_mtime
+  done_cache.counts = counts
+  return counts
+end
+
 -- フローティングウィンドウでファイルを開く
 function M.open_float(filepath, title)
   local width = math.floor(vim.o.columns * 0.8)
@@ -299,27 +337,41 @@ function M.render_project_tasks(bufnr)
   local project_tag = filename
   
   local active_tasks = {}
+  local completed_count = 0
   
-  -- inbox.md から該当プロジェクトの未完了タスクを取得
+  -- done.md から過去の完了件数を取得 (高速キャッシュ経由)
+  local done_path = data_dir .. "/done.md"
+  local done_counts = get_done_project_counts(done_path)
+  completed_count = completed_count + (done_counts[project_tag] or 0)
+  
+  -- inbox.md から該当プロジェクトのタスクを取得
   if vim.fn.filereadable(inbox_path) == 1 then
     local inbox_data = file_mod.read_todo_file(inbox_path)
     if inbox_data.sections["default"] then
       for _, item in ipairs(inbox_data.sections["default"]) do
-        if item.type == "task" and item.task.status ~= "x" and item.task.project == project_tag then
-          table.insert(active_tasks, item.task)
+        if item.type == "task" and item.task.project == project_tag then
+          if item.task.status == "x" then
+            completed_count = completed_count + 1
+          else
+            table.insert(active_tasks, item.task)
+          end
         end
       end
     end
   end
   
-  -- todo.md から該当プロジェクトの未完了タスクを取得
+  -- todo.md から該当プロジェクトのタスクを取得
   if vim.fn.filereadable(todo_path) == 1 then
     local todo_data = file_mod.read_todo_file(todo_path)
     for _, sec in ipairs(todo_data.section_order) do
       if todo_data.sections[sec] then
         for _, item in ipairs(todo_data.sections[sec]) do
-          if item.type == "task" and item.task.status ~= "x" and item.task.project == project_tag then
-            table.insert(active_tasks, item.task)
+          if item.type == "task" and item.task.project == project_tag then
+            if item.task.status == "x" then
+              completed_count = completed_count + 1
+            else
+              table.insert(active_tasks, item.task)
+            end
           end
         end
       end
@@ -330,31 +382,58 @@ function M.render_project_tasks(bufnr)
   local ns_id = vim.api.nvim_create_namespace("gtodo_project_tasks")
   vim.api.nvim_buf_clear_namespace(bufnr, ns_id, 0, -1)
   
-  if #active_tasks == 0 then
+  local total_count = #active_tasks + completed_count
+  if total_count == 0 then
     return
   end
   
-  -- 仮想行の組み立て (標準的な Markdown テキスト表現と Comment グループによるポータブルな表示)
+  -- 仮想行の組み立て
   local virt_lines = {
     { { "", "" } },
     { { "----------------------------------------", "Comment" } },
-    { { "[gtodo-md] 進行中のタスク (+" .. project_tag .. "):", "Comment" } },
   }
   
-  for _, task in ipairs(active_tasks) do
-    local line_parts = {}
-    table.insert(line_parts, { "  - [ ] ", "Comment" })
-    table.insert(line_parts, { task.content, "Comment" })
-    
-    if task.context then
-      table.insert(line_parts, { " @" .. task.context, "Comment" })
+  local show_progress = config.options.enable_project_progress
+  if show_progress == nil then show_progress = true end
+  
+  if show_progress then
+    -- 進捗率と進捗バーの計算
+    local progress_percent = 0
+    if total_count > 0 then
+      progress_percent = math.floor((completed_count / total_count) * 100)
     end
     
-    if task.due then
-      table.insert(line_parts, { " due:" .. task.due, "Comment" })
+    local bar_width = 10
+    local filled = math.floor((progress_percent / 100) * bar_width)
+    local empty = bar_width - filled
+    local bar_str = string.format("[%s%s] %d%% (%d/%d done)", 
+                                  string.rep("█", filled), 
+                                  string.rep("░", empty), 
+                                  progress_percent, 
+                                  completed_count, 
+                                  total_count)
+    table.insert(virt_lines, { { "[gtodo-md] プロジェクト進捗: " .. bar_str, "DiagnosticOk" } })
+  end
+  
+  if #active_tasks > 0 then
+    table.insert(virt_lines, { { "[gtodo-md] 進行中のタスク (+" .. project_tag .. "):", "Comment" } })
+    for _, task in ipairs(active_tasks) do
+      local line_parts = {}
+      table.insert(line_parts, { "  - [ ] ", "Comment" })
+      table.insert(line_parts, { task.content, "Comment" })
+      
+      if task.context then
+        table.insert(line_parts, { " @" .. task.context, "Comment" })
+      end
+      
+      if task.due then
+        table.insert(line_parts, { " due:" .. task.due, "Comment" })
+      end
+      
+      table.insert(virt_lines, line_parts)
     end
-    
-    table.insert(virt_lines, line_parts)
+  else
+    table.insert(virt_lines, { { "[gtodo-md] すべてのタスクが完了しました！", "DiagnosticOk" } })
   end
   
   local line_count = vim.api.nvim_buf_line_count(bufnr)

@@ -44,6 +44,7 @@ require("gtodo-md").setup({
   waiting_warning_days = 2, -- Waiting タスクの期限警告日数 (デフォルト 2 日)
   enable_waiting_warning = true, -- Waiting タスクの期限警告通知を有効にするかどうか (デフォルト true)
   waiting_warning_interval = 3600, -- Waiting タスク警告のチェック間隔 (秒) (デフォルト 3600 秒 = 1時間)
+  enable_project_progress = true, -- プロジェクトファイル最下部に進捗バーを表示するかどうか (デフォルト true)
 })
 ```
 

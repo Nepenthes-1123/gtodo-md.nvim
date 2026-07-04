@@ -10,6 +10,7 @@ M.defaults = {
   waiting_warning_days = 2, -- Waitingタスクの期限警告日数
   enable_waiting_warning = true, -- Waitingタスクの期限警告通知を有効にするか
   waiting_warning_interval = 3600, -- Waitingタスク警告のチェック間隔（秒）。デフォルト1時間
+  enable_project_progress = true, -- プロジェクトファイル最下部に進捗バーを表示するかどうか
 }
 
 M.options = {}

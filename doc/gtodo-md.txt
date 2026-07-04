@@ -55,6 +55,9 @@ Done）の軽量版を実現するためのTodo管理プラグインです。
       
       -- Waitingタスク警告のチェック間隔（秒）。デフォルト3600秒 (1時間)
       waiting_warning_interval = 3600,
+      
+      -- プロジェクトファイル最下部に進捗バーを表示するかどうか。デフォルトtrue
+      enable_project_progress = true,
     })
 <
 
