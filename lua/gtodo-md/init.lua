@@ -119,6 +119,11 @@ end
 function M.setup_autocmds()
   local group = vim.api.nvim_create_augroup("TodoNvimGroup", { clear = true })
   
+  -- この setup_autocmds 実行インスタンスに完全にカプセル化されたキャッシュテーブル
+  -- augroup のクリア (clear = true) と連動して再初期化されるため、古い Autocmd との不整合は起きない
+  local original_created_dates = {}
+  local original_history_sections = {}
+  
   -- todo.md 保存処理の乗っ取り (バリデーションと安全な書き込み)
   vim.api.nvim_create_autocmd("BufWriteCmd", {
     group = group,
@@ -183,6 +188,25 @@ function M.setup_autocmds()
     end
   })
   
+  -- done.md, cancelled.md ロード/表示時に既存の年月セクション見出しをキャッシュする
+  vim.api.nvim_create_autocmd({ "BufReadPost", "BufEnter" }, {
+    group = group,
+    pattern = { "done.md", "cancelled.md" },
+    callback = function(args)
+      if original_history_sections[tostring(args.buf)] then return end
+      
+      local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
+      local original_secs = {}
+      for _, line in ipairs(lines) do
+        local sec = line:match("^##%s+(%d%d%d%d%-%d%d)$")
+        if sec then
+          original_secs[sec] = true
+        end
+      end
+      original_history_sections[tostring(args.buf)] = original_secs
+    end
+  })
+  
   -- inbox.md, done.md, cancelled.md 保存処理の乗っ取り (ヘッダー保護とアトミック保存)
   local history_patterns = {
     ["inbox.md"] = "# Inbox",
@@ -193,7 +217,7 @@ function M.setup_autocmds()
   for fname, expected_header in pairs(history_patterns) do
     vim.api.nvim_create_autocmd("BufWriteCmd", {
       group = group,
-      pattern = { fname },
+      pattern = fname,
       callback = function(args)
         local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
         local has_header = false
@@ -212,7 +236,7 @@ function M.setup_autocmds()
         
         -- 年月セクションの削除保護 (done.md と cancelled.md のみ)
         if fname == "done.md" or fname == "cancelled.md" then
-          local original_secs = vim.b[args.buf].gtodo_original_sections or {}
+          local original_secs = original_history_sections[tostring(args.buf)] or {}
           local found_secs = {}
           for _, line in ipairs(lines) do
             local sec = line:match("^##%s+(%d%d%d%d%-%d%d)$")
@@ -262,20 +286,167 @@ function M.setup_autocmds()
     })
   end
   
-  -- done.md, cancelled.md ロード時に既存の年月セクション見出しをキャッシュする
-  vim.api.nvim_create_autocmd("BufReadPost", {
+  -- projects/*.md ロード/表示時に created の値とフロントマターをキャッシュする
+  vim.api.nvim_create_autocmd({ "BufReadPost", "BufEnter" }, {
     group = group,
-    pattern = { "done.md", "cancelled.md" },
+    pattern = { "*/projects/*.md" },
     callback = function(args)
+      if original_created_dates[tostring(args.buf)] then return end
+      
       local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
-      local original_secs = {}
-      for _, line in ipairs(lines) do
-        local sec = line:match("^##%s+(%d%d%d%d%-%d%d)$")
-        if sec then
-          original_secs[sec] = true
+      if #lines > 0 and lines[1] == "---" then
+        local end_idx = nil
+        for i = 2, #lines do
+          if lines[i] == "---" then
+            end_idx = i
+            break
+          end
+        end
+        
+        if end_idx then
+          for i = 2, end_idx - 1 do
+            local line = lines[i]
+            local created_val = line:match("^created:%s*(.*)$")
+            if created_val then
+              original_created_dates[tostring(args.buf)] = vim.trim(created_val)
+              break
+            end
+          end
         end
       end
-      vim.b[args.buf].gtodo_original_sections = original_secs
+    end
+  })
+  
+  -- projects/*.md 保存処理の乗っ取り (フロントマター保護とアトミック保存)
+  vim.api.nvim_create_autocmd("BufWriteCmd", {
+    group = group,
+    pattern = { "*/projects/*.md" },
+    callback = function(args)
+      local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
+      local filepath = args.match
+      local proj_name = vim.fn.fnamemodify(filepath, ":t:r")
+      
+      -- フロントマター検証
+      local valid_frontmatter = false
+      local created_changed = false
+      local tag_matches_filename = false
+      local required_keys = {
+        title = false,
+        tag = false,
+        created = false,
+        due = false,
+        status = false,
+        members = false,
+      }
+      
+      if #lines > 0 and lines[1] == "---" then
+        local end_idx = nil
+        for i = 2, #lines do
+          if lines[i] == "---" then
+            end_idx = i
+            break
+          end
+        end
+        
+        if end_idx then
+          for i = 2, end_idx - 1 do
+            local line = lines[i]
+            local key, val = line:match("^(%w+):%s*(.*)$")
+            if key then
+              if required_keys[key] ~= nil then
+                required_keys[key] = true
+              end
+              val = vim.trim(val or "")
+              if key == "tag" and val == proj_name then
+                tag_matches_filename = true
+              elseif key == "created" then
+                local original_created = original_created_dates[tostring(args.buf)]
+                if original_created and val ~= original_created then
+                  created_changed = true
+                end
+              end
+            end
+          end
+          
+          local missing_keys = {}
+          for k, found in pairs(required_keys) do
+            if not found then
+              table.insert(missing_keys, k)
+            end
+          end
+          
+          if #missing_keys == 0 and tag_matches_filename and not created_changed then
+            valid_frontmatter = true
+          end
+        end
+      end
+      
+      if not valid_frontmatter then
+        local errors = {}
+        if created_changed then
+          table.insert(errors, "created (作成日) の変更は禁止されています")
+        end
+        if not tag_matches_filename then
+          table.insert(errors, string.format("tag の値がファイル名 (%s) と一致していません", proj_name))
+        end
+        
+        local missing_keys = {}
+        for k, found in pairs(required_keys) do
+          if not found then
+            table.insert(missing_keys, k)
+          end
+        end
+        if #missing_keys > 0 then
+          table.insert(errors, "必須項目が不足しています (" .. table.concat(missing_keys, ", ") .. ")")
+        end
+        
+        if #errors == 0 then
+          table.insert(errors, "フロントマターのフォーマット (---) が破損しています")
+        end
+        
+        local msg = "[gtodo-md] 保存できません: " .. table.concat(errors, " / ") .. "。'u' 等で復元してください。"
+        vim.api.nvim_err_writeln(msg)
+        return
+      end
+      
+      -- アトミック書き込み
+      local tmp_path = filepath .. ".tmp"
+      local f = io.open(tmp_path, "w")
+      if f then
+        for _, line in ipairs(lines) do
+          f:write(line .. "\n")
+        end
+        f:close()
+        
+        local success = (vim.fn.rename(tmp_path, filepath) == 0)
+        if success then
+          vim.bo[args.buf].modified = false
+          local line_count = #lines
+          local bytes = vim.fn.wordcount().bytes
+          print(string.format('"%s" %dL, %dB written', vim.fn.fnamemodify(filepath, ":~"), line_count, bytes))
+        else
+          os.remove(tmp_path)
+          vim.api.nvim_err_writeln("[gtodo-md] 保存に失敗しました (書き込みエラー)")
+        end
+      else
+        vim.api.nvim_err_writeln("[gtodo-md] 保存に失敗しました (ファイルオープンエラー): " .. filepath)
+      end
+    end
+  })
+  
+  -- バッファが完全にメモリから消去された時のみキャッシュメモリを解放
+  vim.api.nvim_create_autocmd("BufWipeout", {
+    group = group,
+    pattern = { "done.md", "cancelled.md", "*/projects/*.md" },
+    callback = function(args)
+      local bufnr = args.buf
+      -- バッファがまだ有効またはロード済みの場合は、誤検知なのでクリアをスキップする！
+      if vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_buf_is_loaded(bufnr) then
+        return
+      end
+      
+      original_history_sections[tostring(bufnr)] = nil
+      original_created_dates[tostring(bufnr)] = nil
     end
   })
   
