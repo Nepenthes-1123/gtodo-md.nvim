@@ -149,7 +149,7 @@ function M.setup_autocmds()
       end
       
       if #missing > 0 then
-        local msg = "[gtodo-md] 保存できません: 必須セクションが削除されています (" .. table.concat(missing, ", ") .. ")。'u' キー等で復元してください。\n\n※ ファイル保護のために意図的に保存を中断させています。以下のスタックトレース(stack traceback)は仕様によるものです。"
+        local msg = "[gtodo-md] 必須セクションが不足しているため保存を中断しました (" .. table.concat(missing, ", ") .. ") ※スタックトレースは仕様です"
         -- BufWritePreの中で標準の保存処理を中断させるには例外エラーを投げる必要がある。
         -- 見栄えを良くするため、第2引数に0を渡してLuaのスタックトレースを非表示にしている。
         error(msg, 0)
@@ -198,7 +198,7 @@ function M.setup_autocmds()
         end
         
         if not has_header then
-          local msg = string.format("[gtodo-md] 保存できません: 必須ヘッダー (%s) が削除されています。'u' キー等で復元してください。\n\n※ ファイル保護のために意図的に保存を中断させています。以下のスタックトレース(stack traceback)は仕様によるものです。", expected_header)
+          local msg = string.format("[gtodo-md] 必須ヘッダー (%s) が削除されたため保存を中断しました ※スタックトレースは仕様です", expected_header)
           -- BufWritePreの中で標準の保存処理を中断させるには例外エラーを投げる必要がある。
           -- 見栄えを良くするため、第2引数に0を渡してLuaのスタックトレースを非表示にしている。
           error(msg, 0)
@@ -223,7 +223,7 @@ function M.setup_autocmds()
           end
           
           if #missing_secs > 0 then
-            local msg = string.format("[gtodo-md] 保存できません: 既存の履歴セクションが削除されています (%s)。'u' キー等で復元してください。\n\n※ ファイル保護のために意図的に保存を中断させています。以下のスタックトレース(stack traceback)は仕様によるものです。", table.concat(missing_secs, ", "))
+            local msg = string.format("[gtodo-md] 既存の履歴セクション (%s) が削除されたため保存を中断しました ※スタックトレースは仕様です", table.concat(missing_secs, ", "))
             -- BufWritePreの中で標準の保存処理を中断させるには例外エラーを投げる必要がある。
             -- 見栄えを良くするため、第2引数に0を渡してLuaのスタックトレースを非表示にしている。
             error(msg, 0)
@@ -351,7 +351,7 @@ function M.setup_autocmds()
           table.insert(errors, "フロントマターのフォーマット (---) が破損しています")
         end
         
-        local msg = "[gtodo-md] 保存できません: " .. table.concat(errors, " / ") .. "。'u' 等で復元してください。\n\n※ ファイル保護のために意図的に保存を中断させています。以下のスタックトレース(stack traceback)は仕様によるものです。"
+        local msg = "[gtodo-md] フロントマターが不正なため保存を中断しました (" .. table.concat(errors, " / ") .. ") ※スタックトレースは仕様です"
         -- BufWritePreの中で標準の保存処理を中断させるには例外エラーを投げる必要がある。
         -- 見栄えを良くするため、第2引数に0を渡してLuaのスタックトレースを非表示にしている。
         error(msg, 0)
