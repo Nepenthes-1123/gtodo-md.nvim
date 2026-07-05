@@ -153,3 +153,6 @@ vim.keymap.set('n', '<Leader>ta', function() require('gtodo-md').add_or_edit_tas
 - `:GtodoSort` : `todo.md` を手動で期日順にソートします。
 - `:GtodoSearch` : タグやコンテキストでタスクをAND絞り込み検索します。
 - `:GtodoQueue` : Queue ビューを開きます。期限付き未完了タスクを「期限切れ / 今日〜7日後 / それ以降」のグループで一覧表示します。
+
+## ライセンス
+MIT License

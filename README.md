@@ -127,7 +127,6 @@ If `use_default_keymaps = true`, the prefix is `<Leader>t`:
 - `:GtodoDone` - Open `done.md`
 - `:GtodoCancelled` - Open `cancelled.md`
 - `:GtodoSort` - Manually sort tasks by due date and priority
-- `:GtodoSearch` - Search tasks
 - `:GtodoQueue` - Open Queue view
 
 ## License
