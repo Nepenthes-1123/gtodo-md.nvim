@@ -1,153 +1,139 @@
-*gtodo-md.txt*   Markdownを用いたGTD指向 of Todo管理プラグイン
+*gtodo-md.txt*   A GTD-oriented Todo management plugin using Markdown
 
 ==============================================================================
-目次                                                       *gtodo-md-contents*
+CONTENTS                                                   *gtodo-md-contents*
 
-1. 概要 ........................................ |gtodo-md-introduction|
-2. 設定方法 .................................... |gtodo-md-configuration|
-3. コマンド .................................... |gtodo-md-commands|
-4. キーマップ .................................. |gtodo-md-mappings|
-5. 特殊機能 .................................... |gtodo-md-features|
-
-==============================================================================
-1. 概要                                                 *gtodo-md-introduction*
-
-|gtodo-md.nvim| は、Neovim 内で Markdown ファイルを用いて GTD（Getting Things
-Done）の軽量版を実現するためのTodo管理プラグインです。
-
-以下のファイルが自動的に生成・管理されます：
-- inbox.md      : 未整理のタスクを追加する場所
-- todo.md       : Today, Next, Waiting, Someday のセクションに分類されたタスク
-- done.md       : 完了したタスクの履歴（月別に自動ソート・アーカイブ）
-- cancelled.md  : キャンセルされたタスクの履歴
+1. Introduction ................................ |gtodo-md-introduction|
+2. Configuration ............................... |gtodo-md-configuration|
+3. Commands .................................... |gtodo-md-commands|
+4. Keymaps ..................................... |gtodo-md-mappings|
+5. Advanced Features ........................... |gtodo-md-features|
 
 ==============================================================================
-2. 設定方法                                            *gtodo-md-configuration*
+1. Introduction                                        *gtodo-md-introduction*
 
-プラグインマネージャー経由でインストール後、以下のセットアップを呼び出します。
-デフォルト設定値は以下の通りです：
+|gtodo-md.nvim| is a Todo management plugin that brings a lightweight version
+of GTD (Getting Things Done) to Neovim, using pure Markdown files.
+
+The following files are automatically generated and managed:
+- inbox.md      : A place to quickly dump unorganized tasks.
+- todo.md       : Tasks categorized into Today, Next, Waiting, and Someday.
+- done.md       : History of completed tasks (auto-sorted by month).
+- cancelled.md  : History of cancelled tasks.
+
+==============================================================================
+2. Configuration                                      *gtodo-md-configuration*
+
+After installing via your favorite plugin manager, call the setup function.
+The default options are as follows:
 
 >lua
     require("gtodo-md").setup({
-      -- タスクファイルの保存先ディレクトリ
+      -- Directory to save task files
       data_dir = vim.fn.stdpath("data") .. "/gtodo-md",
 
-      -- デフォルトのキーバインドを有効化するかどうか
+      -- Whether to enable default keymaps
       use_default_keymaps = true,
 
-      -- タスク検索時のファジーファインダー指定 ("auto" | "snacks" | "telescope" | "fzf-lua" | "builtin")
+      -- Picker to use for task searching ("auto" | "snacks" | "telescope" | "fzf-lua" | "builtin")
       picker = "auto",
 
-      -- デフォルトキーマップの接頭辞（プレフィックス）
+      -- Prefix for default keymaps
       keymap_prefix = "<Leader>t",
 
-      -- 期限切れ警告通知の最小間隔（秒）。デフォルト30分
+      -- Minimum cooldown for overdue warning notifications (in seconds)
       due_notification_cooldown = 1800,
 
-      -- Neovim終了後も通知制限の時間をディスクに保存して維持するかどうか
+      -- Persist notification limitations across Neovim restarts
       due_notification_persist = true,
       
-      -- Waitingタスクの期限警告日数。デフォルト2日
+      -- Warning days for 'Waiting' tasks
       waiting_warning_days = 2,
       
-      -- Waitingタスクの期限警告通知を有効にするかどうか
+      -- Enable warnings for 'Waiting' tasks
       enable_waiting_warning = true,
       
-      -- Waitingタスク警告のチェック間隔（秒）。デフォルト3600秒 (1時間)
+      -- Interval to check 'Waiting' task warnings (in seconds)
       waiting_warning_interval = 3600,
       
-      -- プロジェクトファイル最下部に進捗バーを表示するかどうか。デフォルトtrue
+      -- Display progress bars at the bottom of project files
       enable_project_progress = true,
     })
 <
 
-*注意*: `todo.md` などのファイルを `:w backup.md` 等で別名保存した場合でも、
-プラグイン側の各種キーバインド、期限チェック、自動移動処理は常に `data_dir`
-に設定された元のタスクファイルを対象にして動作し続けます。
+*NOTE*: Even if you save files like `todo.md` under another name (e.g., `:w
+backup.md`), the plugin's automated processes, keymaps, and checks will
+always target the original task files located in `data_dir`.
 
 ==============================================================================
-3. コマンド                                                 *gtodo-md-commands*
+3. Commands                                                *gtodo-md-commands*
 
-提供されているユーザーコマンド一覧です：
+The following user commands are provided:
 
 :GtodoTodo
-        `todo.md` をフローティング表示で開きます。
+        Opens `todo.md` in a floating window.
 
 :GtodoInbox
-        `inbox.md` をフローティング表示で開きます。
+        Opens `inbox.md` in a floating window.
 
 :GtodoDone
-        `done.md` (完了履歴) をフローティング表示で開きます。
+        Opens `done.md` (completion history) in a floating window.
 
 :GtodoCancelled
-        `cancelled.md` (キャンセル履歴) をフローティング表示で開きます.
+        Opens `cancelled.md` (cancellation history) in a floating window.
 
 :GtodoSort
-        `todo.md` 内のタスクを手動で期日順にソートします。
+        Manually sorts tasks in `todo.md` by due date and priority.
 
 :GtodoSearch
-        タグ（+）やコンテキスト（@）、未完了・完了の条件でAND絞り込み検索を
-        実行します。
+        Executes an AND filter search using tags (+), contexts (@), or status.
+        Supports rich integrations with Snacks, Telescope, and fzf-lua.
 
 :GtodoQueue
-        Queue ビューを開きます。`due:` が設定された未完了タスクを
-        「期限切れ / 今日〜7日後 / それ以降」のグループで一覧表示します。
+        Opens the Queue view, displaying uncompleted tasks grouped by their
+        due dates (Overdue, Next 7 Days, Later).
 
 ==============================================================================
-4. キーマップ                                                *gtodo-md-mappings*
+4. Keymaps                                                 *gtodo-md-mappings*
 
-`use_default_keymaps = true` の場合のデフォルトキーバインドです。
-(以下はプレフィックスが `<Leader>t` の場合の例)
+Default keybindings when `use_default_keymaps = true`.
+(Examples below assume the prefix is `<Leader>t`)
 
-グローバルキーマップ (すべてのバッファで有効):
-キー            動作
-------------------------------------------------------------------------------
-<Leader>tt      `todo.md` をフローティング表示で開く
-<Leader>ti      `inbox.md` をフローティング表示で開く
-<Leader>thd     `done.md` (完了履歴) をフローティング表示で開く
-<Leader>thc     `cancelled.md` (キャンセル履歴) をフローティング表示で開く
-<Leader>ta      タスクの追加または編集 (タスク行で押すと編集、それ以外は新規追加)
-<Leader>tq      Queue ビューを開く（期限付きタスクを日付順に一覧表示）
-<Leader>t/      タスクのAND絞り込み検索の実行
+<Leader>tt  : Open `todo.md`
+<Leader>ti  : Open `inbox.md`
+<Leader>td  : Open `done.md`
+<Leader>tc  : Open `cancelled.md`
+<Leader>ta  : Add/Edit task interactively
+<Leader>ts  : Search tasks
+<Leader>tq  : Open the Queue view
 
-バッファローカルキーマップ (`todo.md` / `inbox.md` バッファ内でのみ有効):
-キー            動作
-------------------------------------------------------------------------------
-<Leader>td      カーソル行のタスクを `Today` セクションへ移動
-<Leader>tn      カーソル行のタスクを `Next` セクションへ移動
-<Leader>tw      カーソル行のタスクを `Waiting` セクションへ移動
-<Leader>ts      カーソル行のタスクを `Someday` セクションへ移動
-<Leader>tx      タスクの完了状態をトグル (完了時に `completed_at` を付与)
-<Leader>tc      タスクをキャンセルし、`cancelled.md` へ移動
-<Leader>tjp     カーソルの `+プロジェクト名` から対応するプロジェクトファイルへ
-                ジャンプ (存在しない場合はテンプレートから自動作成)
-<Leader>to      手動で期日チェックおよび自動ソートを実行
+gd          : Inside a markdown file, jump to the project file corresponding
+              to the `+Project` tag under the cursor.
+
+*Picker Actions*:
+When using `:GtodoSearch` with Snacks, Telescope, or fzf-lua:
+- `<Tab>`  : Multi-select tasks.
+- `x`      : (Normal mode) Toggle completion of the selected tasks.
+- `<C-x>`  : (Insert mode) Toggle completion of the selected tasks.
 
 ==============================================================================
-5. 特殊機能                                                  *gtodo-md-features*
+5. Advanced Features                                       *gtodo-md-features*
 
-|gtodo-md.nvim| は、操作の安全性と使い勝手を向上させるため、以下の特殊機能を備
-えています。
+*Statusline API*
+You can display task counts on your statusline: >lua
+    require('gtodo-md.api').get_statusline_string()
+<
+(See README for lualine-specific setup examples.)
 
-プロジェクト・タスクプレビュー機能:
-        プロジェクトメモファイル（`projects/プロジェクト名.md`）をバッファで開
-        いた際、バッファの最終行の下部に、対応するプロジェクトタグ（`+プロジ
-        ェクト名`）を持つ未完了のタスク一覧が、薄い色（Commentハイライト）の
-        **仮想テキスト (Virtual Text)** として自動的にプレビュー表示されます。
-        このテキストは画面上の一時表示であり、ファイル本体には一切書き込まれ
-        ず、ファイルをクリーンに保ったまま進行中タスクを確認できます。
-        タスク（todo.md/inbox.md）の保存や編集に伴い、このプレビュー表示も自
-        動的に最新の状態へ同期されます。
+*Dashboard API*
+Integration with `snacks.dashboard` and `alpha-nvim` is provided: >lua
+    require('gtodo-md.integrations.dashboard').snacks_section()
+<
 
-todo.md のセクション保護バリデーション:
-        `todo.md` は固定の4セクション（`Today`, `Next`, `Waiting`, `Someday`）
-        で管理されます。ユーザーの誤操作（`dd` 等の削除）で見出し行が消えてし
-        まった状態で保存されるとタスクの分類が壊れてしまうため、保存時（:w）
-        に自動チェックを行います。
-        必須セクションが1つでも欠けている場合、エラーメッセージを出して**保存
-        処理を強制的にブロック**し、データの破損を未然に防ぎます。
-        ブロックされた場合は、`u` キー（アンドゥ）等でセクション見出しを復元
-        してから保存してください。
+*Virtual Text & Highlights*
+Task priorities `(A)`, `(B)`, and tags like `+project` and `@context` are
+automatically syntax-highlighted. Due dates are augmented with virtual text 
+showing relative days (e.g., "Tomorrow", "In 3 days").
 
-==============================================================================
+
 vim:tw=78:ts=8:ft=help:norl:
