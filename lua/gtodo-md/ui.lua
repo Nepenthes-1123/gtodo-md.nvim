@@ -140,7 +140,8 @@ function M.search_tasks()
         local task = task_mod.parse(line)
         if task then
           local fname = vim.fn.fnamemodify(filepath, ":t:r")
-          local clean_line = line:gsub("^%s*%-*%s*%[[ %xX]*%]%s*", "")
+          local _, _, clean_line = line:match("^(%s*)%-%s*%[[ xX]%]%s*(.*)$")
+          clean_line = clean_line or line
           local display_text = string.format("[%s] %s", fname:upper(), clean_line)
           table.insert(items, {
             text = display_text,
@@ -223,7 +224,7 @@ function M.search_tasks()
           table.insert(qf_list, {
             filename = item.file,
             lnum = item.pos[1],
-            text = item.original_line,
+            text = item.text,
           })
         end
       end
