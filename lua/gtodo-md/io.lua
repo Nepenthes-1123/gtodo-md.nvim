@@ -39,7 +39,7 @@ function M.write_lines(path, lines)
   if buf then
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
     vim.api.nvim_buf_call(buf, function()
-      vim.cmd("silent! write")
+      vim.cmd("silent! noautocmd write")
     end)
   else
     local tmp_path = path .. ".tmp"

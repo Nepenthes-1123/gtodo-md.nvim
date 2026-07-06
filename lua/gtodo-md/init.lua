@@ -98,15 +98,11 @@ function M.handle_buf_enter(bufnr)
   
   -- バッファローカルキーマップを登録
   if config.get("use_default_keymaps") then
-    if is_todo or is_inbox then
-      M.setup_buffer_keymaps(bufnr)
-    end
+    M.setup_buffer_keymaps(bufnr)
   end
   
   -- 構文ハイライトのアタッチ
-  if is_todo or is_inbox then
-    require("gtodo-md.highlight").attach(bufnr)
-  end
+  require("gtodo-md.highlight").attach(bufnr)
   
   -- キャッシュを最新化
   last_processed_mtimes.inbox = vim.fn.getftime(inbox_path)
