@@ -39,7 +39,7 @@ function M.get_stats()
               in_today = false
             end
           end
-          if in_today and line:match("^%s*-%s*%[ %]") then
+          if in_today and require('gtodo-md.utils').is_todo_line(line) then
             stats.today = stats.today + 1
           end
         end
@@ -52,7 +52,7 @@ function M.get_stats()
       local f = io.open(inbox_path, "r")
       if f then
         for line in f:lines() do
-          if line:match("^%s*-%s*%[ %]") then
+          if require('gtodo-md.utils').is_todo_line(line) then
             stats.inbox = stats.inbox + 1
           end
         end
