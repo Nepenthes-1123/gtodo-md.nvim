@@ -41,10 +41,10 @@ function M.parse(line)
   task.created = extract_field("created:(%d%d%d%d%-%d%d%-%d%d)")
 
   -- @context (例: @15, @30, @60, @long)
-  task.context = extract_field("%s+(@%w+)") or extract_field("(@%w+)")
+  task.context = extract_field("%s+(@[%w%-_]+)") or extract_field("(@[%w%-_]+)")
 
   -- +project-name
-  task.project = extract_field("%s%+([%w%-]+)") or extract_field("%+([%w%-]+)")
+  task.project = extract_field("%s%+([%w%-_]+)") or extract_field("%+([%w%-_]+)")
 
   -- 余分なスペースのトリミング
   text = text:gsub("%s+", " ")
