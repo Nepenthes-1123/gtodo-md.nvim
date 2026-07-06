@@ -40,7 +40,7 @@ local function get_done_project_counts(done_path)
     
     -- 高速テキスト走査で完了タスクとプロジェクトタグをカウント
     for line in content:gmatch("[^\r\n]+") do
-      if line:match("^%s*-%s*%[x%]") then
+      if require('gtodo-md.utils').is_done_line(line) then
         local tag = line:match("%+([%w%-]+)")
         if tag then
           counts[tag] = (counts[tag] or 0) + 1

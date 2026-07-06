@@ -132,4 +132,14 @@ function M.write_notify_state(time, content)
   write_state(state)
 end
 
+function M.is_todo_line(line)
+  if type(line) ~= "string" then return false end
+  return line:match("%[%s%]") ~= nil
+end
+
+function M.is_done_line(line)
+  if type(line) ~= "string" then return false end
+  return line:match("%[x%]") ~= nil or line:match("%[X%]") ~= nil
+end
+
 return M

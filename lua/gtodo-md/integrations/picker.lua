@@ -11,16 +11,18 @@ function M.toggle_task_file_line(file, lnum)
   local line = lines[lnum]
   if not line then return end
   
-  local is_todo = line:match("%[ %]")
-  local is_done = line:match("%[x%]")
+  local utils = require('gtodo-md.utils')
+  local is_todo = utils.is_todo_line(line)
+  local is_done = utils.is_done_line(line)
   
   if is_todo then
-    line = line:gsub("%[ %]", "[x]")
+    line = line:gsub("%[%s%]", "[x]")
     -- completed_at を付与
     local today = os.date("%Y-%m-%d")
     line = line .. " completed_at:" .. today
   elseif is_done then
     line = line:gsub("%[x%]", "[ ]")
+    line = line:gsub("%[X%]", "[ ]")
     -- completed_at を削除
     line = line:gsub(" completed_at:%S+", "")
   end
