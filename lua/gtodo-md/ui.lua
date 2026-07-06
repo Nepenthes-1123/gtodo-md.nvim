@@ -41,7 +41,7 @@ local function get_done_project_counts(done_path)
     -- 高速テキスト走査で完了タスクとプロジェクトタグをカウント
     for line in content:gmatch("[^\r\n]+") do
       if require('gtodo-md.utils').is_done_line(line) then
-        local tag = line:match("%+([%w%-_]+)")
+        local tag = line:match("%+([%w%-_/%.]+)")
         if tag then
           counts[tag] = (counts[tag] or 0) + 1
         end
@@ -189,8 +189,8 @@ function M.search_tasks()
     if not query then return end
     query = vim.trim(query)
     
-    local target_project = query:match("%+([%w%-_]+)")
-    local target_context = query:match("(@[%w%-_]+)")
+    local target_project = query:match("%+([%w%-_/%.]+)")
+    local target_context = query:match("(@[%w%-_/%.]+)")
     local target_status = nil
     if query:match("%[%s*%]") then
       target_status = " "
@@ -243,7 +243,7 @@ end
 -- プロジェクトファイルへのジャンプ
 function M.jump_to_project()
   local current_line = vim.api.nvim_get_current_line()
-  local project_tag = current_line:match("%+([%w%-_]+)")
+  local project_tag = current_line:match("%+([%w%-_/%.]+)")
   
   if not project_tag then
     return
