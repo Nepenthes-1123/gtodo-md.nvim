@@ -35,9 +35,9 @@ function M.update_highlights(bufnr)
   local today_time = utils.date_to_time(os.date("%Y-%m-%d"))
   
   for i, line in ipairs(lines) do
-    if line:match("^%s*-%s*%[.%]") then
+    if utils.is_todo_line(line) or utils.is_done_line(line) then
       -- 1. Project tag (+Project)
-      for s, tag in line:gmatch("()(%+[%w%-_]+)") do
+      for s, tag in line:gmatch("()(%+[%w%-_/%.]+)") do
         vim.api.nvim_buf_set_extmark(bufnr, ns, i - 1, s - 1, {
           end_col = s - 1 + #tag,
           hl_group = hl_groups.project,
@@ -46,7 +46,7 @@ function M.update_highlights(bufnr)
       end
       
       -- 2. Context (@context)
-      for s, ctx in line:gmatch("()(@[%w%-_]+)") do
+      for s, ctx in line:gmatch("()(@[%w%-_/%.]+)") do
         vim.api.nvim_buf_set_extmark(bufnr, ns, i - 1, s - 1, {
           end_col = s - 1 + #ctx,
           hl_group = hl_groups.context,

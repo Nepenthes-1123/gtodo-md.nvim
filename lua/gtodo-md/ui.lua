@@ -40,8 +40,8 @@ local function get_done_project_counts(done_path)
     
     -- 高速テキスト走査で完了タスクとプロジェクトタグをカウント
     for line in content:gmatch("[^\r\n]+") do
-      if line:match("^%s*-%s*%[x%]") then
-        local tag = line:match("%+([%w%-]+)")
+      if require('gtodo-md.utils').is_done_line(line) then
+        local tag = line:match("%+([%w%-_/%.]+)")
         if tag then
           counts[tag] = (counts[tag] or 0) + 1
         end
@@ -140,9 +140,12 @@ function M.search_tasks()
         local task = task_mod.parse(line)
         if task then
           local fname = vim.fn.fnamemodify(filepath, ":t:r")
-          local display_text = string.format("[%s] %s", fname:upper(), line)
+          local _, _, clean_line = line:match("^(%s*)%-%s*%[([ xX])%]%s*(.*)$")
+          clean_line = clean_line or line
+          local display_text = string.format("[%s] %s", fname:upper(), clean_line)
           table.insert(items, {
             text = display_text,
+            original_line = line,
             file = filepath,
             pos = { lnum, 1 },
           })
@@ -187,8 +190,8 @@ function M.search_tasks()
     if not query then return end
     query = vim.trim(query)
     
-    local target_project = query:match("%+([%w%-]+)")
-    local target_context = query:match("(@%w+)")
+    local target_project = query:match("%+([%w%-_/%.]+)")
+    local target_context = query:match("(@[%w%-_/%.]+)")
     local target_status = nil
     if query:match("%[%s*%]") then
       target_status = " "
@@ -198,8 +201,7 @@ function M.search_tasks()
     
     local qf_list = {}
     for _, item in ipairs(items) do
-      local line = item.text:match("^%[[%w%-]+%]%s*(.*)$")
-      local task = task_mod.parse(line)
+      local task = task_mod.parse(item.original_line)
       if task then
         local match = true
         if target_project and task.project ~= target_project then
@@ -222,7 +224,7 @@ function M.search_tasks()
           table.insert(qf_list, {
             filename = item.file,
             lnum = item.pos[1],
-            text = line,
+            text = item.text,
           })
         end
       end
@@ -242,7 +244,7 @@ end
 -- プロジェクトファイルへのジャンプ
 function M.jump_to_project()
   local current_line = vim.api.nvim_get_current_line()
-  local project_tag = current_line:match("%+([%w%-]+)")
+  local project_tag = current_line:match("%+([%w%-_/%.]+)")
   
   if not project_tag then
     return
