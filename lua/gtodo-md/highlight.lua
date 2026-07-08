@@ -78,17 +78,18 @@ function M.update_highlights(bufnr)
         
         if due_time then
           local diff = math.floor((due_time - today_time) / 86400)
+          local is_ja = vim.v.lang:match("^ja")
           if diff < 0 then
             hl = hl_groups.date_error
-            vtext = string.format(" (%d日超過)", -diff)
+            vtext = is_ja and string.format(" (%d日超過)", -diff) or string.format(" (%d overdue)", -diff)
           elseif diff == 0 then
             hl = hl_groups.date_warn
-            vtext = " (今日)"
+            vtext = is_ja and " (今日)" or " (Today)"
           elseif diff == 1 then
             hl = hl_groups.date_normal
-            vtext = " (明日)"
+            vtext = is_ja and " (明日)" or " (Tomorrow)"
           else
-            vtext = string.format(" (%d日後)", diff)
+            vtext = is_ja and string.format(" (%d日後)", diff) or string.format(" (In %d days)", diff)
           end
         end
         
