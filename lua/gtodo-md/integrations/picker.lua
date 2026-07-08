@@ -103,6 +103,7 @@ function M.snacks(items)
         keys = {
           ["<c-x>"] = { "toggle_task", desc = "Toggle Task Done/Undone", mode = { "n", "i" } },
           ["x"] = { "toggle_task", desc = "Toggle Task Done/Undone", mode = "n" },
+          ["　"] = { function() vim.api.nvim_feedkeys(" ", "n", false) end, desc = "Convert full-width space to half-width space", mode = "i" },
         }
       },
       list = {
@@ -167,6 +168,7 @@ function M.telescope(items)
       map('i', '<C-x>', toggle_task)
       map('n', '<C-x>', toggle_task)
       map('n', 'x', toggle_task)
+      map('i', '　', '<Space>')
       return true
     end,
   }):find()
@@ -223,6 +225,9 @@ function M.fzf_lua(items)
   fzf.fzf_exec(fzf_items, {
     prompt = "Gtodo Search> ",
     previewer = "builtin",
+    fzf_opts = {
+      ["--bind"] = "　:put( )"
+    },
     actions = vim.tbl_extend("force", fzf.defaults.actions.file_edit, {
       ["ctrl-x"] = function(selected, opts)
         if not selected or #selected == 0 then return end
