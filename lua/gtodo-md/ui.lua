@@ -189,6 +189,7 @@ function M.search_tasks()
   }, function(query)
     if not query then return end
     query = vim.trim(query)
+    query = query:gsub("　", " ")
     
     local target_project = query:match("%+([%w%-_/%.]+)")
     local target_context = query:match("(@[%w%-_/%.]+)")
