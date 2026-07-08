@@ -38,6 +38,16 @@ function M.write_lines(path, lines)
   local buf = get_buf_by_name(path)
   if buf then
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    
+    -- フォーマッターが存在すれば呼び出す (conform.nvim または LSP)
+    pcall(function()
+      if package.loaded["conform"] then
+        require("conform").format({ bufnr = buf, async = false })
+      else
+        vim.lsp.buf.format({ bufnr = buf, async = false })
+      end
+    end)
+    
     vim.api.nvim_buf_call(buf, function()
       vim.cmd("silent! noautocmd write")
     end)
@@ -135,6 +145,7 @@ function M.write_todo_file(filepath, data)
       table.insert(lines, "")
     end
     table.insert(lines, "## " .. sec)
+    table.insert(lines, "")
     
     local items = data.sections[sec] or {}
     for _, item in ipairs(items) do
