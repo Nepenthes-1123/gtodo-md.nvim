@@ -449,6 +449,9 @@ end
 function M.add_or_edit_task()
   local bufname = vim.api.nvim_buf_get_name(0)
   local filename = vim.fn.fnamemodify(bufname, ":t")
+  local data_dir = config.get("data_dir")
+  local inbox_path = data_dir .. "/inbox.md"
+  local todo_path = data_dir .. "/todo.md"
   
   if filename == "todo.md" or filename == "inbox.md" then
     local task, row = editor_mod.get_current_task()
@@ -459,8 +462,17 @@ function M.add_or_edit_task()
         vim.api.nvim_buf_set_lines(0, row - 1, row, false, { newline })
         vim.cmd("silent! write")
         if filename == "todo.md" then
-          local todo_path = config.get("data_dir") .. "/todo.md"
+          local changed = logic_mod.check_dues(inbox_path, todo_path)
           logic_mod.sort_todo_file(todo_path)
+          if changed then
+            vim.cmd("checktime")
+          end
+        else
+          local changed = logic_mod.check_dues(inbox_path, todo_path)
+          if changed then
+            logic_mod.sort_todo_file(todo_path)
+            vim.cmd("checktime")
+          end
         end
       end)
       return
@@ -476,7 +488,6 @@ function M.add_or_edit_task()
     if filename == "todo.md" then
       local current_sec = editor_mod.get_current_section()
       if current_sec == "default" then current_sec = config.sections.TODAY end
-      local todo_path = config.get("data_dir") .. "/todo.md"
       local todo_data = io_mod.read_todo_file(todo_path)
       if not todo_data.sections[current_sec] then
         todo_data.sections[current_sec] = {}
@@ -485,7 +496,6 @@ function M.add_or_edit_task()
       io_mod.write_todo_file(todo_path, todo_data)
       logic_mod.sort_todo_file(todo_path)
     else
-      local inbox_path = config.get("data_dir") .. "/inbox.md"
       local inbox_data = io_mod.read_todo_file(inbox_path)
       if not inbox_data.sections["default"] then
         inbox_data.sections["default"] = {}
@@ -498,8 +508,23 @@ function M.add_or_edit_task()
       
       table.insert(sec, { type = "task", task = new_task })
       io_mod.write_todo_file(inbox_path, inbox_data)
-      if filename ~= "inbox.md" then
+      
+      local changed = logic_mod.check_dues(inbox_path, todo_path)
+      if changed then
+        logic_mod.sort_todo_file(todo_path)
+        -- reload if inbox is open
+        for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+          if vim.api.nvim_buf_is_loaded(buf) then
+            local bname = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t")
+            if bname == "inbox.md" or bname == "todo.md" then
+              vim.api.nvim_buf_call(buf, function() vim.cmd("checktime") end)
+            end
+          end
+        end
+      elseif filename ~= "inbox.md" then
         vim.notify("Created new task in inbox.md", vim.log.levels.INFO)
+      else
+        vim.cmd("checktime")
       end
     end
   end)
