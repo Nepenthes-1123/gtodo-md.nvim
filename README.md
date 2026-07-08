@@ -50,6 +50,7 @@ require("gtodo-md").setup({
   enable_waiting_warning = true, -- Enable Waiting tasks warnings
   waiting_warning_interval = 3600, -- Interval to check Waiting tasks warnings (seconds)
   enable_project_progress = true, -- Display progress bars at the bottom of project files
+  auto_move_inbox_to_today = true, -- Automatically move tasks with due dates of today/overdue from Inbox to Today on creation or edit
 })
 ```
 
