@@ -126,7 +126,7 @@ function M.attach(bufnr)
   -- 文字入力などで変更されるたびにハイライトを更新する
   local group = vim.api.nvim_create_augroup("GTodoHighlight_" .. bufnr, { clear = true })
   
-  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI", "BufEnter", "FileChangedShellPost" }, {
     group = group,
     buffer = bufnr,
     callback = function()
