@@ -28,11 +28,12 @@ end
 function M.update_highlights(bufnr)
   if not vim.api.nvim_buf_is_valid(bufnr) then return end
   
-  -- 既存のハイライトをクリア
-  vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
-  
-  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-  local today_time = utils.date_to_time(os.date("%Y-%m-%d"))
+  local ok, err = pcall(function()
+    -- 既存のハイライトをクリア
+    vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+    
+    local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+    local today_time = utils.date_to_time(os.date("%Y-%m-%d"))
   
   for i, line in ipairs(lines) do
     if utils.is_todo_line(line) or utils.is_done_line(line) then
@@ -78,17 +79,27 @@ function M.update_highlights(bufnr)
         
         if due_time then
           local diff = math.floor((due_time - today_time) / 86400)
+          local lang = type(vim.v.lang) == "string" and vim.v.lang or os.getenv("LANG") or ""
+          local time_lang = os.setlocale(nil, "time") or ""
+          local is_ja = string.match(lang, "^ja")
+          
+          if string.match(time_lang, "^en") then
+            is_ja = false
+          elseif string.match(time_lang, "^ja") then
+            is_ja = true
+          end
+          
           if diff < 0 then
             hl = hl_groups.date_error
-            vtext = string.format(" (%d日超過)", -diff)
+            vtext = is_ja and string.format(" (%d日超過)", -diff) or string.format(" (%d overdue)", -diff)
           elseif diff == 0 then
             hl = hl_groups.date_warn
-            vtext = " (今日)"
+            vtext = is_ja and " (今日)" or " (Today)"
           elseif diff == 1 then
             hl = hl_groups.date_normal
-            vtext = " (明日)"
+            vtext = is_ja and " (明日)" or " (Tomorrow)"
           else
-            vtext = string.format(" (%d日後)", diff)
+            vtext = is_ja and string.format(" (%d日後)", diff) or string.format(" (In %d days)", diff)
           end
         end
         
@@ -109,6 +120,10 @@ function M.update_highlights(bufnr)
         end
       end
     end
+  end
+  end)
+  if not ok then
+    vim.notify("GTodo highlight error: " .. tostring(err), vim.log.levels.ERROR)
   end
 end
 

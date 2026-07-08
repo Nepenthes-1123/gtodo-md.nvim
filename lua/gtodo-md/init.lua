@@ -390,6 +390,34 @@ function M.setup_autocmds()
     end
   })
   
+  -- 構文ハイライトのアタッチ
+  vim.api.nvim_create_autocmd({ "BufReadPost", "BufNewFile", "FileChangedShellPost" }, {
+    group = group,
+    pattern = "*.md",
+    callback = function(ev)
+      local bufname = vim.api.nvim_buf_get_name(ev.buf)
+      local data_dir = require("gtodo-md.config").get("data_dir")
+      if data_dir and bufname:find(data_dir, 1, true) then
+        require("gtodo-md.highlight").attach(ev.buf)
+      end
+    end,
+  })
+  
+  -- 言語変更時の即時反映のため、データディレクトリ内の.mdでBufEnter時にハイライトを更新
+  vim.api.nvim_create_autocmd({ "BufEnter" }, {
+    group = group,
+    pattern = "*.md",
+    callback = function(args)
+      local bufname = vim.api.nvim_buf_get_name(args.buf)
+      local data_dir = require("gtodo-md.config").get("data_dir")
+      if data_dir and bufname:find(data_dir, 1, true) then
+        vim.schedule(function()
+          require('gtodo-md.highlight').update_highlights(args.buf)
+        end)
+      end
+    end
+  })
+  
   -- projects/*.md 用 (仮想テキストの描画)
   vim.api.nvim_create_autocmd({ "BufEnter", "BufWritePost" }, {
     group = group,
