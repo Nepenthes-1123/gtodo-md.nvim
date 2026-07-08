@@ -93,19 +93,38 @@ end
 function M.check_dues(inbox_path, todo_path)
   local today = os.date("%Y-%m-%d")
   local moved_count = 0
+  local auto_move_inbox = config.get("auto_move_inbox_to_today")
   
-  -- 1. inbox.md の dueチェック (警告通知のみ)
+  -- 1. inbox.md の dueチェック
   local inbox_data = io_mod.read_todo_file(inbox_path)
   local inbox_warnings = {}
+  local inbox_changed = false
+  local items_to_move = {}
   
   if inbox_data.sections["default"] then
+    local remaining = {}
     for _, item in ipairs(inbox_data.sections["default"]) do
       if item.type == "task" and item.task.status ~= "x" and item.task.due then
         if item.task.due <= today then
-          table.insert(inbox_warnings, string.format("Inbox: %s (due: %s)", item.task.content, item.task.due))
+          if auto_move_inbox then
+            table.insert(items_to_move, item)
+            inbox_changed = true
+          else
+            table.insert(inbox_warnings, string.format("Inbox: %s (due: %s)", item.task.content, item.task.due))
+            table.insert(remaining, item)
+          end
+        else
+          table.insert(remaining, item)
         end
+      else
+        table.insert(remaining, item)
       end
     end
+    inbox_data.sections["default"] = remaining
+  end
+  
+  if inbox_changed then
+    io_mod.write_todo_file(inbox_path, inbox_data)
   end
   
   local persist = config.get("due_notification_persist")
@@ -124,13 +143,19 @@ function M.check_dues(inbox_path, todo_path)
     set_last_notify_state(persist, 0, "")
   end
 
-  -- 2. todo.md の dueチェック (Next/Someday -> Today)
+  -- 2. todo.md の dueチェック (Inbox / Next / Someday -> Today)
   local todo_data = io_mod.read_todo_file(todo_path)
   local todo_changed = false
   
   if not todo_data.sections[config.sections.TODAY] then
     todo_data.sections[config.sections.TODAY] = {}
     table.insert(todo_data.section_order, 1, config.sections.TODAY)
+  end
+  
+  for _, item in ipairs(items_to_move) do
+    table.insert(todo_data.sections[config.sections.TODAY], item)
+    moved_count = moved_count + 1
+    todo_changed = true
   end
   
   for _, from_sec in ipairs({ config.sections.NEXT, config.sections.SOMEDAY }) do
