@@ -395,19 +395,26 @@ function M.setup_autocmds()
     group = group,
     pattern = "*.md",
     callback = function(ev)
-      -- highlight attach
-      require("gtodo-md.highlight").attach(ev.buf)
+      local bufname = vim.api.nvim_buf_get_name(ev.buf)
+      local data_dir = require("gtodo-md.config").get("data_dir")
+      if data_dir and bufname:find(data_dir, 1, true) then
+        require("gtodo-md.highlight").attach(ev.buf)
+      end
     end,
   })
   
-  -- 言語変更時の即時反映のため、すべての.mdでBufEnter時にハイライトを更新
+  -- 言語変更時の即時反映のため、データディレクトリ内の.mdでBufEnter時にハイライトを更新
   vim.api.nvim_create_autocmd({ "BufEnter" }, {
     group = group,
     pattern = "*.md",
     callback = function(args)
-      vim.schedule(function()
-        require('gtodo-md.highlight').update_highlights(args.buf)
-      end)
+      local bufname = vim.api.nvim_buf_get_name(args.buf)
+      local data_dir = require("gtodo-md.config").get("data_dir")
+      if data_dir and bufname:find(data_dir, 1, true) then
+        vim.schedule(function()
+          require('gtodo-md.highlight').update_highlights(args.buf)
+        end)
+      end
     end
   })
   
