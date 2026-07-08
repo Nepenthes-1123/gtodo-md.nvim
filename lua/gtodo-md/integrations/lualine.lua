@@ -3,9 +3,9 @@ local M = {}
 -- Lualine用のコンポーネント設定を生成する
 function M.component(opts)
   opts = vim.tbl_deep_extend("force", {
-    icon_today = "📝",
-    icon_inbox = "📥",
-    icon_done  = "✨",
+    icon_today = "󰃭",
+    icon_inbox = "󰚦",
+    icon_done  = "󰄴",
     separator  = " | ",
     color      = { fg = "#a6e3a1", gui = "bold" }, -- Catppuccin Green
   }, opts or {})
