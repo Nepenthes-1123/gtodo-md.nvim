@@ -80,7 +80,15 @@ function M.update_highlights(bufnr)
         if due_time then
           local diff = math.floor((due_time - today_time) / 86400)
           local lang = type(vim.v.lang) == "string" and vim.v.lang or os.getenv("LANG") or ""
+          local time_lang = os.setlocale(nil, "time") or ""
           local is_ja = string.match(lang, "^ja")
+          
+          if string.match(time_lang, "^en") then
+            is_ja = false
+          elseif string.match(time_lang, "^ja") then
+            is_ja = true
+          end
+          
           if diff < 0 then
             hl = hl_groups.date_error
             vtext = is_ja and string.format(" (%d日超過)", -diff) or string.format(" (%d overdue)", -diff)
@@ -131,7 +139,7 @@ function M.attach(bufnr)
   -- 文字入力などで変更されるたびにハイライトを更新する
   local group = vim.api.nvim_create_augroup("GTodoHighlight_" .. bufnr, { clear = true })
   
-  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI", "BufEnter", "FileChangedShellPost" }, {
+  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
     group = group,
     buffer = bufnr,
     callback = function()
