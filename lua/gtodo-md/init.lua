@@ -22,6 +22,27 @@ function M.setup(opts)
   -- タイマー開始
   timer_mod.start_waiting_timer()
   
+  -- 起動時のバックグラウンド処理 (Inboxからの自動移動などをファイルを開く前に実行)
+  vim.schedule(function()
+    local data_dir = config.get("data_dir")
+    local inbox_path = data_dir .. "/inbox.md"
+    local todo_path = data_dir .. "/todo.md"
+    local changed = logic_mod.check_dues(inbox_path, todo_path)
+    if changed then
+      logic_mod.sort_todo_file(todo_path)
+      -- もしバッファが開かれていたら更新
+      for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+        if vim.api.nvim_buf_is_loaded(buf) then
+          local bufname = vim.api.nvim_buf_get_name(buf)
+          local filename = vim.fn.fnamemodify(bufname, ":t")
+          if filename == "todo.md" or filename == "inbox.md" then
+            vim.api.nvim_buf_call(buf, function() vim.cmd("checktime") end)
+          end
+        end
+      end
+    end
+  end)
+  
   -- Autocmdの設定
   M.setup_autocmds()
   require("gtodo-md.highlight").setup()
