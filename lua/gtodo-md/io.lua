@@ -38,11 +38,14 @@ function M.write_lines(path, lines)
   local buf = get_buf_by_name(path)
   if buf then
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-    
-    -- フォーマッターが存在すれば呼び出す (conform.nvim または LSP)
+    -- フォーマッターが存在すれば呼び出す (conform.nvim, Neoformat, formatter.nvim, または LSP)
     pcall(function()
       if package.loaded["conform"] then
         require("conform").format({ bufnr = buf, async = false })
+      elseif vim.fn.exists(":Neoformat") == 2 then
+        vim.cmd("Neoformat")
+      elseif vim.fn.exists(":FormatWrite") == 2 then
+        vim.cmd("FormatWrite")
       else
         vim.lsp.buf.format({ bufnr = buf, async = false })
       end
