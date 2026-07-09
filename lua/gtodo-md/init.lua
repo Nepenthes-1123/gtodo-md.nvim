@@ -57,8 +57,12 @@ function M.setup(opts)
   -- ディレクトリ内のデフォルトファイルを用意する
   io_mod.ensure_files()
   
+  -- 起動時に日付変更チェックを走らせる（Dashboard等への最新データ提供のため）
+  M.check_daily_rollover()
+  
   -- タイマー開始
   timer_mod.start_waiting_timer()
+  timer_mod.start_daily_rollover_timer()
   
   -- Autocmdの設定
   M.setup_autocmds()
