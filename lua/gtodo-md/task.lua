@@ -207,20 +207,20 @@ function M.prompt_task(initial_task, callback)
       
       -- Step 3: Project 選択 (New Project... を常に上部に配置)
       local projects = get_projects()
-      local proj_options = { "[Skip]", "New Project..." }
-      for _, p in ipairs(projects) do
-        table.insert(proj_options, p)
-      end
-
+      local proj_options = {}
       local default_proj_opt = "[Skip]"
+
       if task.project and task.project ~= "" then
         default_proj_opt = task.project
-        local found = false
-        for _, o in ipairs(proj_options) do
-          if o == task.project then found = true break end
-        end
-        if not found then
-          table.insert(proj_options, 3, task.project) -- Skip, New Project... の次に追加
+        table.insert(proj_options, task.project)
+      end
+      
+      table.insert(proj_options, "[Skip]")
+      table.insert(proj_options, "New Project...")
+      
+      for _, p in ipairs(projects) do
+        if p ~= task.project then
+          table.insert(proj_options, p)
         end
       end
 
@@ -234,12 +234,23 @@ function M.prompt_task(initial_task, callback)
           task.project = final_project
 
           -- Step 4: Context 選択
-          local ctx_options = { "[Skip]", "@15", "@30", "@60", "@long" }
           local default_ctx_opt = "[Skip]"
           if task.context and task.context ~= "" then
             default_ctx_opt = task.context
             if not default_ctx_opt:match("^@") then
               default_ctx_opt = "@" .. default_ctx_opt
+            end
+          end
+
+          local ctx_options = {}
+          if default_ctx_opt ~= "[Skip]" then
+            table.insert(ctx_options, default_ctx_opt)
+          end
+          table.insert(ctx_options, "[Skip]")
+          
+          for _, c in ipairs({ "@15", "@30", "@60", "@long" }) do
+            if c ~= default_ctx_opt then
+              table.insert(ctx_options, c)
             end
           end
 
