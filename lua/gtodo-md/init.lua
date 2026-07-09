@@ -417,6 +417,17 @@ function M.setup_autocmds()
     end
   })
   
+  -- フォーカスが戻った時の日付変更検知
+  vim.api.nvim_create_autocmd("FocusGained", {
+    group = group,
+    pattern = "*",
+    callback = function()
+      vim.schedule(function()
+        M.check_daily_rollover()
+      end)
+    end
+  })
+  
   -- 構文ハイライトのアタッチ
   vim.api.nvim_create_autocmd({ "BufReadPost", "BufNewFile", "FileChangedShellPost" }, {
     group = group,
