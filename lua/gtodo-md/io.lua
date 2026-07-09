@@ -33,27 +33,30 @@ function M.read_lines(path)
   end
 end
 
+function M.format_buffer(bufnr)
+  pcall(function()
+    if package.loaded["conform"] then
+      require("conform").format({ bufnr = bufnr, async = false })
+    elseif vim.fn.exists(":Neoformat") == 2 then
+      vim.cmd("Neoformat")
+    elseif vim.fn.exists(":FormatWrite") == 2 then
+      vim.cmd("FormatWrite")
+    else
+      vim.lsp.buf.format({ bufnr = bufnr, async = false })
+    end
+  end)
+  
+  vim.api.nvim_buf_call(bufnr, function()
+    vim.cmd("silent! noautocmd write")
+  end)
+end
+
 -- ファイルまたはバッファに行リストを書き込む
 function M.write_lines(path, lines)
   local buf = get_buf_by_name(path)
   if buf then
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-    -- フォーマッターが存在すれば呼び出す (conform.nvim, Neoformat, formatter.nvim, または LSP)
-    pcall(function()
-      if package.loaded["conform"] then
-        require("conform").format({ bufnr = buf, async = false })
-      elseif vim.fn.exists(":Neoformat") == 2 then
-        vim.cmd("Neoformat")
-      elseif vim.fn.exists(":FormatWrite") == 2 then
-        vim.cmd("FormatWrite")
-      else
-        vim.lsp.buf.format({ bufnr = buf, async = false })
-      end
-    end)
-    
-    vim.api.nvim_buf_call(buf, function()
-      vim.cmd("silent! noautocmd write")
-    end)
+    M.format_buffer(buf)
   else
     local tmp_path = path .. ".tmp"
     local f = io.open(tmp_path, "w")
