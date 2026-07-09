@@ -12,6 +12,9 @@ function M.get_stats()
   local data_dir = config.get("data_dir")
   if not data_dir then return cache.stats end
   
+  -- API呼び出し時に最新日付かチェックし、必要なら裏で大掃除する
+  require('gtodo-md').check_daily_rollover()
+  
   local todo_path = data_dir .. "/todo.md"
   local inbox_path = data_dir .. "/inbox.md"
   
