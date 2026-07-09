@@ -214,6 +214,7 @@ function M.append_to_history(filepath, header_title, section_name, tasks)
       table.insert(lines, "")
     end
     table.insert(lines, "## " .. section_name)
+    table.insert(lines, "")
   end
 
   for _, t in ipairs(tasks) do

@@ -133,7 +133,10 @@ function M.write_todo_file(filepath, data)
     table.insert(lines, l)
   end
   
-  if data.sections["default"] then
+  if data.sections["default"] and #data.sections["default"] > 0 then
+    if #lines > 0 and lines[#lines] ~= "" then
+      table.insert(lines, "")
+    end
     for _, item in ipairs(data.sections["default"]) do
       if item.type == "task" then
         table.insert(lines, task_mod.serialize(item.task))
@@ -172,10 +175,10 @@ end
 function M.ensure_files()
   local data_dir = config.get("data_dir")
   local files = {
-    { path = data_dir .. "/inbox.md", title = "# Inbox" },
+    { path = data_dir .. "/inbox.md", title = "# Inbox\n" },
     { path = data_dir .. "/todo.md", title = string.format("# Todo\n\n## %s\n\n## %s\n\n## %s\n\n## %s", config.sections.TODAY, config.sections.NEXT, config.sections.WAITING, config.sections.SOMEDAY) },
-    { path = data_dir .. "/done.md", title = "# Done" },
-    { path = data_dir .. "/cancelled.md", title = "# Cancelled" },
+    { path = data_dir .. "/done.md", title = "# Done\n" },
+    { path = data_dir .. "/cancelled.md", title = "# Cancelled\n" },
   }
   
   for _, f in ipairs(files) do
