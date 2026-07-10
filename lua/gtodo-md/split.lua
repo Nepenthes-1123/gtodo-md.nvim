@@ -33,35 +33,7 @@ local function escape_lua_pattern(s)
 end
 
 local function create_project_file_if_missing(tag)
-  local data_dir = config.get("data_dir")
-  local proj_file = string.format("%s/projects/%s.md", data_dir, tag)
-  if vim.fn.filereadable(proj_file) == 0 then
-    local projects_dir = data_dir .. "/projects"
-    if vim.fn.isdirectory(projects_dir) == 0 then
-      vim.fn.mkdir(projects_dir, "p")
-    end
-    local today = os.date("%Y-%m-%d")
-    local template = {
-      "---",
-      'title: "' .. tag .. '"',
-      "tag: " .. tag,
-      "created: " .. today,
-      "due: ",
-      "status: active",
-      "members: []",
-      "---",
-      "",
-      "## Overview",
-      "",
-      "## Inbox",
-      ""
-    }
-    local f = io.open(proj_file, "w")
-    if f then
-      for _, l in ipairs(template) do f:write(l .. "\n") end
-      f:close()
-    end
-  end
+  require('gtodo-md.utils').create_project_file(tag)
 end
 
 function M.split_current_task()

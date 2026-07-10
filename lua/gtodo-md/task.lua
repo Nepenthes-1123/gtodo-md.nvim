@@ -138,38 +138,8 @@ function M.prompt_task(initial_task, callback)
     return proj_list
   end
 
-  -- 新しいプロジェクトファイルの自動作成
   local function create_project_file(project_tag)
-    local data_dir = require('gtodo-md.config').options.data_dir
-    local proj_file = string.format("%s/projects/%s.md", data_dir, project_tag)
-    if vim.fn.filereadable(proj_file) == 0 then
-      local today = os.date("%Y-%m-%d")
-      local template = {
-        "---",
-        "title:                 ",
-        "tag: " .. project_tag,
-        "created: " .. today,
-        "due:                   ",
-        "status: active         ",
-        "members: []            ",
-        "---",
-        "",
-        "## Overview",
-        "",
-        "## Notes",
-        "",
-        "## Reference",
-        ""
-      }
-      local f = io.open(proj_file, "w")
-      if f then
-        for _, l in ipairs(template) do
-          f:write(l .. "\n")
-        end
-        f:close()
-        vim.notify("Created new project file: " .. project_tag, vim.log.levels.INFO)
-      end
-    end
+    require('gtodo-md.utils').create_project_file(project_tag)
   end
 
   -- Step 1: 説明
