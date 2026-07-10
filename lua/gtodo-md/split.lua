@@ -164,6 +164,9 @@ function M.split_current_task()
       style = "minimal", border = "rounded", title = " Task Split ", title_pos = "center",
     })
     
+    -- 強制的にスクロールオフを0にして、最上部の仮想テキストが画面外に押し出されるのを防ぐ
+    vim.wo[scratch_win].scrolloff = 0
+    
     vim.api.nvim_create_autocmd("BufWipeout", {
       buffer = scratch_buf,
       callback = function()
