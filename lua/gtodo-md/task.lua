@@ -33,7 +33,7 @@ function M.parse(line)
   task.done = extract_field("done:(%d%d%d%d%-%d%d%-%d%d)")
   task.cancelled = extract_field("cancelled:(%d%d%d%d%-%d%d%-%d%d)")
   task.from = extract_field("from:(%w+)")
-  local raw_due = extract_field("due:(%S+)")
+  local raw_due = extract_field("due:([%w%-/%+]+)")
   if raw_due then
     local normalized = require('gtodo-md.utils').parse_due_date(raw_due)
     task.due = normalized or raw_due
@@ -41,10 +41,10 @@ function M.parse(line)
   task.created = extract_field("created:(%d%d%d%d%-%d%d%-%d%d)")
 
   -- @context (例: @15, @30, @60, @long)
-  task.context = extract_field("%s+(@[%w%-_/%.]+)") or extract_field("(@[%w%-_/%.]+)")
+  task.context = extract_field("%s+(@[%w%-_/%.]+)") or extract_field("^(@[%w%-_/%.]+)")
 
   -- +project-name
-  task.project = extract_field("%s%+([%w%-_/%.]+)") or extract_field("%+([%w%-_/%.]+)")
+  task.project = extract_field("%s%+([%w%-_/%.]+)") or extract_field("^%+([%w%-_/%.]+)")
 
   -- 余分なスペースのトリミング
   text = text:gsub("%s+", " ")
