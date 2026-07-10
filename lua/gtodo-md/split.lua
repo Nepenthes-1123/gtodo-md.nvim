@@ -132,8 +132,6 @@ function M.split_current_task()
     parent_line = vim.api.nvim_buf_get_lines(source_buf, row - 1, row, false)[1]
     
     local extmark_id = vim.api.nvim_buf_set_extmark(source_buf, ns_id, row - 1, 0, {
-      virt_lines = { { { "# Splitting: " .. vim.trim(parent_line), "Comment" } } },
-      virt_lines_above = true,
       right_gravity = false,
     })
     
@@ -145,6 +143,16 @@ function M.split_current_task()
     vim.bo[scratch_buf].filetype = "markdown"
     
     vim.api.nvim_buf_set_lines(scratch_buf, 0, -1, false, { "" })
+    
+    local virt_ns = vim.api.nvim_create_namespace("gtodo_split_virt")
+    vim.api.nvim_buf_set_extmark(scratch_buf, virt_ns, 0, 0, {
+      virt_lines = {
+        { { "# Splitting: " .. vim.trim(parent_line), "Title" } },
+        { { "  [Commit: Normal mode, press g<CR> or <Leader><CR>]  [Cancel: :q]", "Comment" } }
+      },
+      virt_lines_above = true,
+      right_gravity = false,
+    })
     
     local width = math.floor(vim.o.columns * 0.8)
     local height = math.floor(vim.o.lines * 0.6)
