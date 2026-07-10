@@ -219,7 +219,7 @@ function M.split_current_task()
       if current_parent_line ~= parent_line then
         local c_bq_prefix, c_marker, c_marker_width = get_list_marker_info(current_parent_line)
         if not c_marker then
-          vim.notify("[gtodo-md] Parent task was modified and is no longer a valid task.", vim.log.levels.ERROR)
+          vim.notify(string.format("[gtodo-md] Parent task was modified and is no longer a valid task.\nExpected: '%s'\nFound: '%s'", parent_line, current_parent_line), vim.log.levels.ERROR)
           is_committing = false
           return
         end
