@@ -199,8 +199,9 @@ function M.split_current_task()
       local parent_row = mark[1]
       local current_parent_line = vim.api.nvim_buf_get_lines(source_buf, parent_row, parent_row + 1, false)[1]
       
-      -- Fallback: if extmark shifted (e.g. due to undo bugs), scan +/- 2 lines
+      -- Fallback: if extmark shifted (e.g. due to undo bugs), scan +/- 2 lines first
       if current_parent_line ~= parent_line then
+        local found = false
         for offset = -2, 2 do
           if offset ~= 0 then
             local check_row = parent_row + offset
@@ -209,9 +210,30 @@ function M.split_current_task()
               if check_line == parent_line then
                 parent_row = check_row
                 current_parent_line = check_line
+                found = true
                 break
               end
             end
+          end
+        end
+        
+        -- Deep fallback: scan the ENTIRE buffer if still not found
+        if not found then
+          local all_lines = vim.api.nvim_buf_get_lines(source_buf, 0, -1, false)
+          local best_match_row = nil
+          local min_dist = math.huge
+          for i, line in ipairs(all_lines) do
+            if line == parent_line then
+              local dist = math.abs((i - 1) - parent_row)
+              if dist < min_dist then
+                min_dist = dist
+                best_match_row = i - 1
+              end
+            end
+          end
+          if best_match_row then
+            parent_row = best_match_row
+            current_parent_line = all_lines[best_match_row + 1]
           end
         end
       end
