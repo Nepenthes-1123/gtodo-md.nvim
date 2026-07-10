@@ -175,15 +175,21 @@ function M.split_current_task()
       end
     })
     
+    local is_committing = false
     local function commit()
-      if not vim.api.nvim_buf_is_valid(source_buf) or not vim.bo[source_buf].modifiable then
-        vim.notify("[gtodo-md] Source buffer is invalid or unmodifiable.", vim.log.levels.ERROR)
+      if is_committing then return end
+      
+      if not vim.api.nvim_buf_is_valid(source_buf) or not vim.api.nvim_buf_is_loaded(source_buf) or not vim.bo[source_buf].modifiable then
+        vim.notify("[gtodo-md] Source buffer is invalid, unloaded, or unmodifiable.", vim.log.levels.ERROR)
         return
       end
+      
+      is_committing = true
       
       local mark = vim.api.nvim_buf_get_extmark_by_id(source_buf, ns_id, extmark_id, {})
       if not mark or #mark == 0 then
         vim.notify("[gtodo-md] Parent task extmark was destroyed.", vim.log.levels.ERROR)
+        is_committing = false
         return
       end
       
@@ -198,7 +204,10 @@ function M.split_current_task()
         end
         
         local choice = vim.fn.confirm("Parent task text changed. Inject here?", "&Yes\n&No")
-        if choice ~= 1 then return end
+        if choice ~= 1 then
+          is_committing = false
+          return
+        end
         
         parent_line = current_parent_line
         bq_prefix = c_bq_prefix
