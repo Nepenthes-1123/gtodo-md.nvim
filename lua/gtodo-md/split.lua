@@ -202,8 +202,8 @@ function M.split_current_task()
     })
     
     local function commit()
-      if not vim.api.nvim_buf_is_valid(source_buf) or not vim.bo[source_buf].modifiable then
-        vim.notify("[gtodo-md] Source buffer is invalid or unmodifiable.", vim.log.levels.ERROR)
+      if not vim.api.nvim_buf_is_valid(source_buf) or not vim.api.nvim_buf_is_loaded(source_buf) or not vim.bo[source_buf].modifiable then
+        vim.notify("[gtodo-md] Source buffer is invalid, unloaded, or unmodifiable.", vim.log.levels.ERROR)
         return
       end
       
