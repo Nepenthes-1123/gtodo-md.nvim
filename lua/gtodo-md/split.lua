@@ -160,6 +160,11 @@ function M.split_current_task()
     
     -- メタデータ (+, @, #) を除去
     parent_text = parent_text:gsub("[%+@#][%w%-_/%.%(%):]+", "")
+    
+    -- key:value 形式のメタデータ (例: due:2023) も除去（ただし URL の http(s) は残す）
+    parent_text = parent_text:gsub("%s*[%w%-_]+:[%w%-_/%.%(%):]+", function(match)
+      if match:match("^%s*https?:") then return match else return "" end
+    end)
     parent_text = vim.trim(parent_text)
     
     if vim.fn.strchars(parent_text) > 40 then
@@ -276,11 +281,23 @@ function M.split_current_task()
       local sw = vim.bo[source_buf].shiftwidth
       if sw == 0 then sw = vim.bo[source_buf].tabstop end
       
-      -- 親タスクからすべてのメタデータ（+, @, #）を抽出
-      local parent_metadata = {}
-      for word in parent_line:gmatch("[%+@#][%w%-_/%.%(%):]+") do
-        table.insert(parent_metadata, word)
+      local function extract_metadata(line)
+        local metadata = {}
+        for word in line:gmatch("[%+@#][%w%-_/%.%(%):]+") do
+          table.insert(metadata, word)
+        end
+        for word in line:gmatch("[%w%-_]+:[%w%-_/%.%(%):]+") do
+          if not word:match("^https?:") then table.insert(metadata, word) end
+        end
+        return metadata
       end
+      
+      local function get_meta_prefix(meta)
+        return meta:match("^([%+@#][^%(%):]+)") or meta:match("^([^:]+:)") or meta
+      end
+      
+      -- 親タスクからすべてのメタデータを抽出
+      local parent_metadata = extract_metadata(parent_line)
       
       for _, p_line in ipairs(payload) do
         if p_line:match("^%s*$") then
@@ -302,13 +319,13 @@ function M.split_current_task()
           local _, l_marker, _ = get_list_marker_info(text)
           
           if l_marker then
+            local existing_metadata = extract_metadata(text)
             for _, meta in ipairs(parent_metadata) do
-              local meta_prefix = meta:match("^([%+@#][^%(%):]+)") or meta
+              local meta_prefix = get_meta_prefix(meta)
               local has_meta = false
               
-              for existing_meta in text:gmatch("[%+@#][%w%-_/%.%(%):]+") do
-                local existing_prefix = existing_meta:match("^([%+@#][^%(%):]+)") or existing_meta
-                if existing_prefix == meta_prefix then
+              for _, e_meta in ipairs(existing_metadata) do
+                if get_meta_prefix(e_meta) == meta_prefix then
                   has_meta = true
                   break
                 end
