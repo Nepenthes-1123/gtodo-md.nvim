@@ -61,10 +61,16 @@ function M.split_current_task()
     return
   end
   
+  active_splits[source_buf] = active_splits[source_buf] or {}
+  active_splits[source_buf][row] = true
+  
   local existing_tag = parent_line:match("%+([%w%-_/%.]+)")
   
   vim.ui.input({ prompt = "Project tag (empty for plain split): ", default = existing_tag or "" }, function(input_tag)
-    if input_tag == nil then return end 
+    if input_tag == nil then 
+      active_splits[source_buf][row] = nil
+      return 
+    end 
     
     local new_tag = vim.trim(input_tag)
     
@@ -107,9 +113,6 @@ function M.split_current_task()
     local extmark_id = vim.api.nvim_buf_set_extmark(source_buf, ns_id, row - 1, 0, {
       right_gravity = false,
     })
-    
-    active_splits[source_buf] = active_splits[source_buf] or {}
-    active_splits[source_buf][row] = true
     
     local scratch_buf = vim.api.nvim_create_buf(false, true)
     vim.bo[scratch_buf].bufhidden = "wipe"
@@ -175,30 +178,79 @@ function M.split_current_task()
       end
     })
     
+    local is_committing = false
     local function commit()
-      if not vim.api.nvim_buf_is_valid(source_buf) or not vim.bo[source_buf].modifiable then
-        vim.notify("[gtodo-md] Source buffer is invalid or unmodifiable.", vim.log.levels.ERROR)
+      if is_committing then return end
+      
+      if not vim.api.nvim_buf_is_valid(source_buf) or not vim.api.nvim_buf_is_loaded(source_buf) or not vim.bo[source_buf].modifiable then
+        vim.notify("[gtodo-md] Source buffer is invalid, unloaded, or unmodifiable.", vim.log.levels.ERROR)
         return
       end
+      
+      is_committing = true
       
       local mark = vim.api.nvim_buf_get_extmark_by_id(source_buf, ns_id, extmark_id, {})
       if not mark or #mark == 0 then
         vim.notify("[gtodo-md] Parent task extmark was destroyed.", vim.log.levels.ERROR)
+        is_committing = false
         return
       end
       
       local parent_row = mark[1]
       local current_parent_line = vim.api.nvim_buf_get_lines(source_buf, parent_row, parent_row + 1, false)[1]
       
+      -- Fallback: if extmark shifted (e.g. due to undo bugs), scan +/- 2 lines first
+      if current_parent_line ~= parent_line then
+        local found = false
+        for offset = -2, 2 do
+          if offset ~= 0 then
+            local check_row = parent_row + offset
+            if check_row >= 0 then
+              local check_line = vim.api.nvim_buf_get_lines(source_buf, check_row, check_row + 1, false)[1]
+              if check_line == parent_line then
+                parent_row = check_row
+                current_parent_line = check_line
+                found = true
+                break
+              end
+            end
+          end
+        end
+        
+        -- Deep fallback: scan the ENTIRE buffer if still not found
+        if not found then
+          local all_lines = vim.api.nvim_buf_get_lines(source_buf, 0, -1, false)
+          local best_match_row = nil
+          local min_dist = math.huge
+          for i, line in ipairs(all_lines) do
+            if line == parent_line then
+              local dist = math.abs((i - 1) - parent_row)
+              if dist < min_dist then
+                min_dist = dist
+                best_match_row = i - 1
+              end
+            end
+          end
+          if best_match_row then
+            parent_row = best_match_row
+            current_parent_line = all_lines[best_match_row + 1]
+          end
+        end
+      end
+      
       if current_parent_line ~= parent_line then
         local c_bq_prefix, c_marker, c_marker_width = get_list_marker_info(current_parent_line)
         if not c_marker then
-          vim.notify("[gtodo-md] Parent task was modified and is no longer a valid task.", vim.log.levels.ERROR)
+          vim.notify(string.format("[gtodo-md] Parent task was modified and is no longer a valid task.\nExpected: '%s'\nFound: '%s'", parent_line, current_parent_line), vim.log.levels.ERROR)
+          is_committing = false
           return
         end
         
         local choice = vim.fn.confirm("Parent task text changed. Inject here?", "&Yes\n&No")
-        if choice ~= 1 then return end
+        if choice ~= 1 then
+          is_committing = false
+          return
+        end
         
         parent_line = current_parent_line
         bq_prefix = c_bq_prefix

@@ -99,13 +99,17 @@ local function write_state(data)
   if vim.fn.isdirectory(dir) == 0 then
     vim.fn.mkdir(dir, "p")
   end
-  local f = io.open(path, "w")
+  local tmp_path = path .. ".tmp"
+  local f = io.open(tmp_path, "w")
   if f then
     local ok, content = pcall(vim.json.encode, data)
     if ok then
       f:write(content)
     end
     f:close()
+    if vim.fn.rename(tmp_path, path) ~= 0 then
+      os.remove(tmp_path)
+    end
   end
 end
 
@@ -171,14 +175,21 @@ function M.create_project_file(project_tag)
       ""
     }
     
-    local ok, f = pcall(io.open, proj_file, "w")
+    local tmp_file = proj_file .. ".tmp"
+    local ok, f = pcall(io.open, tmp_file, "w")
     if ok and f then
       for _, l in ipairs(template) do
         f:write(l .. "\n")
       end
       f:close()
-      vim.notify("Created new project file: " .. project_tag, vim.log.levels.INFO)
-      return true
+      if vim.fn.rename(tmp_file, proj_file) == 0 then
+        vim.notify("Created new project file: " .. project_tag, vim.log.levels.INFO)
+        return true
+      else
+        os.remove(tmp_file)
+        vim.notify("Failed to create project file atomically: " .. proj_file, vim.log.levels.ERROR)
+        return false
+      end
     else
       vim.notify("Failed to create project file: " .. proj_file, vim.log.levels.ERROR)
       return false

@@ -129,6 +129,7 @@ function M.update_highlights(bufnr)
         end
       end
     end
+    end
     end)
     if not ok then
       vim.notify("GTodo highlight error: " .. tostring(err), vim.log.levels.ERROR)
