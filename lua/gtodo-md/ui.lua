@@ -274,14 +274,20 @@ function M.jump_to_project()
       ""
     }
     
-    local f = io.open(proj_file, "w")
+    local tmp_file = proj_file .. ".tmp"
+    local f = io.open(tmp_file, "w")
     if f then
       for _, l in ipairs(template) do
         f:write(l .. "\n")
       end
       f:close()
+      if vim.fn.rename(tmp_file, proj_file) ~= 0 then
+        os.remove(tmp_file)
+        vim.notify("Failed to create project file atomically: " .. proj_file, vim.log.levels.ERROR)
+        return
+      end
     else
-      vim.notify("Failed to create project file: " .. proj_file, vim.log.levels.ERROR)
+      vim.notify("Failed to create project temp file: " .. tmp_file, vim.log.levels.ERROR)
       return
     end
   end

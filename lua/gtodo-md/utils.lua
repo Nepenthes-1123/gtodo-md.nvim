@@ -99,13 +99,17 @@ local function write_state(data)
   if vim.fn.isdirectory(dir) == 0 then
     vim.fn.mkdir(dir, "p")
   end
-  local f = io.open(path, "w")
+  local tmp_path = path .. ".tmp"
+  local f = io.open(tmp_path, "w")
   if f then
     local ok, content = pcall(vim.json.encode, data)
     if ok then
       f:write(content)
     end
     f:close()
+    if vim.fn.rename(tmp_path, path) ~= 0 then
+      os.remove(tmp_path)
+    end
   end
 end
 

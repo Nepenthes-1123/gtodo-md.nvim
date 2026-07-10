@@ -56,10 +56,14 @@ local function create_project_file_if_missing(tag)
       "## Inbox",
       ""
     }
-    local f = io.open(proj_file, "w")
+    local tmp_file = proj_file .. ".tmp"
+    local f = io.open(tmp_file, "w")
     if f then
       for _, l in ipairs(template) do f:write(l .. "\n") end
       f:close()
+      if vim.fn.rename(tmp_file, proj_file) ~= 0 then
+        os.remove(tmp_file)
+      end
     end
   end
 end
