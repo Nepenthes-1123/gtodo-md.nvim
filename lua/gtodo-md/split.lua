@@ -3,6 +3,7 @@ local config = require('gtodo-md.config')
 
 local active_splits = {}
 local ns_id = vim.api.nvim_create_namespace("gtodo_split_ns")
+local AUGROUP = vim.api.nvim_create_augroup("GtodoMdSplit", { clear = true })
 
 local function get_list_marker_info(line)
   local bq_prefix = line:match("^(%s*>[>%s]*)") or ""
@@ -190,6 +191,7 @@ function M.split_current_task()
 
     
     vim.api.nvim_create_autocmd("BufWipeout", {
+      group = AUGROUP,
       buffer = scratch_buf,
       callback = function()
         if vim.api.nvim_buf_is_valid(source_buf) then

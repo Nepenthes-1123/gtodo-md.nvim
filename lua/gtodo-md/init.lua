@@ -145,7 +145,7 @@ function M.handle_buf_enter(bufnr)
 end
 
 function M.setup_autocmds()
-  local group = vim.api.nvim_create_augroup("TodoNvimGroup", { clear = true })
+  local group = vim.api.nvim_create_augroup("GtodoMd", { clear = true })
   
   -- この setup_autocmds 実行インスタンスに完全にカプセル化されたキャッシュテーブル
   -- augroup のクリア (clear = true) と連動して再初期化されるため、古い Autocmd との不整合は起きない
