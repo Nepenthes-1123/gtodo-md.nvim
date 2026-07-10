@@ -197,6 +197,9 @@ function M.split_current_task()
         end
         if active_splits[source_buf] then
           active_splits[source_buf][row] = nil
+          if next(active_splits[source_buf]) == nil then
+            active_splits[source_buf] = nil
+          end
         end
       end
     })
@@ -228,6 +231,7 @@ function M.split_current_task()
         
         parent_line = current_parent_line
         bq_prefix = c_bq_prefix
+        marker = c_marker
         marker_width = c_marker_width
       end
       
