@@ -65,6 +65,7 @@ function M.open_float(filepath, title)
   local row = math.floor((vim.o.lines - height) / 2)
 
   local buf = vim.api.nvim_create_buf(false, true)
+  vim.bo[buf].bufhidden = "wipe"
 
   local opts = {
     relative = "editor",
