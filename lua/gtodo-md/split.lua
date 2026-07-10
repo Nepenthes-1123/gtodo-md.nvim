@@ -147,26 +147,27 @@ function M.split_current_task()
     local width = math.floor(vim.o.columns * 0.8)
     local height = math.floor(vim.o.lines * 0.6)
     
+    local parent_text = vim.trim(parent_line)
+    if vim.fn.strchars(parent_text) > 40 then
+      parent_text = vim.fn.strcharpart(parent_text, 0, 40) .. "..."
+    end
+    
     local win_opts = {
       relative = "editor", width = width, height = height,
       col = math.floor((vim.o.columns - width) / 2),
       row = math.floor((vim.o.lines - height) / 2),
-      style = "minimal", border = "rounded", title = " Task Split ", title_pos = "center",
+      style = "minimal", border = "rounded", 
+      title = " Splitting: " .. parent_text .. " ", title_pos = "center",
     }
     
     if vim.fn.has("nvim-0.10") == 1 then
       win_opts.footer = " [Commit: g<CR> or <Leader><CR>] | [Cancel: :q] "
       win_opts.footer_pos = "center"
     else
-      win_opts.title = " [Commit: g<CR> or <Leader><CR>] | [Cancel: :q] "
+      win_opts.title = win_opts.title .. " | [Commit: g<CR>] "
     end
     
     local scratch_win = vim.api.nvim_open_win(scratch_buf, true, win_opts)
-    
-    -- Winbar を使って、スクロールしても絶対に画面外へ行かないヘッダーを実装
-    local parent_text = vim.trim(parent_line)
-    -- winbar全体を親タスク名に割り当てる
-    vim.wo[scratch_win].winbar = "%#Title# # Splitting: " .. parent_text
 
     
     vim.api.nvim_create_autocmd("BufWipeout", {
@@ -261,6 +262,12 @@ function M.split_current_task()
       local sw = vim.bo[source_buf].shiftwidth
       if sw == 0 then sw = vim.bo[source_buf].tabstop end
       
+      -- 親タスクからすべてのメタデータ（+, @, #）を抽出
+      local parent_metadata = {}
+      for word in parent_line:gmatch("[%+@#][%w%-_/%.%(%):]+") do
+        table.insert(parent_metadata, word)
+      end
+      
       for _, p_line in ipairs(payload) do
         if p_line:match("^%s*$") then
           table.insert(injection, bq_prefix:gsub("%s+$", ""))
@@ -278,11 +285,24 @@ function M.split_current_task()
           end
           
           local text = p_line:match("^%s*(.*)$")
+          local _, l_marker, _ = get_list_marker_info(text)
           
-          if new_tag ~= "" then
-            local _, l_marker, _ = get_list_marker_info(text)
-            if l_marker and not text:match("%+" .. escape_lua_pattern(new_tag) .. "%s*$") then
-               text = text:gsub("%s*$", "") .. " +" .. new_tag
+          if l_marker then
+            for _, meta in ipairs(parent_metadata) do
+              local meta_prefix = meta:match("^([%+@#][^%(%):]+)") or meta
+              local has_meta = false
+              
+              for existing_meta in text:gmatch("[%+@#][%w%-_/%.%(%):]+") do
+                local existing_prefix = existing_meta:match("^([%+@#][^%(%):]+)") or existing_meta
+                if existing_prefix == meta_prefix then
+                  has_meta = true
+                  break
+                end
+              end
+              
+              if not has_meta then
+                text = text:gsub("%s*$", "") .. " " .. meta
+              end
             end
           end
           
