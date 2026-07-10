@@ -3,14 +3,15 @@ local M = {}
 -- タスク行をパースしてテーブルにする
 -- タスクでない行は nil を返す
 function M.parse(line)
-  local indent, status, rest = line:match("^(%s*)%-%s*%[([ x])%]%s*(.*)$")
+  local indent, status, rest = line:match("^(%s*)%-%s*%[([ xX])%]%s*(.*)$")
   if not status then
     return nil
   end
+  if status then status = status:lower() end
 
   local task = {
     indent = indent,
-    status = status, -- " " (未完了) or "x" (完了)
+    status = status, -- " " (未完了) or "x" (完了); normalized to lowercase
     original_line = line,
   }
 
