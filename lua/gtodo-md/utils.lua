@@ -99,13 +99,17 @@ local function write_state(data)
   if vim.fn.isdirectory(dir) == 0 then
     vim.fn.mkdir(dir, "p")
   end
-  local f = io.open(path, "w")
+  local tmp_path = path .. ".tmp"
+  local f = io.open(tmp_path, "w")
   if f then
     local ok, content = pcall(vim.json.encode, data)
     if ok then
       f:write(content)
     end
     f:close()
+    if vim.fn.rename(tmp_path, path) ~= 0 then
+      os.remove(tmp_path)
+    end
   end
 end
 
@@ -140,6 +144,58 @@ end
 function M.is_done_line(line)
   if type(line) ~= "string" then return false end
   return line:match("%[x%]") ~= nil or line:match("%[X%]") ~= nil
+end
+
+function M.create_project_file(project_tag)
+  local data_dir = require('gtodo-md.config').options.data_dir
+  local projects_dir = data_dir .. "/projects"
+  
+  if vim.fn.isdirectory(projects_dir) == 0 then
+    vim.fn.mkdir(projects_dir, "p")
+  end
+  
+  local proj_file = string.format("%s/%s.md", projects_dir, project_tag)
+  if vim.fn.filereadable(proj_file) == 0 then
+    local today = os.date("%Y-%m-%d")
+    local template = {
+      "---",
+      "title:                 ",
+      "tag: " .. project_tag,
+      "created: " .. today,
+      "due:                   ",
+      "status: active         ",
+      "members: []            ",
+      "---",
+      "",
+      "## Overview",
+      "",
+      "## Notes",
+      "",
+      "## Reference",
+      ""
+    }
+    
+    local tmp_file = proj_file .. ".tmp"
+    local ok, f = pcall(io.open, tmp_file, "w")
+    if ok and f then
+      for _, l in ipairs(template) do
+        f:write(l .. "\n")
+      end
+      f:close()
+      if vim.fn.rename(tmp_file, proj_file) == 0 then
+        vim.notify("Created new project file: " .. project_tag, vim.log.levels.INFO)
+        return true
+      else
+        os.remove(tmp_file)
+        vim.notify("Failed to create project file atomically: " .. proj_file, vim.log.levels.ERROR)
+        return false
+      end
+    else
+      vim.notify("Failed to create project file: " .. proj_file, vim.log.levels.ERROR)
+      return false
+    end
+  end
+  return true
 end
 
 return M

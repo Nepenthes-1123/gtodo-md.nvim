@@ -2,6 +2,8 @@ local M = {}
 local ns = vim.api.nvim_create_namespace("gtodo_highlights")
 local utils = require("gtodo-md.utils")
 
+local pending_updates = {}
+
 local hl_groups = {
   project = "GTodoProject",         -- +Project
   context = "GTodoContext",         -- @context
@@ -28,12 +30,19 @@ end
 function M.update_highlights(bufnr)
   if not vim.api.nvim_buf_is_valid(bufnr) then return end
   
-  local ok, err = pcall(function()
-    -- 既存のハイライトをクリア
-    vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+  if pending_updates[bufnr] then return end
+  pending_updates[bufnr] = true
+  
+  vim.schedule(function()
+    pending_updates[bufnr] = false
+    if not vim.api.nvim_buf_is_valid(bufnr) then return end
     
-    local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-    local today_time = utils.date_to_time(os.date("%Y-%m-%d"))
+    local ok, err = pcall(function()
+      -- 既存のハイライトをクリア
+      vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+      
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      local today_time = utils.date_to_time(os.date("%Y-%m-%d"))
   
   for i, line in ipairs(lines) do
     if utils.is_todo_line(line) or utils.is_done_line(line) then
@@ -120,11 +129,12 @@ function M.update_highlights(bufnr)
         end
       end
     end
-  end
+    end
+    end)
+    if not ok then
+      vim.notify("GTodo highlight error: " .. tostring(err), vim.log.levels.ERROR)
+    end
   end)
-  if not ok then
-    vim.notify("GTodo highlight error: " .. tostring(err), vim.log.levels.ERROR)
-  end
 end
 
 -- 指定されたバッファに対してハイライト自動更新をセットアップする

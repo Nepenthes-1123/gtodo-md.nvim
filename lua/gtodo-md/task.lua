@@ -3,10 +3,12 @@ local M = {}
 -- タスク行をパースしてテーブルにする
 -- タスクでない行は nil を返す
 function M.parse(line)
-  local indent, status, rest = line:match("^(%s*)%-%s*%[([ x])%]%s*(.*)$")
+  local indent, status, rest = line:match("^(%s*)%-%s*%[([ xX])%]%s*(.*)$")
   if not status then
     return nil
   end
+  -- 大文字Xを小文字に正規化
+  status = status:lower()
 
   local task = {
     indent = indent,
@@ -33,18 +35,19 @@ function M.parse(line)
   task.done = extract_field("done:(%d%d%d%d%-%d%d%-%d%d)")
   task.cancelled = extract_field("cancelled:(%d%d%d%d%-%d%d%-%d%d)")
   task.from = extract_field("from:(%w+)")
-  local raw_due = extract_field("due:(%S+)")
+  -- due: は英数字・ハイフン・スラッシュ・プラスのみ許容（記号・URLを弾く）
+  local raw_due = extract_field("due:([%w%-/%+]+)")
   if raw_due then
     local normalized = require('gtodo-md.utils').parse_due_date(raw_due)
     task.due = normalized or raw_due
   end
   task.created = extract_field("created:(%d%d%d%d%-%d%d%-%d%d)")
 
-  -- @context (例: @15, @30, @60, @long)
-  task.context = extract_field("%s+(@[%w%-_/%.]+)") or extract_field("(@[%w%-_/%.]+)")
+  -- @context: 空白区切りが優先。行頭の@のみ fallback（メールアドレス等の誤検知を防ぐ）
+  task.context = extract_field("%s+(@[%w%-_/%.]+)") or extract_field("^(@[%w%-_/%.]+)")
 
-  -- +project-name
-  task.project = extract_field("%s%+([%w%-_/%.]+)") or extract_field("%+([%w%-_/%.]+)")
+  -- +project-name: 空白+プラスが優先。行頭の+のみ fallback（C++等の誤検知を防ぐ）
+  task.project = extract_field("%s%+([%w%-_/%.]+)") or extract_field("^%+([%w%-_/%.]+)")
 
   -- 余分なスペースのトリミング
   text = text:gsub("%s+", " ")
@@ -138,38 +141,8 @@ function M.prompt_task(initial_task, callback)
     return proj_list
   end
 
-  -- 新しいプロジェクトファイルの自動作成
   local function create_project_file(project_tag)
-    local data_dir = require('gtodo-md.config').options.data_dir
-    local proj_file = string.format("%s/projects/%s.md", data_dir, project_tag)
-    if vim.fn.filereadable(proj_file) == 0 then
-      local today = os.date("%Y-%m-%d")
-      local template = {
-        "---",
-        "title:                 ",
-        "tag: " .. project_tag,
-        "created: " .. today,
-        "due:                   ",
-        "status: active         ",
-        "members: []            ",
-        "---",
-        "",
-        "## Overview",
-        "",
-        "## Notes",
-        "",
-        "## Reference",
-        ""
-      }
-      local f = io.open(proj_file, "w")
-      if f then
-        for _, l in ipairs(template) do
-          f:write(l .. "\n")
-        end
-        f:close()
-        vim.notify("Created new project file: " .. project_tag, vim.log.levels.INFO)
-      end
-    end
+    require('gtodo-md.utils').create_project_file(project_tag)
   end
 
   -- Step 1: 説明
