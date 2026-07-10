@@ -155,6 +155,9 @@ function M.split_current_task()
       parent_text = parent_text:sub(#t_bq + #t_marker + 1)
     end
     
+    -- チェックボックスを除去（[ ] や [x] など）
+    parent_text = parent_text:gsub("^%s*%[.%]%s+", "")
+    
     -- メタデータ (+, @, #) を除去
     parent_text = parent_text:gsub("[%+@#][%w%-_/%.%(%):]+", "")
     parent_text = vim.trim(parent_text)
