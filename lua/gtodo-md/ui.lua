@@ -391,24 +391,22 @@ function M.render_project_tasks(bufnr)
   })
 end
 
--- Queue ビュー: due付き未完了タスクを日付グループ別に表示する
+-- Queue ビュー: due付き未完了タスク または wait:付き未完了タスク を表示する
 function M.open_queue()
   local data_dir = config.get("data_dir")
   local io_mod = require('gtodo-md.io')
 
-  -- inbox.md と todo.md から due: 付き未完了タスクを収集
-  -- 各エントリは { task, filepath } のテーブル
   local source_files = {
     data_dir .. "/inbox.md",
     data_dir .. "/todo.md",
   }
 
-  local tasks_with_due = {}
+  local mode = vim.g.gtodo_queue_mode or "date"
+  local tasks_filtered = {}
 
   for _, filepath in ipairs(source_files) do
     if vim.fn.filereadable(filepath) == 1 then
       local data = io_mod.read_todo_file(filepath)
-      -- section_order + default セクションを網羅
       local seen = {}
       local all_sections = {}
       for _, sec_name in ipairs(data.section_order) do
@@ -425,8 +423,12 @@ function M.open_queue()
         local sec = data.sections[sec_name]
         if sec then
           for _, item in ipairs(sec) do
-            if item.type == "task" and item.task.status ~= "x" and item.task.due then
-              table.insert(tasks_with_due, { task = item.task, filepath = filepath })
+            if item.type == "task" and item.task.status ~= "x" then
+              if mode == "date" and item.task.due then
+                table.insert(tasks_filtered, { task = item.task, filepath = filepath })
+              elseif mode == "wait" and item.task.wait then
+                table.insert(tasks_filtered, { task = item.task, filepath = filepath })
+              end
             end
           end
         end
@@ -434,42 +436,9 @@ function M.open_queue()
     end
   end
 
-  local today_str      = os.date("%Y-%m-%d")
-  local today_time     = utils.date_to_time(today_str)
-  local week_end_time  = today_time + 7 * 24 * 60 * 60
-
-  -- グループ分け: 期限切れ / 今日〜7日後 / それ以降
-  local overdue   = {}
-  local by_date   = {}
-  local later     = {}
-
-  for _, entry in ipairs(tasks_with_due) do
-    local due_time = utils.date_to_time(entry.task.due)
-    if due_time < today_time then
-      table.insert(overdue, entry)
-    elseif due_time <= week_end_time then
-      if not by_date[entry.task.due] then
-        by_date[entry.task.due] = {}
-      end
-      table.insert(by_date[entry.task.due], entry)
-    else
-      table.insert(later, entry)
-    end
-  end
-
-  -- ソート
-  local sorted_dates = {}
-  for d in pairs(by_date) do
-    table.insert(sorted_dates, d)
-  end
-  table.sort(sorted_dates)
-  table.sort(overdue, function(a, b) return a.task.due < b.task.due end)
-  table.sort(later,   function(a, b) return a.task.due < b.task.due end)
-
-  -- バッファ行 / ハイライト / ジャンプ先マップ
   local lines    = {}
-  local hls      = {} -- { line_idx(0-based), hl_group }
-  local line_map = {} -- line_idx(0-based) -> { filepath, original_line }
+  local hls      = {}
+  local line_map = {}
 
   local function add(text, hl_group, source)
     table.insert(lines, text)
@@ -484,95 +453,134 @@ function M.open_queue()
 
   local function task_line(entry, prefix)
     local task = entry.task
-    local line = (prefix or "  \xe2\x96\xb6 ") .. task.content
+    local line = (prefix or "  ▶ ") .. task.content
     if task.project then line = line .. " +" .. task.project end
     if task.context then line = line .. " " .. task.context end
+    if task.wait and mode == "date" then line = line .. " wait:" .. task.wait end
+    if task.due and mode == "wait" then line = line .. " due:" .. task.due end
     return line
   end
 
-  local weekdays_jp = { "\xe6\x97\xa5", "\xe6\x9c\x88", "\xe7\x81\xab", "\xe6\xb0\xb4", "\xe6\x9c\xa8", "\xe9\x87\x91", "\xe5\x9c\x9f" }
+  local sep = string.rep("─", 46)
 
-  local function date_label(date_str)
-    local t    = utils.date_to_time(date_str)
-    local diff = math.floor((t - today_time) / 86400)
-    local mo   = tonumber(date_str:sub(6, 7))
-    local d    = tonumber(date_str:sub(9, 10))
-    local wday = tonumber(os.date("%w", t)) + 1
-    local wd   = weekdays_jp[wday]
-    if diff == 0 then
-      return string.format(" \xe4\xbb\x8a\xe6\x97\xa5 (%d/%d %s)", mo, d, wd), "DiagnosticWarn"
-    elseif diff == 1 then
-      return string.format(" \xe6\x98\x8e\xe6\x97\xa5 (%d/%d %s)", mo, d, wd), "DiagnosticInfo"
-    else
-      return string.format(" %d/%d %s (%d\xe6\x97\xa5\xe5\xbe\x8c)", mo, d, wd, diff), "DiagnosticInfo"
+  if mode == "date" then
+    local today_str      = os.date("%Y-%m-%d")
+    local today_time     = utils.date_to_time(today_str)
+    local week_end_time  = today_time + 7 * 24 * 60 * 60
+
+    local overdue   = {}
+    local by_date   = {}
+    local later     = {}
+
+    for _, entry in ipairs(tasks_filtered) do
+      local due_time = utils.date_to_time(entry.task.due)
+      if due_time < today_time then
+        table.insert(overdue, entry)
+      elseif due_time <= week_end_time then
+        if not by_date[entry.task.due] then by_date[entry.task.due] = {} end
+        table.insert(by_date[entry.task.due], entry)
+      else
+        table.insert(later, entry)
+      end
     end
-  end
 
-  local sep = string.rep("\xe2\x94\x80", 46)
+    local sorted_dates = {}
+    for d in pairs(by_date) do table.insert(sorted_dates, d) end
+    table.sort(sorted_dates)
+    table.sort(overdue, function(a, b) return a.task.due < b.task.due end)
+    table.sort(later,   function(a, b) return a.task.due < b.task.due end)
 
-  -- ヘッダー
-  add(" Queue  " .. today_str, "Title")
-  add(sep, "Comment")
+    local weekdays_jp = { "日", "月", "火", "水", "木", "金", "土" }
+    local function date_label(date_str)
+      local t    = utils.date_to_time(date_str)
+      local diff = math.floor((t - today_time) / 86400)
+      local mo   = tonumber(date_str:sub(6, 7))
+      local d    = tonumber(date_str:sub(9, 10))
+      local wday = tonumber(os.date("%w", t)) + 1
+      local wd   = weekdays_jp[wday]
+      if diff == 0 then
+        return string.format(" 今日 (%d/%d %s)", mo, d, wd), "DiagnosticWarn"
+      elseif diff == 1 then
+        return string.format(" 明日 (%d/%d %s)", mo, d, wd), "DiagnosticInfo"
+      else
+        return string.format(" %d/%d %s (%d日後)", mo, d, wd, diff), "DiagnosticInfo"
+      end
+    end
 
-  -- 期限切れ
-  if #overdue > 0 then
-    add("", nil)
-    add(" \xe6\x9c\x9f\xe9\x99\x90\xe5\x88\x87\xe3\x82\x8c", "DiagnosticError")
+    add(" Queue (Date)  " .. today_str, "Title")
     add(sep, "Comment")
-    for _, entry in ipairs(overdue) do
-      local days_over = math.floor((today_time - utils.date_to_time(entry.task.due)) / 86400)
-      add(
-        task_line(entry, "  \xe2\x9a\xa0 ") .. string.format(" (%d\xe6\x97\xa5\xe8\xb6\x85\xe9\x81\x8e)", days_over),
-        "DiagnosticError",
-        { filepath = entry.filepath, original_line = entry.task.original_line }
-      )
-    end
-  end
 
-  -- 今日〜7日後（タスクある日のみ）
-  for _, date in ipairs(sorted_dates) do
-    local label, hl = date_label(date)
-    add("", nil)
-    add(label, hl)
+    if #overdue > 0 then
+      add("", nil)
+      add(" 期限切れ", "DiagnosticError")
+      add(sep, "Comment")
+      for _, entry in ipairs(overdue) do
+        local days_over = math.floor((today_time - utils.date_to_time(entry.task.due)) / 86400)
+        add(task_line(entry, "  ⚠ ") .. string.format(" (%d日超過)", days_over), "DiagnosticError", { filepath = entry.filepath, original_line = entry.task.original_line })
+      end
+    end
+
+    for _, date in ipairs(sorted_dates) do
+      local label, hl = date_label(date)
+      add("", nil)
+      add(label, hl)
+      add(sep, "Comment")
+      for _, entry in ipairs(by_date[date]) do
+        add(task_line(entry), nil, { filepath = entry.filepath, original_line = entry.task.original_line })
+      end
+    end
+
+    if #later > 0 then
+      add("", nil)
+      add(" それ以降", "Comment")
+      add(sep, "Comment")
+      for _, entry in ipairs(later) do
+        local mo = tonumber(entry.task.due:sub(6, 7))
+        local d  = tonumber(entry.task.due:sub(9, 10))
+        add(task_line(entry) .. string.format("  due:%d/%d", mo, d), "Comment", { filepath = entry.filepath, original_line = entry.task.original_line })
+      end
+    end
+
+    if #overdue == 0 and #sorted_dates == 0 and #later == 0 then
+      add("", nil)
+      add("  期限付きタスクはありません", "DiagnosticOk")
+    end
+
+  elseif mode == "wait" then
+    add(" Queue (Waiting)  [ Filtered: Waiting Tasks Only ]", "DiagnosticWarn")
     add(sep, "Comment")
-    for _, entry in ipairs(by_date[date]) do
-      add(
-        task_line(entry),
-        nil,
-        { filepath = entry.filepath, original_line = entry.task.original_line }
-      )
+
+    local by_wait = {}
+    for _, entry in ipairs(tasks_filtered) do
+      local w = entry.task.wait
+      if not by_wait[w] then by_wait[w] = {} end
+      table.insert(by_wait[w], entry)
+    end
+
+    local sorted_waits = {}
+    for w in pairs(by_wait) do table.insert(sorted_waits, w) end
+    table.sort(sorted_waits)
+
+    for _, w in ipairs(sorted_waits) do
+      add("", nil)
+      add(" 👤 " .. w, "GTodoWait")
+      add(sep, "Comment")
+      for _, entry in ipairs(by_wait[w]) do
+        add(task_line(entry), nil, { filepath = entry.filepath, original_line = entry.task.original_line })
+      end
+    end
+
+    if #sorted_waits == 0 then
+      add("", nil)
+      add("  返信待ちのタスクはありません", "DiagnosticOk")
     end
   end
 
-  -- それ以降
-  if #later > 0 then
-    add("", nil)
-    add(" \xe3\x81\x9d\xe3\x82\x8c\xe4\xbb\xa5\xe9\x99\x8d", "Comment")
-    add(sep, "Comment")
-    for _, entry in ipairs(later) do
-      local mo = tonumber(entry.task.due:sub(6, 7))
-      local d  = tonumber(entry.task.due:sub(9, 10))
-      add(
-        task_line(entry) .. string.format("  due:%d/%d", mo, d),
-        "Comment",
-        { filepath = entry.filepath, original_line = entry.task.original_line }
-      )
-    end
-  end
-
-  -- タスクがひとつもない場合
-  if #overdue == 0 and #sorted_dates == 0 and #later == 0 then
-    add("", nil)
-    add("  \xe6\x9c\x9f\xe9\x99\x90\xe4\xbb\x98\xe3\x81\x8d\xe3\x82\xbf\xe3\x82\xb9\xe3\x82\xaf\xe3\x81\xaf\xe3\x81\x82\xe3\x82\x8a\xe3\x81\xbe\xe3\x81\x9b\xe3\x82\x93", "DiagnosticOk")
-  end
-
-  -- フローティングウィンドウ
   local width  = math.min(math.floor(vim.o.columns * 0.65), 80)
   local height = math.min(#lines + 2, math.floor(vim.o.lines * 0.8))
   local col    = math.floor((vim.o.columns - width) / 2)
   local row    = math.floor((vim.o.lines - height) / 2)
 
-  -- 既存のgtodoフロートを閉じてから Queue を開く
   close_current_float()
 
   local buf = vim.api.nvim_create_buf(false, true)
@@ -589,28 +597,29 @@ function M.open_queue()
     row       = row,
     style     = "minimal",
     border    = "rounded",
-    title     = " Queue ",
+    title     = mode == "date" and " Queue (Date) " or " Queue (Wait) ",
     title_pos = "center",
   })
   register_float_win(queue_win)
 
-  -- ハイライト適用
   local ns = vim.api.nvim_create_namespace("gtodo_queue")
   for _, hl in ipairs(hls) do
     vim.api.nvim_buf_add_highlight(buf, ns, hl[2], hl[1], 0, -1)
   end
 
-  -- バッファローカルキーマップ
   vim.keymap.set('n', 'q',     ':q<CR>', { buffer = buf, noremap = true, silent = true })
   vim.keymap.set('n', '<Esc>', ':q<CR>', { buffer = buf, noremap = true, silent = true })
 
-  -- Enter: カーソル行のタスクのファイル・行へジャンプ
+  vim.keymap.set('n', 'g', function()
+    vim.g.gtodo_queue_mode = (vim.g.gtodo_queue_mode == "date" and "wait" or "date")
+    vim.schedule(function() M.open_queue() end)
+  end, { buffer = buf, noremap = true, silent = true, desc = "Toggle Queue Mode" })
+
   vim.keymap.set('n', '<CR>', function()
-    local cursor_idx = vim.api.nvim_win_get_cursor(0)[1] - 1 -- 0-based
+    local cursor_idx = vim.api.nvim_win_get_cursor(0)[1] - 1
     local source = line_map[cursor_idx]
     if not source then return end
 
-    -- ソースファイル内で original_line を検索して行番号を取得
     local src_lines = io_mod.read_lines(source.filepath)
     local target_lnum = nil
     for i, l in ipairs(src_lines) do

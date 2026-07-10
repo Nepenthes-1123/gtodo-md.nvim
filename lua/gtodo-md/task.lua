@@ -35,6 +35,14 @@ function M.parse(line)
   task.done = extract_field("done:(%d%d%d%d%-%d%d%-%d%d)")
   task.cancelled = extract_field("cancelled:(%d%d%d%d%-%d%d%-%d%d)")
   task.from = extract_field("from:(%w+)")
+  
+  -- wait: は英数字だけでなく日本語のマルチバイト文字やハイフン等を許容するため、空白以外をすべてマッチ
+  task.wait = extract_field("%s+(wait:[^%s]+)") or extract_field("^(wait:[^%s]+)")
+  if task.wait then
+    -- 'wait:' 接頭辞を取り除いて格納する
+    task.wait = task.wait:sub(6)
+  end
+
   -- due: は英数字・ハイフン・スラッシュ・プラスのみ許容（記号・URLを弾く）
   local raw_due = extract_field("due:([%w%-/%+]+)")
   if raw_due then
@@ -71,6 +79,10 @@ function M.serialize(task)
       ctx = "@" .. ctx
     end
     table.insert(parts, ctx)
+  end
+
+  if task.wait and task.wait ~= "" then
+    table.insert(parts, "wait:" .. task.wait)
   end
   
   if task.due and task.due ~= "" then

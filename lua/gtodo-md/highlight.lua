@@ -7,6 +7,7 @@ local pending_updates = {}
 local hl_groups = {
   project = "GTodoProject",         -- +Project
   context = "GTodoContext",         -- @context
+  wait = "GTodoWait",               -- wait:name
   date_normal = "GTodoDate",        -- due:YYYY-MM-DD
   date_warn = "GTodoDateWarn",      -- due:today
   date_error = "GTodoDateError",    -- overdue
@@ -19,6 +20,7 @@ function M.setup()
   -- デフォルトのハイライトグループを定義 (ユーザーが上書き可能)
   vim.api.nvim_set_hl(0, "GTodoProject", { link = "Type", default = true })
   vim.api.nvim_set_hl(0, "GTodoContext", { link = "Identifier", default = true })
+  vim.api.nvim_set_hl(0, "GTodoWait", { link = "Special", default = true })
   vim.api.nvim_set_hl(0, "GTodoDate", { link = "Comment", default = true })
   vim.api.nvim_set_hl(0, "GTodoDateWarn", { link = "DiagnosticWarn", default = true })
   vim.api.nvim_set_hl(0, "GTodoDateError", { link = "DiagnosticError", default = true })
@@ -60,6 +62,16 @@ function M.update_highlights(bufnr)
         vim.api.nvim_buf_set_extmark(bufnr, ns, i - 1, s - 1, {
           end_col = s - 1 + #ctx,
           hl_group = hl_groups.context,
+          ephemeral = false,
+        })
+      end
+
+      -- 2.5 Wait (wait:name)
+      -- 記号やマルチバイト文字に対応するため、空白以外の連続にマッチさせる
+      for s, wait_tag in line:gmatch("()(wait:[^%s]+)") do
+        vim.api.nvim_buf_set_extmark(bufnr, ns, i - 1, s - 1, {
+          end_col = s - 1 + #wait_tag,
+          hl_group = hl_groups.wait,
           ephemeral = false,
         })
       end
