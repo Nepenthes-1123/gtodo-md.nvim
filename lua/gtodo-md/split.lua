@@ -146,20 +146,27 @@ function M.split_current_task()
     
     local width = math.floor(vim.o.columns * 0.8)
     local height = math.floor(vim.o.lines * 0.6)
-    local scratch_win = vim.api.nvim_open_win(scratch_buf, true, {
+    
+    local win_opts = {
       relative = "editor", width = width, height = height,
       col = math.floor((vim.o.columns - width) / 2),
       row = math.floor((vim.o.lines - height) / 2),
       style = "minimal", border = "rounded", title = " Task Split ", title_pos = "center",
-    })
+    }
+    
+    if vim.fn.has("nvim-0.10") == 1 then
+      win_opts.footer = " [Commit: g<CR> or <Leader><CR>] | [Cancel: :q] "
+      win_opts.footer_pos = "center"
+    else
+      win_opts.title = " [Commit: g<CR> or <Leader><CR>] | [Cancel: :q] "
+    end
+    
+    local scratch_win = vim.api.nvim_open_win(scratch_buf, true, win_opts)
     
     -- Winbar を使って、スクロールしても絶対に画面外へ行かないヘッダーを実装
     local parent_text = vim.trim(parent_line)
-    -- 文字化け防止のため文字数で丸める
-    if vim.fn.strchars(parent_text) > 40 then
-      parent_text = vim.fn.strcharpart(parent_text, 0, 40) .. "..."
-    end
-    vim.wo[scratch_win].winbar = "%#Title# # Splitting: " .. parent_text .. " %=%#Comment#[Commit: g<CR> or <Leader><CR>] [Cancel: :q] "
+    -- winbar全体を親タスク名に割り当てる
+    vim.wo[scratch_win].winbar = "%#Title# # Splitting: " .. parent_text
 
     
     vim.api.nvim_create_autocmd("BufWipeout", {
