@@ -142,7 +142,7 @@ function M.split_current_task()
     vim.bo[scratch_buf].bufhidden = "wipe"
     vim.bo[scratch_buf].filetype = "markdown"
     
-    vim.api.nvim_buf_set_lines(scratch_buf, 0, -1, false, { "" })
+    vim.api.nvim_buf_set_lines(scratch_buf, 0, -1, false, { "- [ ] " })
     
     local width = math.floor(vim.o.columns * 0.8)
     local height = math.floor(vim.o.lines * 0.6)
@@ -349,7 +349,23 @@ function M.split_current_task()
     vim.keymap.set('n', 'g<CR>', commit, { buffer = scratch_buf, silent = true, desc = "Commit Split" })
     vim.keymap.set('n', '<Leader><CR>', commit, { buffer = scratch_buf, silent = true, desc = "Commit Split" })
     
-    vim.cmd("startinsert")
+    -- インサートモードでのエンターキーで自動的にチェックボックスを継続する
+    vim.keymap.set('i', '<CR>', function()
+      local line = vim.api.nvim_get_current_line()
+      -- 現在の行が空のチェックボックスなら、それを消して通常の改行にする
+      if line:match("^%s*%- %[%s*%]%s*$") then
+        return "<C-u><CR>"
+      -- チェックボックスがある行で改行したら、次の行にもチェックボックスを入れる
+      elseif line:match("^%s*%- %[%s*%]") then
+        return "<CR>- [ ] "
+      else
+        return "<CR>"
+      end
+    end, { buffer = scratch_buf, expr = true, remap = false })
+    
+    -- カーソルを最初の行の末尾に移動してインサートモードへ
+    vim.api.nvim_win_set_cursor(scratch_win, { 1, 6 })
+    vim.cmd("startinsert!")
   end)
 end
 
