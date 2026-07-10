@@ -57,8 +57,13 @@ function M.toggle_complete()
       task.completed_at = today
     end
     local newline = task_mod.serialize(task)
-    vim.api.nvim_buf_set_lines(0, row - 1, row, false, { newline })
-    vim.cmd("silent! write")
+    local buf = vim.api.nvim_get_current_buf()
+    local ok, err = pcall(vim.api.nvim_buf_set_lines, buf, row - 1, row, false, { newline })
+    if not ok then
+      vim.notify("Failed to update task line: " .. tostring(err), vim.log.levels.ERROR)
+      return
+    end
+    pcall(vim.api.nvim_buf_call, buf, function() vim.cmd("write") end)
   end
 end
 
@@ -92,8 +97,13 @@ function M.move_current_task_to(target_section)
   local todo_path = data_dir .. "/todo.md"
   
   if filename == "inbox.md" then
-    vim.api.nvim_buf_set_lines(0, row - 1, row, false, {})
-    vim.cmd("silent! write")
+    local buf = vim.api.nvim_get_current_buf()
+    local ok, err = pcall(vim.api.nvim_buf_set_lines, buf, row - 1, row, false, {})
+    if not ok then
+      vim.notify("Failed to remove task line: " .. tostring(err), vim.log.levels.ERROR)
+      return
+    end
+    pcall(vim.api.nvim_buf_call, buf, function() vim.cmd("write") end)
     
     local todo_data = io_mod.read_todo_file(todo_path)
     if #todo_data.section_order == 0 then
@@ -177,8 +187,13 @@ function M.cancel_current_task()
     end
     io_mod.write_todo_file(todo_path, todo_data)
   else
-    vim.api.nvim_buf_set_lines(0, row - 1, row, false, {})
-    vim.cmd("silent! write")
+    local buf = vim.api.nvim_get_current_buf()
+    local ok, err = pcall(vim.api.nvim_buf_set_lines, buf, row - 1, row, false, {})
+    if not ok then
+      vim.notify("Failed to remove task line: " .. tostring(err), vim.log.levels.ERROR)
+      return
+    end
+    pcall(vim.api.nvim_buf_call, buf, function() vim.cmd("write") end)
   end
   
   local current_month = os.date("%Y-%m")

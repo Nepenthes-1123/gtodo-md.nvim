@@ -87,8 +87,8 @@ function M.open_float(filepath, title)
   vim.bo[file_buf].buflisted = false
   vim.bo[file_buf].bufhidden = "wipe"
 
-  vim.api.nvim_buf_set_keymap(file_buf, 'n', 'q',     ':q<CR>', { noremap = true, silent = true })
-  vim.api.nvim_buf_set_keymap(file_buf, 'n', '<Esc>', ':q<CR>', { noremap = true, silent = true })
+  vim.keymap.set('n', 'q',     '<cmd>q<CR>', { buffer = file_buf, noremap = true, silent = true })
+  vim.keymap.set('n', '<Esc>', '<cmd>q<CR>', { buffer = file_buf, noremap = true, silent = true })
 
   return file_buf, win
 end
