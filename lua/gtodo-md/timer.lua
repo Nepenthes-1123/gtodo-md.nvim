@@ -54,11 +54,29 @@ function M.start_waiting_timer()
   end))
 end
 
+local rollover_timer = nil
+
+function M.start_daily_rollover_timer()
+  if rollover_timer then return end
+  
+  -- 60秒に1回、超軽量な日付変更チェックを走らせる
+  local interval = 60 * 1000
+  rollover_timer = uv.new_timer()
+  rollover_timer:start(interval, interval, vim.schedule_wrap(function()
+    require('gtodo-md').check_daily_rollover()
+  end))
+end
+
 function M.stop_timers()
   if waiting_timer then
     waiting_timer:stop()
     waiting_timer:close()
     waiting_timer = nil
+  end
+  if rollover_timer then
+    rollover_timer:stop()
+    rollover_timer:close()
+    rollover_timer = nil
   end
 end
 
