@@ -142,30 +142,22 @@ function M.split_current_task()
     vim.bo[scratch_buf].bufhidden = "wipe"
     vim.bo[scratch_buf].filetype = "markdown"
     
-    vim.api.nvim_buf_set_lines(scratch_buf, 0, -1, false, { "" })
-    
-    local virt_ns = vim.api.nvim_create_namespace("gtodo_split_virt")
-    vim.api.nvim_buf_set_extmark(scratch_buf, virt_ns, 0, 0, {
-      virt_lines = {
-        { { "# Splitting: " .. vim.trim(parent_line), "Title" } },
-        { { "  [Commit: Normal mode, press g<CR> or <Leader><CR>]  [Cancel: :q]", "Comment" } }
-      },
-      virt_lines_above = true,
-      right_gravity = false,
-    })
+    local header = {
+      "# Splitting: " .. vim.trim(parent_line),
+      "<!-- [Commit: Normal mode, g<CR> or <Leader><CR>] | [Cancel: :q] -->",
+      "---",
+      ""
+    }
+    vim.api.nvim_buf_set_lines(scratch_buf, 0, -1, false, header)
     
     local width = math.floor(vim.o.columns * 0.8)
     local height = math.floor(vim.o.lines * 0.6)
-    local col = math.floor((vim.o.columns - width) / 2)
-    local row_pos = math.floor((vim.o.lines - height) / 2)
-    
-    local win_opts = {
+    local scratch_win = vim.api.nvim_open_win(scratch_buf, true, {
       relative = "editor", width = width, height = height,
-      col = col, row = row_pos, style = "minimal", border = "rounded",
-      title = " Task Split ", title_pos = "center",
-    }
-    
-    local scratch_win = vim.api.nvim_open_win(scratch_buf, true, win_opts)
+      col = math.floor((vim.o.columns - width) / 2),
+      row = math.floor((vim.o.lines - height) / 2),
+      style = "minimal", border = "rounded", title = " Task Split ", title_pos = "center",
+    })
     
     vim.api.nvim_create_autocmd("BufWipeout", {
       buffer = scratch_buf,
@@ -209,8 +201,8 @@ function M.split_current_task()
         marker_width = c_marker_width
       end
       
-      local payload = vim.api.nvim_buf_get_lines(scratch_buf, 0, -1, false)
-      if table.concat(payload, "\n"):match("^%s*$") then
+      local payload = vim.api.nvim_buf_get_lines(scratch_buf, 3, -1, false)
+      if #payload == 0 or table.concat(payload, "\n"):match("^%s*$") then
         vim.notify("[gtodo-md] Empty payload. Aborting split.", vim.log.levels.INFO)
         vim.api.nvim_win_close(scratch_win, true)
         return
@@ -296,6 +288,8 @@ function M.split_current_task()
     vim.keymap.set('n', 'g<CR>', commit, { buffer = scratch_buf, silent = true, desc = "Commit Split" })
     vim.keymap.set('n', '<Leader><CR>', commit, { buffer = scratch_buf, silent = true, desc = "Commit Split" })
     
+    -- カーソルを最後の空行（入力開始位置）に移動してからInsertモードに入る
+    vim.api.nvim_win_set_cursor(scratch_win, { 4, 0 })
     vim.cmd("startinsert")
   end)
 end
