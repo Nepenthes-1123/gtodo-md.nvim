@@ -142,13 +142,18 @@ function M.split_current_task()
     vim.bo[scratch_buf].bufhidden = "wipe"
     vim.bo[scratch_buf].filetype = "markdown"
     
-    local header = {
-      "# Splitting: " .. vim.trim(parent_line),
-      "<!-- [Commit: Normal mode, g<CR> or <Leader><CR>] | [Cancel: :q] -->",
-      "---",
-      ""
-    }
-    vim.api.nvim_buf_set_lines(scratch_buf, 0, -1, false, header)
+    vim.api.nvim_buf_set_lines(scratch_buf, 0, -1, false, { "", "", "", "" })
+    
+    local virt_ns = vim.api.nvim_create_namespace("gtodo_split_virt")
+    vim.api.nvim_buf_set_extmark(scratch_buf, virt_ns, 0, 0, {
+      virt_lines = {
+        { { "# Splitting: " .. vim.trim(parent_line), "Title" } },
+        { { "  [Commit: Normal mode, g<CR> or <Leader><CR>] | [Cancel: :q]", "Comment" } },
+        { { "──────────────────────────────────────────────────────────────", "Comment" } }
+      },
+      virt_lines_above = true,
+      right_gravity = false,
+    })
     
     local width = math.floor(vim.o.columns * 0.8)
     local height = math.floor(vim.o.lines * 0.6)
@@ -201,8 +206,8 @@ function M.split_current_task()
         marker_width = c_marker_width
       end
       
-      local payload = vim.api.nvim_buf_get_lines(scratch_buf, 3, -1, false)
-      if #payload == 0 or table.concat(payload, "\n"):match("^%s*$") then
+      local payload = vim.api.nvim_buf_get_lines(scratch_buf, 0, -1, false)
+      if table.concat(payload, "\n"):match("^%s*$") then
         vim.notify("[gtodo-md] Empty payload. Aborting split.", vim.log.levels.INFO)
         vim.api.nvim_win_close(scratch_win, true)
         return
