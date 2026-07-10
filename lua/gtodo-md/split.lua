@@ -199,10 +199,28 @@ function M.split_current_task()
       local parent_row = mark[1]
       local current_parent_line = vim.api.nvim_buf_get_lines(source_buf, parent_row, parent_row + 1, false)[1]
       
+      -- Fallback: if extmark shifted (e.g. due to undo bugs), scan +/- 2 lines
+      if current_parent_line ~= parent_line then
+        for offset = -2, 2 do
+          if offset ~= 0 then
+            local check_row = parent_row + offset
+            if check_row >= 0 then
+              local check_line = vim.api.nvim_buf_get_lines(source_buf, check_row, check_row + 1, false)[1]
+              if check_line == parent_line then
+                parent_row = check_row
+                current_parent_line = check_line
+                break
+              end
+            end
+          end
+        end
+      end
+      
       if current_parent_line ~= parent_line then
         local c_bq_prefix, c_marker, c_marker_width = get_list_marker_info(current_parent_line)
         if not c_marker then
           vim.notify("[gtodo-md] Parent task was modified and is no longer a valid task.", vim.log.levels.ERROR)
+          is_committing = false
           return
         end
         
