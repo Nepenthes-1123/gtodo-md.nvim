@@ -61,10 +61,16 @@ function M.split_current_task()
     return
   end
   
+  active_splits[source_buf] = active_splits[source_buf] or {}
+  active_splits[source_buf][row] = true
+  
   local existing_tag = parent_line:match("%+([%w%-_/%.]+)")
   
   vim.ui.input({ prompt = "Project tag (empty for plain split): ", default = existing_tag or "" }, function(input_tag)
-    if input_tag == nil then return end 
+    if input_tag == nil then 
+      active_splits[source_buf][row] = nil
+      return 
+    end 
     
     local new_tag = vim.trim(input_tag)
     
@@ -107,9 +113,6 @@ function M.split_current_task()
     local extmark_id = vim.api.nvim_buf_set_extmark(source_buf, ns_id, row - 1, 0, {
       right_gravity = false,
     })
-    
-    active_splits[source_buf] = active_splits[source_buf] or {}
-    active_splits[source_buf][row] = true
     
     local scratch_buf = vim.api.nvim_create_buf(false, true)
     vim.bo[scratch_buf].bufhidden = "wipe"
