@@ -624,6 +624,9 @@ function M.setup_buffer_keymaps(bufnr)
   map('n', prefix .. 'x', function() editor_mod.toggle_complete() end, "Toggle task completion")
   map('n', prefix .. 'c', function() editor_mod.cancel_current_task() end, "Cancel task")
   
+  -- タスク分割・プロジェクト化 (Issue #22)
+  map('n', prefix .. 'p', function() editor_mod.split_current_task() end, "Split / Promote task")
+  
   -- ジャンプ系
   map('n', prefix .. 'jp', function() ui_mod.jump_to_project() end, "Jump to project file")
   
