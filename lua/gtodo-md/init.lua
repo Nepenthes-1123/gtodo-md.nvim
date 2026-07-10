@@ -79,6 +79,7 @@ end
 
 -- BufEnter時の自動処理
 function M.handle_buf_enter(bufnr)
+  local today = os.date("%Y-%m-%d")
   local bufname = vim.api.nvim_buf_get_name(bufnr)
   local filename = vim.fn.fnamemodify(bufname, ":t")
   
