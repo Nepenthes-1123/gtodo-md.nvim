@@ -189,4 +189,12 @@ function M.cancel_current_task()
   vim.notify("Task cancelled and moved to cancelled.md", vim.log.levels.INFO)
 end
 
+function M.split_current_task()
+  require('gtodo-md.split').split_current_task()
+end
+
+function M.promote_current_task_to_project()
+  require('gtodo-md.promote').promote_current_task_to_project()
+end
+
 return M
