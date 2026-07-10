@@ -120,6 +120,7 @@ If `use_default_keymaps = true`, the prefix is `<Leader>t`:
 | `<Leader>ta` | Normal | Add/Edit task interactively (via UI prompts) |
 | `<Leader>ts` | Normal | Search tasks (Tags, Contexts) using your picker |
 | `<Leader>tq` | Normal | Open the Queue view (due dates grouped) |
+| `<Leader>tp` | Normal | (Inside todo.md/inbox.md) Split / Promote task |
 | `gd` | Normal | (Inside markdown) Jump to the project file corresponding to the `+Project` tag under cursor |
 
 ## Commands

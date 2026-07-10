@@ -143,6 +143,7 @@ vim.keymap.set('n', '<Leader>ta', function() require('gtodo-md').add_or_edit_tas
 | `<Leader>ts` | カーソル行を `Someday` セクションへ移動 |
 | `<Leader>tx` | `[ ]` / `[x]` をトグル（完了時に `completed_at:YYYY-MM-DD` を付与） |
 | `<Leader>tc` | カーソル行のタスクをキャンセルし、`cancelled.md` へ移動 |
+| `<Leader>tp` | タスクを分割してサブタスク化（Split）、またはプロジェクトへ昇格（Promote） |
 | `<Leader>tjp` | カーソル上の `+プロジェクト名` から対応するプロジェクトファイルへジャンプ（存在しない場合はテンプレートから自動作成） |
 | `<Leader>to` | 手動での期日チェック & 自動ソート実行 |
 
