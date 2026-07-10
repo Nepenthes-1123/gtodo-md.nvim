@@ -14,6 +14,37 @@ function M.get_current_task()
   return task, row, line
 end
 
+-- Shared helper: load todo.md, locate `task` in `section` by identity
+-- (content + created), then call action_fn(todo_data, section, found_idx).
+-- action_fn is responsible for mutating todo_data; the helper saves afterward.
+-- Returns true if the task was found and action_fn was called, false otherwise.
+local function update_task_in_todo(task, section, action_fn)
+  local todo_path = config.get("data_dir") .. "/todo.md"
+  local todo_data = io_mod.read_todo_file(todo_path)
+
+  if not todo_data.sections[section] then
+    return false
+  end
+
+  local found_idx = nil
+  for i, item in ipairs(todo_data.sections[section]) do
+    if item.type == "task"
+        and item.task.content == task.content
+        and item.task.created == task.created then
+      found_idx = i
+      break
+    end
+  end
+
+  if not found_idx then
+    return false
+  end
+
+  action_fn(todo_data, section, found_idx)
+  io_mod.write_todo_file(todo_path, todo_data)
+  return true
+end
+
 -- 完了トグル
 function M.toggle_complete()
   local task, row = M.get_current_task()
@@ -21,33 +52,25 @@ function M.toggle_complete()
     vim.notify("Not on a task line.", vim.log.levels.WARN)
     return
   end
-  
+
   local bufname = vim.api.nvim_buf_get_name(0)
   local filename = vim.fn.fnamemodify(bufname, ":t")
   local today = os.date("%Y-%m-%d")
   local is_completed = (task.status == "x")
-  
+
   if filename == "todo.md" then
-    local todo_path = config.get("data_dir") .. "/todo.md"
-    local todo_data = io_mod.read_todo_file(todo_path)
     local current_sec = M.get_current_section()
-    
-    if todo_data.sections[current_sec] then
-      for _, item in ipairs(todo_data.sections[current_sec]) do
-        if item.type == "task" and item.task.content == task.content and item.task.created == task.created then
-          if is_completed then
-            item.task.status = " "
-            item.task.completed_at = nil
-          else
-            item.task.status = "x"
-            item.task.completed_at = today
-          end
-          break
-        end
+    update_task_in_todo(task, current_sec, function(todo_data, section, idx)
+      local item = todo_data.sections[section][idx]
+      if is_completed then
+        item.task.status = " "
+        item.task.completed_at = nil
+      else
+        item.task.status = "x"
+        item.task.completed_at = today
       end
-      todo_data.sections[current_sec] = logic_mod.sort_section_tasks(todo_data.sections[current_sec])
-    end
-    io_mod.write_todo_file(todo_path, todo_data)
+      todo_data.sections[section] = logic_mod.sort_section_tasks(todo_data.sections[section])
+    end)
   else
     if is_completed then
       task.status = " "
@@ -83,18 +106,18 @@ function M.move_current_task_to(target_section)
     vim.notify("Not on a task line.", vim.log.levels.WARN)
     return
   end
-  
+
   local bufname = vim.api.nvim_buf_get_name(0)
   local filename = vim.fn.fnamemodify(bufname, ":t")
-  
+
   local data_dir = config.get("data_dir")
   local inbox_path = data_dir .. "/inbox.md"
   local todo_path = data_dir .. "/todo.md"
-  
+
   if filename == "inbox.md" then
     vim.api.nvim_buf_set_lines(0, row - 1, row, false, {})
     vim.cmd("silent! write")
-    
+
     local todo_data = io_mod.read_todo_file(todo_path)
     if #todo_data.section_order == 0 then
       todo_data.section_order = { config.sections.TODAY, config.sections.NEXT, config.sections.WAITING, config.sections.SOMEDAY }
@@ -106,43 +129,32 @@ function M.move_current_task_to(target_section)
     todo_data.sections[target_section] = logic_mod.sort_section_tasks(todo_data.sections[target_section])
     io_mod.write_todo_file(todo_path, todo_data)
     vim.notify(string.format("Moved task to todo.md [%s]", target_section), vim.log.levels.INFO)
-    
+
   elseif filename == "todo.md" then
     local current_sec = M.get_current_section()
     if current_sec == target_section then
       vim.notify("Already in " .. target_section, vim.log.levels.INFO)
       return
     end
-    
-    local todo_data = io_mod.read_todo_file(todo_path)
-    if todo_data.sections[current_sec] then
-      local idx_to_remove = nil
-      for i, item in ipairs(todo_data.sections[current_sec]) do
-        if item.type == "task" and item.task.content == task.content and item.task.created == task.created then
-          idx_to_remove = i
-          break
+
+    update_task_in_todo(task, current_sec, function(todo_data, section, idx)
+      table.remove(todo_data.sections[section], idx)
+
+      if not todo_data.sections[target_section] then
+        todo_data.sections[target_section] = {}
+        local has_sec = false
+        for _, s in ipairs(todo_data.section_order) do
+          if s == target_section then has_sec = true break end
+        end
+        if not has_sec then
+          table.insert(todo_data.section_order, target_section)
         end
       end
-      if idx_to_remove then
-        table.remove(todo_data.sections[current_sec], idx_to_remove)
-      end
-    end
-    
-    if not todo_data.sections[target_section] then
-      todo_data.sections[target_section] = {}
-      local has_sec = false
-      for _, s in ipairs(todo_data.section_order) do
-        if s == target_section then has_sec = true break end
-      end
-      if not has_sec then
-        table.insert(todo_data.section_order, target_section)
-      end
-    end
-    
-    table.insert(todo_data.sections[target_section], { type = "task", task = task })
-    todo_data.sections[current_sec] = logic_mod.sort_section_tasks(todo_data.sections[current_sec] or {})
-    todo_data.sections[target_section] = logic_mod.sort_section_tasks(todo_data.sections[target_section])
-    io_mod.write_todo_file(todo_path, todo_data)
+
+      table.insert(todo_data.sections[target_section], { type = "task", task = task })
+      todo_data.sections[section] = logic_mod.sort_section_tasks(todo_data.sections[section] or {})
+      todo_data.sections[target_section] = logic_mod.sort_section_tasks(todo_data.sections[target_section])
+    end)
     vim.notify(string.format("Moved task to [%s]", target_section), vim.log.levels.INFO)
   end
 end
@@ -154,37 +166,24 @@ function M.cancel_current_task()
     vim.notify("Not on a task line.", vim.log.levels.WARN)
     return
   end
-  
+
   local bufname = vim.api.nvim_buf_get_name(0)
   local filename = vim.fn.fnamemodify(bufname, ":t")
-  
+
   if filename == "todo.md" then
     local current_sec = M.get_current_section()
-    local todo_path = config.get("data_dir") .. "/todo.md"
-    local todo_data = io_mod.read_todo_file(todo_path)
-    
-    if todo_data.sections[current_sec] then
-      local idx_to_remove = nil
-      for i, item in ipairs(todo_data.sections[current_sec]) do
-        if item.type == "task" and item.task.content == task.content and item.task.created == task.created then
-          idx_to_remove = i
-          break
-        end
-      end
-      if idx_to_remove then
-        table.remove(todo_data.sections[current_sec], idx_to_remove)
-      end
-    end
-    io_mod.write_todo_file(todo_path, todo_data)
+    update_task_in_todo(task, current_sec, function(todo_data, section, idx)
+      table.remove(todo_data.sections[section], idx)
+    end)
   else
     vim.api.nvim_buf_set_lines(0, row - 1, row, false, {})
     vim.cmd("silent! write")
   end
-  
+
   local current_month = os.date("%Y-%m")
   local data_dir = config.get("data_dir")
   local cancelled_path = data_dir .. "/cancelled.md"
-  
+
   logic_mod.append_to_history(cancelled_path, "Cancelled", current_month, { task })
   vim.notify("Task cancelled and moved to cancelled.md", vim.log.levels.INFO)
 end
