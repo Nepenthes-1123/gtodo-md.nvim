@@ -34,7 +34,7 @@ function M.toggle_complete()
     
     if todo_data.sections[current_sec] then
       for _, item in ipairs(todo_data.sections[current_sec]) do
-        if item.type == "task" and item.task.content == task.content and item.task.created == task.created then
+        if item.type == "task" and item.task.content == task.content and item.task.created == task.created and item.task.original_line == task.original_line then
           if is_completed then
             item.task.status = " "
             item.task.completed_at = nil
@@ -118,7 +118,7 @@ function M.move_current_task_to(target_section)
     if todo_data.sections[current_sec] then
       local idx_to_remove = nil
       for i, item in ipairs(todo_data.sections[current_sec]) do
-        if item.type == "task" and item.task.content == task.content and item.task.created == task.created then
+        if item.type == "task" and item.task.content == task.content and item.task.created == task.created and item.task.original_line == task.original_line then
           idx_to_remove = i
           break
         end
@@ -166,7 +166,7 @@ function M.cancel_current_task()
     if todo_data.sections[current_sec] then
       local idx_to_remove = nil
       for i, item in ipairs(todo_data.sections[current_sec]) do
-        if item.type == "task" and item.task.content == task.content and item.task.created == task.created then
+        if item.type == "task" and item.task.content == task.content and item.task.created == task.created and item.task.original_line == task.original_line then
           idx_to_remove = i
           break
         end
