@@ -147,7 +147,18 @@ function M.split_current_task()
     local width = math.floor(vim.o.columns * 0.8)
     local height = math.floor(vim.o.lines * 0.6)
     
-    local parent_text = vim.trim(parent_line)
+    local parent_text = parent_line
+    
+    -- マーカー部分を除去
+    local t_bq, t_marker, _ = get_list_marker_info(parent_text)
+    if t_marker then
+      parent_text = parent_text:sub(#t_bq + #t_marker + 1)
+    end
+    
+    -- メタデータ (+, @, #) を除去
+    parent_text = parent_text:gsub("[%+@#][%w%-_/%.%(%):]+", "")
+    parent_text = vim.trim(parent_text)
+    
     if vim.fn.strchars(parent_text) > 40 then
       parent_text = vim.fn.strcharpart(parent_text, 0, 40) .. "..."
     end
