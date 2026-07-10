@@ -50,6 +50,7 @@ require("gtodo-md").setup({
   enable_waiting_warning = true, -- Enable Waiting tasks warnings
   waiting_warning_interval = 3600, -- Interval to check Waiting tasks warnings (seconds)
   enable_project_progress = true, -- Display progress bars at the bottom of project files
+  auto_move_inbox_to_today = true, -- Automatically move tasks with due dates of today/overdue from Inbox to Today on creation or edit
 })
 ```
 
@@ -119,6 +120,7 @@ If `use_default_keymaps = true`, the prefix is `<Leader>t`:
 | `<Leader>ta` | Normal | Add/Edit task interactively (via UI prompts) |
 | `<Leader>ts` | Normal | Search tasks (Tags, Contexts) using your picker |
 | `<Leader>tq` | Normal | Open the Queue view (due dates grouped) |
+| `<Leader>tp` | Normal | (Inside todo.md/inbox.md) Split / Promote task |
 | `gd` | Normal | (Inside markdown) Jump to the project file corresponding to the `+Project` tag under cursor |
 
 ## Commands

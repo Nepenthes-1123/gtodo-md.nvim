@@ -65,6 +65,7 @@ function M.open_float(filepath, title)
   local row = math.floor((vim.o.lines - height) / 2)
 
   local buf = vim.api.nvim_create_buf(false, true)
+  vim.bo[buf].bufhidden = "wipe"
 
   local opts = {
     relative = "editor",
@@ -255,35 +256,8 @@ function M.jump_to_project()
   local proj_file = string.format("%s/projects/%s.md", data_dir, project_tag)
   
   if vim.fn.filereadable(proj_file) == 0 then
-    local today = os.date("%Y-%m-%d")
-    local template = {
-      "---",
-      "title: ",
-      "tag: " .. project_tag,
-      "created: " .. today,
-      "due: ",
-      "status: active",
-      "members: []",
-      "---",
-      "",
-      "## Overview",
-      "",
-      "## Notes",
-      "",
-      "## Reference",
-      ""
-    }
-    
-    local f = io.open(proj_file, "w")
-    if f then
-      for _, l in ipairs(template) do
-        f:write(l .. "\n")
-      end
-      f:close()
-    else
-      vim.notify("Failed to create project file: " .. proj_file, vim.log.levels.ERROR)
-      return
-    end
+    local ok = require('gtodo-md.utils').create_project_file(project_tag)
+    if not ok then return end
   end
   
   M.open_float(proj_file, "Project: " .. project_tag)

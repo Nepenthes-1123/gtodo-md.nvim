@@ -33,42 +33,39 @@ function M.read_lines(path)
   end
 end
 
+function M.format_buffer(bufnr)
+  pcall(function()
+    if package.loaded["conform"] then
+      require("conform").format({ bufnr = bufnr, async = false })
+    elseif vim.fn.exists(":Neoformat") == 2 then
+      vim.cmd("Neoformat")
+    elseif vim.fn.exists(":FormatWrite") == 2 then
+      vim.cmd("FormatWrite")
+    else
+      vim.lsp.buf.format({ bufnr = bufnr, async = false })
+    end
+  end)
+  
+  vim.api.nvim_buf_call(bufnr, function()
+    vim.cmd("silent! noautocmd write")
+  end)
+end
+
 -- ファイルまたはバッファに行リストを書き込む
 function M.write_lines(path, lines)
   local buf = get_buf_by_name(path)
-  if buf then
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-    -- フォーマッターが存在すれば呼び出す (conform.nvim, Neoformat, formatter.nvim, または LSP)
-    pcall(function()
-      if package.loaded["conform"] then
-        require("conform").format({ bufnr = buf, async = false })
-      elseif vim.fn.exists(":Neoformat") == 2 then
-        vim.cmd("Neoformat")
-      elseif vim.fn.exists(":FormatWrite") == 2 then
-        vim.cmd("FormatWrite")
-      else
-        vim.lsp.buf.format({ bufnr = buf, async = false })
-      end
-    end)
-    
-    vim.api.nvim_buf_call(buf, function()
-      vim.cmd("silent! noautocmd write")
-    end)
-  else
-    local tmp_path = path .. ".tmp"
-    local f = io.open(tmp_path, "w")
-    if f then
-      for _, line in ipairs(lines) do
-        f:write(line .. "\n")
-      end
-      f:close()
-      
-      local success = (vim.fn.rename(tmp_path, path) == 0)
-      if not success then
-        os.remove(tmp_path)
-        vim.notify("Failed to write file atomically", vim.log.levels.ERROR)
-      end
-    end
+  local is_loaded = (buf ~= nil)
+  
+  if not buf then
+    buf = vim.fn.bufadd(path)
+    vim.fn.bufload(buf)
+  end
+  
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  M.format_buffer(buf)
+  
+  if not is_loaded then
+    vim.api.nvim_buf_delete(buf, { force = true })
   end
 end
 
@@ -133,7 +130,10 @@ function M.write_todo_file(filepath, data)
     table.insert(lines, l)
   end
   
-  if data.sections["default"] then
+  if data.sections["default"] and #data.sections["default"] > 0 then
+    if #lines > 0 and lines[#lines] ~= "" then
+      table.insert(lines, "")
+    end
     for _, item in ipairs(data.sections["default"]) do
       if item.type == "task" then
         table.insert(lines, task_mod.serialize(item.task))
@@ -172,10 +172,10 @@ end
 function M.ensure_files()
   local data_dir = config.get("data_dir")
   local files = {
-    { path = data_dir .. "/inbox.md", title = "# Inbox" },
+    { path = data_dir .. "/inbox.md", title = "# Inbox\n" },
     { path = data_dir .. "/todo.md", title = string.format("# Todo\n\n## %s\n\n## %s\n\n## %s\n\n## %s", config.sections.TODAY, config.sections.NEXT, config.sections.WAITING, config.sections.SOMEDAY) },
-    { path = data_dir .. "/done.md", title = "# Done" },
-    { path = data_dir .. "/cancelled.md", title = "# Cancelled" },
+    { path = data_dir .. "/done.md", title = "# Done\n" },
+    { path = data_dir .. "/cancelled.md", title = "# Cancelled\n" },
   }
   
   for _, f in ipairs(files) do

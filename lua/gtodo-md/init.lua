@@ -13,14 +13,56 @@ local last_processed_mtimes = {
 }
 local last_processed_date = ""
 
+function M.check_daily_rollover()
+  local today = os.date("%Y-%m-%d")
+  if last_processed_date ~= "" and today == last_processed_date then
+    return
+  end
+  
+  local last_opened = require('gtodo-md.utils').read_last_opened()
+  if last_opened ~= today then
+    local data_dir = config.get("data_dir")
+    local inbox_path = data_dir .. "/inbox.md"
+    local todo_path = data_dir .. "/todo.md"
+    local done_path = data_dir .. "/done.md"
+    
+    local todo_changed = logic_mod.move_completed_tasks(inbox_path, todo_path, done_path)
+    if logic_mod.check_dues(inbox_path, todo_path) then
+      todo_changed = true
+    end
+    if todo_changed then
+      logic_mod.sort_todo_file(todo_path)
+    end
+    require('gtodo-md.utils').write_last_opened(today)
+    
+    last_processed_mtimes.inbox = vim.fn.getftime(inbox_path)
+    last_processed_mtimes.todo = vim.fn.getftime(todo_path)
+    
+    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.api.nvim_buf_is_loaded(buf) then
+        local bname = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t")
+        if bname == "inbox.md" or bname == "todo.md" or bname == "done.md" then
+          vim.api.nvim_buf_call(buf, function() vim.cmd("checktime") end)
+        end
+      end
+    end
+  end
+  
+  last_processed_date = today
+end
+
 function M.setup(opts)
   config.setup(opts)
   
   -- ディレクトリ内のデフォルトファイルを用意する
   io_mod.ensure_files()
   
+  -- 起動時に日付変更チェックを走らせる（Dashboard等への最新データ提供のため）
+  M.check_daily_rollover()
+  
   -- タイマー開始
   timer_mod.start_waiting_timer()
+  timer_mod.start_daily_rollover_timer()
   
   -- Autocmdの設定
   M.setup_autocmds()
@@ -37,6 +79,7 @@ end
 
 -- BufEnter時の自動処理
 function M.handle_buf_enter(bufnr)
+  local today = os.date("%Y-%m-%d")
   local bufname = vim.api.nvim_buf_get_name(bufnr)
   local filename = vim.fn.fnamemodify(bufname, ":t")
   
@@ -47,18 +90,17 @@ function M.handle_buf_enter(bufnr)
   local data_dir = config.get("data_dir")
   local inbox_path = data_dir .. "/inbox.md"
   local todo_path = data_dir .. "/todo.md"
-  local done_path = data_dir .. "/done.md"
   
-  local today = os.date("%Y-%m-%d")
+  -- 1. 完了タスク移動などの大掃除フェイルセーフ
+  M.check_daily_rollover()
+  
   local current_inbox_mtime = vim.fn.getftime(inbox_path)
   local current_todo_mtime = vim.fn.getftime(todo_path)
   local is_modified = vim.bo[bufnr].modified
   
   -- スキップ判定
   local skip_process = true
-  if last_processed_date ~= today then
-    skip_process = false
-  elseif current_inbox_mtime ~= last_processed_mtimes.inbox then
+  if current_inbox_mtime ~= last_processed_mtimes.inbox then
     skip_process = false
   elseif current_todo_mtime ~= last_processed_mtimes.todo then
     skip_process = false
@@ -74,26 +116,16 @@ function M.handle_buf_enter(bufnr)
     return
   end
   
-  -- 1. 完了タスク移動（日付変更後の初回BufEnterのみ）
-  local last_opened = require('gtodo-md.utils').read_last_opened()
-  
-  if last_opened ~= today then
-    local todo_changed = logic_mod.move_completed_tasks(inbox_path, todo_path, done_path)
-    if logic_mod.check_dues(inbox_path, todo_path) then
-      todo_changed = true
-    end
-    if todo_changed then
-      logic_mod.sort_todo_file(todo_path)
-    end
-    require('gtodo-md.utils').write_last_opened(today)
-  end
+
   
   -- 2. dueチェック・自動移動
   logic_mod.check_dues(inbox_path, todo_path)
   
-  -- 3. 自動ソート（todo.mdのみ）
+  -- 3. 自動ソート（todo.mdのみ）または自動フォーマット（inbox.mdのみ）
   if filename == "todo.md" then
     logic_mod.sort_todo_file(todo_path)
+  elseif filename == "inbox.md" then
+    require('gtodo-md.io').format_buffer(bufnr)
   end
   
   -- バッファローカルキーマップを登録
@@ -114,7 +146,7 @@ function M.handle_buf_enter(bufnr)
 end
 
 function M.setup_autocmds()
-  local group = vim.api.nvim_create_augroup("TodoNvimGroup", { clear = true })
+  local group = vim.api.nvim_create_augroup("GtodoMd", { clear = true })
   
   -- この setup_autocmds 実行インスタンスに完全にカプセル化されたキャッシュテーブル
   -- augroup のクリア (clear = true) と連動して再初期化されるため、古い Autocmd との不整合は起きない
@@ -390,6 +422,17 @@ function M.setup_autocmds()
     end
   })
   
+  -- フォーカスが戻った時の日付変更検知
+  vim.api.nvim_create_autocmd("FocusGained", {
+    group = group,
+    pattern = "*",
+    callback = function()
+      vim.schedule(function()
+        M.check_daily_rollover()
+      end)
+    end
+  })
+  
   -- 構文ハイライトのアタッチ
   vim.api.nvim_create_autocmd({ "BufReadPost", "BufNewFile", "FileChangedShellPost" }, {
     group = group,
@@ -581,6 +624,9 @@ function M.setup_buffer_keymaps(bufnr)
   
   map('n', prefix .. 'x', function() editor_mod.toggle_complete() end, "Toggle task completion")
   map('n', prefix .. 'c', function() editor_mod.cancel_current_task() end, "Cancel task")
+  
+  -- タスク分割・プロジェクト化 (Issue #22)
+  map('n', prefix .. 'p', function() editor_mod.split_current_task() end, "Split / Promote task")
   
   -- ジャンプ系
   map('n', prefix .. 'jp', function() ui_mod.jump_to_project() end, "Jump to project file")

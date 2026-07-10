@@ -3,13 +3,18 @@ local task_mod = require('gtodo-md.task')
 local config = require('gtodo-md.config')
 local io_mod = require('gtodo-md.io')
 
+local mem_last_notify_time = 0
+local mem_last_notify_content = ""
+
 -- セクション内のタスクをソートする
 function M.sort_section_tasks(items)
   local tasks = {}
+  local task_indices = {}
   for i, item in ipairs(items) do
     if item.type == "task" then
       item.original_index = i
       table.insert(tasks, item)
+      table.insert(task_indices, i)
     end
   end
   
@@ -48,14 +53,12 @@ function M.sort_section_tasks(items)
   end)
   
   local new_items = {}
-  for _, t in ipairs(tasks) do
-    table.insert(new_items, { type = "task", task = t.task })
+  for i, item in ipairs(items) do
+    new_items[i] = item
   end
   
-  for _, item in ipairs(items) do
-    if item.type == "text" and vim.trim(item.line) ~= "" then
-      table.insert(new_items, item)
-    end
+  for i, idx in ipairs(task_indices) do
+    new_items[idx] = { type = "task", task = tasks[i].task }
   end
   
   return new_items
@@ -75,7 +78,7 @@ local function get_last_notify_state(persist)
     local utils = require('gtodo-md.utils')
     return utils.read_notify_state()
   else
-    return _G.gtodo_mem_last_notify_time or 0, _G.gtodo_mem_last_notify_content or ""
+    return mem_last_notify_time, mem_last_notify_content
   end
 end
 
@@ -84,8 +87,8 @@ local function set_last_notify_state(persist, time, content)
     local utils = require('gtodo-md.utils')
     utils.write_notify_state(time, content)
   else
-    _G.gtodo_mem_last_notify_time = time
-    _G.gtodo_mem_last_notify_content = content
+    mem_last_notify_time = time
+    mem_last_notify_content = content
   end
 end
 
@@ -214,6 +217,7 @@ function M.append_to_history(filepath, header_title, section_name, tasks)
       table.insert(lines, "")
     end
     table.insert(lines, "## " .. section_name)
+    table.insert(lines, "")
   end
 
   for _, t in ipairs(tasks) do
