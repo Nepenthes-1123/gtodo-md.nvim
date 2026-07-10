@@ -240,41 +240,7 @@ function M.split_current_task()
       
       local stripped_parent = parent_line:sub(#bq_prefix + 1)
       local parent_indent = get_visual_indent(stripped_parent)
-      local base_offset = parent_indent + marker_width
-      
-      local lines_in_source = vim.api.nvim_buf_get_lines(source_buf, 0, -1, false)
-      local inject_row = parent_row + 1
-      
-      while inject_row < #lines_in_source do
-        local l = lines_in_source[inject_row + 1]
-        if not l or l:match("^%s*$") then
-          inject_row = inject_row + 1
-        else
-          local l_stripped = l
-          if bq_prefix ~= "" and l:sub(1, #bq_prefix) == bq_prefix then
-            l_stripped = l:sub(#bq_prefix + 1)
-          end
-          local l_indent = get_visual_indent(l_stripped)
-          
-          local bypass = false
-          if l_stripped:match("^%s*>") and l_indent > parent_indent then
-            bypass = true
-          end
-          
-          if not bypass and l_indent <= parent_indent then
-            break
-          end
-          
-          inject_row = inject_row + 1
-        end
-      end
-      
-      while inject_row > parent_row + 1 do
-        if lines_in_source[inject_row] and not lines_in_source[inject_row]:match("^%s*$") then
-          break
-        end
-        inject_row = inject_row - 1
-      end
+      local base_offset = parent_indent -- フラットモデル：親と同じインデント
       
       local injection = {}
       local expandtab = vim.bo[source_buf].expandtab
@@ -342,7 +308,8 @@ function M.split_current_task()
       end
       
       pcall(function() vim.cmd("undojoin") end)
-      vim.api.nvim_buf_set_lines(source_buf, inject_row, inject_row, false, injection)
+      -- 親タスクを削除し、分割されたタスク群に置き換える（フラットモデル）
+      vim.api.nvim_buf_set_lines(source_buf, parent_row, parent_row + 1, false, injection)
       vim.api.nvim_win_close(scratch_win, true)
     end
     
