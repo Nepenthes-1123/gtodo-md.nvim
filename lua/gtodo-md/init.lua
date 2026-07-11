@@ -121,11 +121,9 @@ function M.handle_buf_enter(bufnr)
   -- 2. dueチェック・自動移動
   logic_mod.check_dues(inbox_path, todo_path)
   
-  -- 3. 自動ソート（todo.mdのみ）または自動フォーマット（inbox.mdのみ）
+  -- 3. 自動ソート（todo.mdのみ）
   if filename == "todo.md" then
     logic_mod.sort_todo_file(todo_path)
-  elseif filename == "inbox.md" then
-    require('gtodo-md.io').format_buffer(bufnr)
   end
   
   -- バッファローカルキーマップを登録

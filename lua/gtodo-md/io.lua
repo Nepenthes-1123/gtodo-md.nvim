@@ -81,7 +81,6 @@ function M.write_lines(path, lines)
   if buf then
     local was_modified = vim.bo[buf].modified
     update_lines_incrementally(buf, lines)
-    M.format_buffer(buf)
     
     if not was_modified then
       -- バックグラウンドタイマーやプログラムによる自動更新でバッファがサイレントに汚染されるのを防ぐため、元々クリーンだった場合は即座に保存する
