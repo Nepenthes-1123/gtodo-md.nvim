@@ -190,7 +190,9 @@ function M.move_current_task_to(target_section)
       M._execute_move(task, row, target_section)
     end)
   else
+    print("Before task.wait = nil, task.wait = ", task.wait)
     task.wait = nil
+    print("After task.wait = nil, task.wait = ", task.wait)
     M._execute_move(task, row, target_section)
   end
 end

@@ -166,6 +166,7 @@ function M.check_dues(inbox_path, todo_path)
       local remaining_items = {}
       for _, item in ipairs(todo_data.sections[from_sec]) do
         if item.type == "task" and item.task.status ~= "x" and item.task.due and item.task.due <= today then
+          item.task.wait = nil -- 自動移動時も wait: を剥がす
           table.insert(todo_data.sections[config.sections.TODAY], item)
           moved_count = moved_count + 1
           todo_changed = true
