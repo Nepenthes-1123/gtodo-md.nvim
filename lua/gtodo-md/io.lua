@@ -90,7 +90,7 @@ function M.write_lines(path, lines)
         f:write(line .. "\n")
       end
       f:close()
-      os.rename(tmp_path, path)
+      vim.fn.rename(tmp_path, path)
     end
   end
 end
