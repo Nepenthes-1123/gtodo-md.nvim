@@ -406,17 +406,22 @@ function M.open_queue(mode, previous_target_id)
 
   local tasks = {}
 
+  local ns = vim.api.nvim_create_namespace("gtodo_queue_marks")
+
   for _, filepath in ipairs(source_files) do
     if vim.fn.filereadable(filepath) == 1 then
-      local lines = io_mod.read_lines(filepath)
+      local buf = vim.fn.bufadd(filepath)
+      vim.fn.bufload(buf)
+      vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+      
+      local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
       local task_mod = require('gtodo-md.task')
       for lnum, line in ipairs(lines) do
         local task = task_mod.parse(line)
         if task and task.status ~= "x" then
-          if mode == "due" and task.due then
-            table.insert(tasks, { task = task, filepath = filepath, lnum = lnum })
-          elseif mode == "wait" and task.wait then
-            table.insert(tasks, { task = task, filepath = filepath, lnum = lnum })
+          if (mode == "due" and task.due) or (mode == "wait" and task.wait) then
+            local mark_id = vim.api.nvim_buf_set_extmark(buf, ns, lnum - 1, 0, {})
+            table.insert(tasks, { task = task, filepath = filepath, lnum = lnum, mark_id = mark_id, bufnr = buf })
           end
         end
       end
@@ -535,7 +540,7 @@ function M.open_queue(mode, previous_target_id)
         add(
           task_line(entry, "  ⚠ ") .. string.format(" (%d日超過)", days_over),
           "DiagnosticError",
-          { filepath = entry.filepath, original_line = entry.task.original_line, lnum = entry.lnum }
+          { filepath = entry.filepath, original_line = entry.task.original_line, lnum = entry.lnum, mark_id = entry.mark_id, bufnr = entry.bufnr }
         )
       end
     end
@@ -549,7 +554,7 @@ function M.open_queue(mode, previous_target_id)
         add(
           task_line(entry),
           nil,
-          { filepath = entry.filepath, original_line = entry.task.original_line, lnum = entry.lnum }
+          { filepath = entry.filepath, original_line = entry.task.original_line, lnum = entry.lnum, mark_id = entry.mark_id, bufnr = entry.bufnr }
         )
       end
     end
@@ -565,7 +570,7 @@ function M.open_queue(mode, previous_target_id)
         add(
           task_line(entry) .. string.format("  due:%d/%d", mo, d),
           "Comment",
-          { filepath = entry.filepath, original_line = entry.task.original_line, lnum = entry.lnum }
+          { filepath = entry.filepath, original_line = entry.task.original_line, lnum = entry.lnum, mark_id = entry.mark_id, bufnr = entry.bufnr }
         )
       end
     end
@@ -585,7 +590,7 @@ function M.open_queue(mode, previous_target_id)
         add(
           task_line(entry),
           nil,
-          { filepath = entry.filepath, original_line = entry.task.original_line, lnum = entry.lnum }
+          { filepath = entry.filepath, original_line = entry.task.original_line, lnum = entry.lnum, mark_id = entry.mark_id, bufnr = entry.bufnr }
         )
       end
     end
@@ -655,7 +660,14 @@ function M.open_queue(mode, previous_target_id)
     vim.cmd("q")
     local fname = vim.fn.fnamemodify(source.filepath, ":t:r"):upper()
     local _, new_win = M.open_float(source.filepath, fname)
-    if source.lnum then
+    if source.mark_id and source.bufnr then
+      local pos = vim.api.nvim_buf_get_extmark_by_id(source.bufnr, ns, source.mark_id, {})
+      if pos and pos[1] then
+        pcall(vim.api.nvim_win_set_cursor, new_win, { pos[1] + 1, 0 })
+      else
+        pcall(vim.api.nvim_win_set_cursor, new_win, { source.lnum, 0 })
+      end
+    elseif source.lnum then
       pcall(vim.api.nvim_win_set_cursor, new_win, { source.lnum, 0 })
     end
   end, { buffer = buf, noremap = true, silent = true })

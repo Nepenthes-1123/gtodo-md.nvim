@@ -272,20 +272,14 @@ function M.assign_wait_tag(is_visual)
       if pos and pos[1] then
         local r = pos[1]
         local line = vim.api.nvim_buf_get_lines(bufnr, r, r + 1, false)[1]
-        if line and task_mod.parse(line) then
-          local new_line
+        local task = task_mod.parse(line)
+        if task then
           if input == "" then
-            -- 削除
-            new_line = line:gsub("%s*wait:%S+", "")
+            task.wait = nil
           else
-            -- 追加または置換
-            if line:match("wait:%S+") then
-              new_line = line:gsub("wait:%S+", "wait:" .. input)
-            else
-              -- 末尾の空白をトリムして追加
-              new_line = vim.trim(line) .. " wait:" .. input
-            end
+            task.wait = input
           end
+          local new_line = task_mod.serialize(task)
           table.insert(lines_to_update, { row = r, text = new_line })
         end
       end

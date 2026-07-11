@@ -49,8 +49,14 @@ function M.parse(line)
   -- +project-name: 空白+プラスが優先。行頭の+のみ fallback（C++等の誤検知を防ぐ）
   task.project = extract_field("%s%+([%w%-_/%.]+)") or extract_field("^%+([%w%-_/%.]+)")
 
-  -- wait:タグの抽出（句読点などのマルチバイト文字を[^...]に含めると文字化けするため、%S+のみで抽出）
-  task.wait = extract_field("wait:(%S+)")
+  -- wait:タグの抽出（句読点などのマルチバイト文字を安全に除外するため、Vimの正規表現エンジンを使用）
+  local wait_start = vim.fn.match(text, "\\<wait:[^[:space:]　。、.,()（）]\\+")
+  if wait_start ~= -1 then
+    local wait_end = vim.fn.matchend(text, "\\<wait:[^[:space:]　。、.,()（）]\\+")
+    local wait_match = text:sub(wait_start + 1, wait_end)
+    task.wait = wait_match:sub(6) -- "wait:" を除去
+    text = text:sub(1, wait_start) .. text:sub(wait_end + 1)
+  end
 
   -- 余分なスペースのトリミング
   text = text:gsub("%s+", " ")

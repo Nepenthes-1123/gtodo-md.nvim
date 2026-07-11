@@ -45,27 +45,26 @@ function M.format_buffer(bufnr)
       vim.lsp.buf.format({ bufnr = bufnr, async = false })
     end
   end)
-  
-  vim.api.nvim_buf_call(bufnr, function()
-    vim.cmd("silent! noautocmd write")
-  end)
 end
 
 -- ファイルまたはバッファに行リストを書き込む
 function M.write_lines(path, lines)
   local buf = get_buf_by_name(path)
-  local is_loaded = (buf ~= nil)
   
-  if not buf then
-    buf = vim.fn.bufadd(path)
-    vim.fn.bufload(buf)
-  end
-  
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  M.format_buffer(buf)
-  
-  if not is_loaded then
-    vim.api.nvim_buf_delete(buf, { force = true })
+  if buf then
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    M.format_buffer(buf)
+    -- 未保存の編集内容を上書きしないよう、保存はユーザーのアクションやBufWritePreに委ねる
+  else
+    local tmp_path = path .. ".tmp"
+    local f = io.open(tmp_path, "w")
+    if f then
+      for _, line in ipairs(lines) do
+        f:write(line .. "\n")
+      end
+      f:close()
+      os.rename(tmp_path, path)
+    end
   end
 end
 
