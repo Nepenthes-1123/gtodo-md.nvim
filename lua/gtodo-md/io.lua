@@ -62,7 +62,6 @@ function M.write_lines(path, lines)
   end
   
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  M.format_buffer(buf)
   
   if not is_loaded then
     vim.api.nvim_buf_delete(buf, { force = true })
@@ -138,7 +137,14 @@ function M.write_todo_file(filepath, data)
       if item.type == "task" then
         table.insert(lines, task_mod.serialize(item.task))
       else
-        table.insert(lines, item.line)
+        local text = item.line
+        if vim.trim(text) == "" then
+          if #lines > 0 and vim.trim(lines[#lines]) ~= "" then
+            table.insert(lines, text)
+          end
+        else
+          table.insert(lines, text)
+        end
       end
     end
   end
@@ -155,7 +161,14 @@ function M.write_todo_file(filepath, data)
       if item.type == "task" then
         table.insert(lines, task_mod.serialize(item.task))
       else
-        table.insert(lines, item.line)
+        local text = item.line
+        if vim.trim(text) == "" then
+          if #lines > 0 and vim.trim(lines[#lines]) ~= "" then
+            table.insert(lines, text)
+          end
+        else
+          table.insert(lines, text)
+        end
       end
     end
   end

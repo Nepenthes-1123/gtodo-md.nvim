@@ -104,14 +104,8 @@ function M.toggle_complete()
   end
 end
 
--- タスクのセクション移動
-function M.move_current_task_to(target_section)
-  local task, row = M.get_current_task()
-  if not task then
-    vim.notify("Not on a task line.", vim.log.levels.WARN)
-    return
-  end
-
+-- タスクのセクション移動の実装部分
+function M._execute_move(task, row, target_section)
   local bufname = vim.api.nvim_buf_get_name(0)
   local filename = vim.fn.fnamemodify(bufname, ":t")
 
@@ -174,6 +168,29 @@ function M.move_current_task_to(target_section)
     elseif not ok then
       vim.notify("Task not found in current section.", vim.log.levels.WARN)
     end
+  end
+end
+
+-- タスクのセクション移動 (エントリーポイント)
+function M.move_current_task_to(target_section)
+  local task, row = M.get_current_task()
+  if not task then
+    vim.notify("Not on a task line.", vim.log.levels.WARN)
+    return
+  end
+
+  if target_section == config.sections.WAITING then
+    vim.ui.input({ prompt = "Waiting for (empty to skip/remove): ", default = task.wait or "" }, function(input)
+      if input == nil then return end -- aborted
+      if vim.trim(input) ~= "" then
+        task.wait = vim.trim(input)
+      elseif input == "" then
+        task.wait = nil
+      end
+      M._execute_move(task, row, target_section)
+    end)
+  else
+    M._execute_move(task, row, target_section)
   end
 end
 
