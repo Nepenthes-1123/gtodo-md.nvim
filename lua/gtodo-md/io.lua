@@ -119,6 +119,13 @@ function M.parse_markdown(lines)
     end
   end
   
+  -- セクション末尾の空行（単なる余白）を削除
+  for _, items in pairs(data.sections) do
+    while #items > 0 and items[#items].type == "text" and vim.trim(items[#items].line) == "" do
+      table.remove(items)
+    end
+  end
+  
   return data
 end
 
