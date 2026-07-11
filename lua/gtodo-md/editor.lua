@@ -276,11 +276,11 @@ function M.assign_wait_tag(is_visual)
           local new_line
           if input == "" then
             -- 削除
-            new_line = line:gsub("%s*wait:[^%s　。、%.,%(%)（）]+", "")
+            new_line = line:gsub("%s*wait:%S+", "")
           else
             -- 追加または置換
-            if line:match("wait:[^%s　。、%.,%(%)（）]+") then
-              new_line = line:gsub("wait:[^%s　。、%.,%(%)（）]+", "wait:" .. input)
+            if line:match("wait:%S+") then
+              new_line = line:gsub("wait:%S+", "wait:" .. input)
             else
               -- 末尾の空白をトリムして追加
               new_line = vim.trim(line) .. " wait:" .. input

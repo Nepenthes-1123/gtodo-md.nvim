@@ -49,8 +49,8 @@ function M.parse(line)
   -- +project-name: 空白+プラスが優先。行頭の+のみ fallback（C++等の誤検知を防ぐ）
   task.project = extract_field("%s%+([%w%-_/%.]+)") or extract_field("^%+([%w%-_/%.]+)")
 
-  -- wait:タグの抽出（句読点や括弧を除外）
-  task.wait = extract_field("wait:([^%s　。、%.,%(%)（）]+)")
+  -- wait:タグの抽出（句読点などのマルチバイト文字を[^...]に含めると文字化けするため、%S+のみで抽出）
+  task.wait = extract_field("wait:(%S+)")
 
   -- 余分なスペースのトリミング
   text = text:gsub("%s+", " ")

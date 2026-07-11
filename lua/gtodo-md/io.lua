@@ -62,6 +62,7 @@ function M.write_lines(path, lines)
   end
   
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  M.format_buffer(buf)
   
   if not is_loaded then
     vim.api.nvim_buf_delete(buf, { force = true })
