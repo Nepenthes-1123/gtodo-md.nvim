@@ -39,33 +39,63 @@ function M.format_buffer(bufnr)
       require("conform").format({ bufnr = bufnr, async = false })
     elseif vim.fn.exists(":Neoformat") == 2 then
       vim.cmd("Neoformat")
-    elseif vim.fn.exists(":FormatWrite") == 2 then
-      vim.cmd("FormatWrite")
+    elseif vim.fn.exists(":Format") == 2 then
+      vim.cmd("Format")
     else
       vim.lsp.buf.format({ bufnr = bufnr, async = false })
     end
   end)
+end
+
+-- 差分のみを更新し、Extmarksの破壊を防ぐ
+local function update_lines_incrementally(buf, new_lines)
+  local old_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local start_idx = 1
+  while start_idx <= #old_lines and start_idx <= #new_lines and old_lines[start_idx] == new_lines[start_idx] do
+    start_idx = start_idx + 1
+  end
   
-  vim.api.nvim_buf_call(bufnr, function()
-    vim.cmd("silent! noautocmd write")
-  end)
+  local end_old = #old_lines
+  local end_new = #new_lines
+  while end_old >= start_idx and end_new >= start_idx and old_lines[end_old] == new_lines[end_new] do
+    end_old = end_old - 1
+    end_new = end_new - 1
+  end
+  
+  if start_idx > #old_lines and start_idx > #new_lines then
+    return -- 変更なし
+  end
+  
+  local replacement = {}
+  for i = start_idx, end_new do
+    table.insert(replacement, new_lines[i])
+  end
+  
+  vim.api.nvim_buf_set_lines(buf, start_idx - 1, end_old, false, replacement)
 end
 
 -- ファイルまたはバッファに行リストを書き込む
 function M.write_lines(path, lines)
   local buf = get_buf_by_name(path)
-  local is_loaded = (buf ~= nil)
   
-  if not buf then
-    buf = vim.fn.bufadd(path)
-    vim.fn.bufload(buf)
-  end
-  
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  M.format_buffer(buf)
-  
-  if not is_loaded then
-    vim.api.nvim_buf_delete(buf, { force = true })
+  if buf then
+    local was_modified = vim.bo[buf].modified
+    update_lines_incrementally(buf, lines)
+    
+    if not was_modified then
+      -- バックグラウンドタイマーやプログラムによる自動更新でバッファがサイレントに汚染されるのを防ぐため、元々クリーンだった場合は即座に保存する
+      pcall(vim.api.nvim_buf_call, buf, function() vim.cmd("silent! write") end)
+    end
+  else
+    local tmp_path = path .. ".tmp"
+    local f = io.open(tmp_path, "w")
+    if f then
+      for _, line in ipairs(lines) do
+        f:write(line .. "\n")
+      end
+      f:close()
+      vim.fn.rename(tmp_path, path)
+    end
   end
 end
 
@@ -113,7 +143,10 @@ function M.parse_markdown(lines)
         if task then
           table.insert(data.sections[current_section], { type = "task", task = task, line = line })
         else
-          table.insert(data.sections[current_section], { type = "text", line = line })
+          -- 空行はソート時のインデックスズレやMarkdownリスト分断の原因になるため無視する
+          if vim.trim(line) ~= "" then
+            table.insert(data.sections[current_section], { type = "text", line = line })
+          end
         end
       end
     end
@@ -138,7 +171,14 @@ function M.write_todo_file(filepath, data)
       if item.type == "task" then
         table.insert(lines, task_mod.serialize(item.task))
       else
-        table.insert(lines, item.line)
+        local text = item.line
+        if vim.trim(text) == "" then
+          if #lines > 0 and vim.trim(lines[#lines]) ~= "" then
+            table.insert(lines, text)
+          end
+        else
+          table.insert(lines, text)
+        end
       end
     end
   end
@@ -155,7 +195,14 @@ function M.write_todo_file(filepath, data)
       if item.type == "task" then
         table.insert(lines, task_mod.serialize(item.task))
       else
-        table.insert(lines, item.line)
+        local text = item.line
+        if vim.trim(text) == "" then
+          if #lines > 0 and vim.trim(lines[#lines]) ~= "" then
+            table.insert(lines, text)
+          end
+        else
+          table.insert(lines, text)
+        end
       end
     end
   end

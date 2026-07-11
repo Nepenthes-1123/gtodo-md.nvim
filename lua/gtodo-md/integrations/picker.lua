@@ -81,6 +81,13 @@ function M.snacks(items)
       return parts
     end,
     actions = {
+      open_task = function(picker, item)
+        if item and item.file then
+          picker:close()
+          require('gtodo-md.ui').open_float(item.file)
+          pcall(vim.api.nvim_win_set_cursor, 0, { item.pos[1], 0 })
+        end
+      end,
       toggle_task = function(picker, item)
         local sel = picker:selected()
         local targets = (sel and #sel > 0) and sel or { item }
@@ -101,6 +108,7 @@ function M.snacks(items)
     win = {
       input = {
         keys = {
+          ["<CR>"] = { "open_task", desc = "Open Task in Float", mode = { "n", "i" } },
           ["<c-x>"] = { "toggle_task", desc = "Toggle Task Done/Undone", mode = { "n", "i" } },
           ["x"] = { "toggle_task", desc = "Toggle Task Done/Undone", mode = "n" },
           ["　"] = { function() vim.api.nvim_feedkeys(" ", "n", false) end, desc = "Convert full-width space to half-width space", mode = "i" },
@@ -108,6 +116,7 @@ function M.snacks(items)
       },
       list = {
         keys = {
+          ["<CR>"] = { "open_task", desc = "Open Task in Float", mode = "n" },
           ["x"] = { "toggle_task", desc = "Toggle Task Done/Undone", mode = "n" },
         }
       }
@@ -165,6 +174,17 @@ function M.telescope(items)
         end
       end
       
+      local open_task = function()
+        local selection = action_state.get_selected_entry()
+        if selection and selection.filename then
+          actions.close(prompt_bufnr)
+          require('gtodo-md.ui').open_float(selection.filename)
+          pcall(vim.api.nvim_win_set_cursor, 0, { selection.lnum, 0 })
+        end
+      end
+      
+      map('i', '<CR>', open_task)
+      map('n', '<CR>', open_task)
       map('i', '<C-x>', toggle_task)
       map('n', '<C-x>', toggle_task)
       map('n', 'x', toggle_task)
@@ -228,7 +248,16 @@ function M.fzf_lua(items)
     fzf_opts = {
       ["--bind"] = "　:put( )"
     },
-    actions = vim.tbl_extend("force", fzf.defaults.actions.file_edit, {
+    actions = {
+      ["default"] = function(selected, opts)
+        if not selected or #selected == 0 then return end
+        local sel = selected[1] -- default action only processes the first item usually, or we can just loop and take the first
+        local file, lnum = sel:match("^(.-):(%d+):")
+        if file and lnum then
+          require('gtodo-md.ui').open_float(file)
+          pcall(vim.api.nvim_win_set_cursor, 0, { tonumber(lnum), 0 })
+        end
+      end,
       ["ctrl-x"] = function(selected, opts)
         if not selected or #selected == 0 then return end
         for _, sel in ipairs(selected) do
@@ -238,7 +267,7 @@ function M.fzf_lua(items)
           end
         end
       end
-    })
+    }
   })
   return true
 end
