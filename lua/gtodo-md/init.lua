@@ -620,6 +620,8 @@ function M.setup_buffer_keymaps(bufnr)
   map('n', prefix .. 'd', function() editor_mod.move_current_task_to(config.sections.TODAY) end, "Move task to " .. config.sections.TODAY)
   map('n', prefix .. 'n', function() editor_mod.move_current_task_to(config.sections.NEXT) end, "Move task to " .. config.sections.NEXT)
   map('n', prefix .. 'w', function() editor_mod.move_current_task_to(config.sections.WAITING) end, "Move task to " .. config.sections.WAITING)
+  map('n', prefix .. 'tw', function() editor_mod.assign_wait_tag(false) end, "Assign wait: tag")
+  map('v', prefix .. 'tw', function() editor_mod.assign_wait_tag(true) end, "Assign wait: tag to selection")
   map('n', prefix .. 's', function() editor_mod.move_current_task_to(config.sections.SOMEDAY) end, "Move task to " .. config.sections.SOMEDAY)
   
   map('n', prefix .. 'x', function() editor_mod.toggle_complete() end, "Toggle task completion")

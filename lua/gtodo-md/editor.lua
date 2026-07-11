@@ -104,14 +104,8 @@ function M.toggle_complete()
   end
 end
 
--- タスクのセクション移動
-function M.move_current_task_to(target_section)
-  local task, row = M.get_current_task()
-  if not task then
-    vim.notify("Not on a task line.", vim.log.levels.WARN)
-    return
-  end
-
+-- タスクのセクション移動の実装部分
+function M._execute_move(task, row, target_section)
   local bufname = vim.api.nvim_buf_get_name(0)
   local filename = vim.fn.fnamemodify(bufname, ":t")
 
@@ -177,6 +171,30 @@ function M.move_current_task_to(target_section)
   end
 end
 
+-- タスクのセクション移動 (エントリーポイント)
+function M.move_current_task_to(target_section)
+  local task, row = M.get_current_task()
+  if not task then
+    vim.notify("Not on a task line.", vim.log.levels.WARN)
+    return
+  end
+
+  if target_section == config.sections.WAITING then
+    vim.ui.input({ prompt = "Waiting for (empty to skip/remove): ", default = task.wait or "" }, function(input)
+      if input == nil then return end -- aborted
+      if vim.trim(input) ~= "" then
+        task.wait = vim.trim(input)
+      elseif input == "" then
+        task.wait = nil
+      end
+      M._execute_move(task, row, target_section)
+    end)
+  else
+    task.wait = nil
+    M._execute_move(task, row, target_section)
+  end
+end
+
 -- タスクのキャンセル
 function M.cancel_current_task()
   local task, row = M.get_current_task()
@@ -217,6 +235,80 @@ end
 
 function M.split_current_task()
   require('gtodo-md.split').split_current_task()
+end
+
+function M.assign_wait_tag(is_visual)
+  local bufnr = vim.api.nvim_get_current_buf()
+  local start_row, end_row
+  if is_visual then
+    start_row = vim.fn.line("'<")
+    end_row = vim.fn.line("'>")
+  else
+    start_row = vim.fn.line(".")
+    end_row = start_row
+  end
+  
+  -- 1. 非同期待機中の行追跡のためにExtmarksを打つ
+  local ns = vim.api.nvim_create_namespace("gtodo_wait_assign")
+  local marks = {}
+  for row = start_row, end_row do
+    local mark_id = vim.api.nvim_buf_set_extmark(bufnr, ns, row - 1, 0, {})
+    table.insert(marks, mark_id)
+  end
+  
+  -- 2. プロンプトを開く
+  vim.ui.input({ prompt = "Waiting for (empty to remove): " }, function(input)
+    -- 非同期コールバック
+    if not input then
+      -- aborted
+      vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+      return
+    end
+    
+    input = vim.trim(input)
+    local lines_to_update = {}
+    
+    for _, mark_id in ipairs(marks) do
+      local pos = vim.api.nvim_buf_get_extmark_by_id(bufnr, ns, mark_id, {})
+      if pos and pos[1] then
+        local r = pos[1]
+        local line = vim.api.nvim_buf_get_lines(bufnr, r, r + 1, false)[1]
+        local task = task_mod.parse(line)
+        if task then
+          if input == "" then
+            task.wait = nil
+          else
+            task.wait = input
+          end
+          local new_line = task_mod.serialize(task)
+          table.insert(lines_to_update, { row = r, text = new_line })
+        end
+      end
+    end
+    
+    -- Extmarkの掃除
+    vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+    
+    if #lines_to_update == 0 then return end
+    
+    -- 3. 一括でバッファを更新し、undo履歴を連結する
+    local ok, err = pcall(function()
+      vim.cmd("undojoin")
+      for _, update in ipairs(lines_to_update) do
+        vim.api.nvim_buf_set_lines(bufnr, update.row, update.row + 1, false, { update.text })
+      end
+    end)
+    
+    -- もし undojoin が直前の変更がないという理由で失敗した場合のフォールバック
+    if not ok and err and tostring(err):match("E790") then
+      for _, update in ipairs(lines_to_update) do
+        vim.api.nvim_buf_set_lines(bufnr, update.row, update.row + 1, false, { update.text })
+      end
+    end
+    
+    -- 保存
+    pcall(vim.api.nvim_buf_call, bufnr, function() vim.cmd("silent! write") end)
+  end)
 end
 
 return M
