@@ -52,15 +52,15 @@ function M.parse(line)
   local created = extract_field("\\<created:\\d\\{4}-\\d\\{2}-\\d\\{2}")
   if created then task.created = created:sub(9) end
 
-  local context = extract_field("\\s\\+@[a-zA-Z0-9_/-]\\+")
+  local context = extract_field("\\s\\+@[a-zA-Z0-9_/.-]\\+")
   if not context then
-    context = extract_field("^@[a-zA-Z0-9_/-]\\+")
+    context = extract_field("^@[a-zA-Z0-9_/.-]\\+")
   end
   if context then task.context = vim.trim(context) end
 
-  local project = extract_field("\\s\\++[a-zA-Z0-9_/-]\\+")
+  local project = extract_field("\\s\\++[a-zA-Z0-9_/.-]\\+")
   if not project then
-    project = extract_field("^+[a-zA-Z0-9_/-]\\+")
+    project = extract_field("^+[a-zA-Z0-9_/.-]\\+")
   end
   if project then task.project = vim.trim(project):sub(2) end
 
