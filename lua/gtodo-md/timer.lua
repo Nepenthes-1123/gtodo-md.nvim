@@ -36,7 +36,16 @@ function M.check_waiting_tasks()
   end
 end
 
-local function is_any_buffer_modified()
+local function should_skip_timer()
+  local mode = vim.fn.mode()
+  if mode ~= "n" then
+    local cur_buf = vim.api.nvim_get_current_buf()
+    local bname = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(cur_buf), ":t")
+    if bname == "inbox.md" or bname == "todo.md" or bname == "done.md" then
+      return true
+    end
+  end
+
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
     if vim.api.nvim_buf_is_loaded(buf) and vim.bo[buf].modified then
       local bname = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t")
@@ -56,7 +65,7 @@ function M.start_waiting_timer()
   
   -- 起動時に一度即時チェックを実行 (遅延ロードや起動シーケンスと競合しないよう非同期にスケジューリング)
   vim.schedule(function()
-    if not is_any_buffer_modified() then
+    if not should_skip_timer() then
       M.check_waiting_tasks()
     end
   end)
@@ -64,7 +73,7 @@ function M.start_waiting_timer()
   local interval = config.get("waiting_warning_interval") * 1000
   waiting_timer = uv.new_timer()
   waiting_timer:start(interval, interval, vim.schedule_wrap(function()
-    if not is_any_buffer_modified() then
+    if not should_skip_timer() then
       M.check_waiting_tasks()
     end
   end))
@@ -79,7 +88,7 @@ function M.start_daily_rollover_timer()
   local interval = 60 * 1000
   rollover_timer = uv.new_timer()
   rollover_timer:start(interval, interval, vim.schedule_wrap(function()
-    if not is_any_buffer_modified() then
+    if not should_skip_timer() then
       require('gtodo-md').check_daily_rollover()
     end
   end))

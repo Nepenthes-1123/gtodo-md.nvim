@@ -79,9 +79,14 @@ function M.write_lines(path, lines)
   local buf = get_buf_by_name(path)
   
   if buf then
+    local was_modified = vim.bo[buf].modified
     update_lines_incrementally(buf, lines)
     M.format_buffer(buf)
-    -- 未保存の編集内容を上書きしないよう、保存はユーザーのアクションやBufWritePreに委ねる
+    
+    if not was_modified then
+      -- バックグラウンドタイマーやプログラムによる自動更新でバッファがサイレントに汚染されるのを防ぐため、元々クリーンだった場合は即座に保存する
+      pcall(vim.api.nvim_buf_call, buf, function() vim.cmd("silent! write") end)
+    end
   else
     local tmp_path = path .. ".tmp"
     local f = io.open(tmp_path, "w")
