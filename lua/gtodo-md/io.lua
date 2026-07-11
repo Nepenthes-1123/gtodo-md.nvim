@@ -47,12 +47,39 @@ function M.format_buffer(bufnr)
   end)
 end
 
+-- 差分のみを更新し、Extmarksの破壊を防ぐ
+local function update_lines_incrementally(buf, new_lines)
+  local old_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local start_idx = 1
+  while start_idx <= #old_lines and start_idx <= #new_lines and old_lines[start_idx] == new_lines[start_idx] do
+    start_idx = start_idx + 1
+  end
+  
+  local end_old = #old_lines
+  local end_new = #new_lines
+  while end_old >= start_idx and end_new >= start_idx and old_lines[end_old] == new_lines[end_new] do
+    end_old = end_old - 1
+    end_new = end_new - 1
+  end
+  
+  if start_idx > #old_lines and start_idx > #new_lines then
+    return -- 変更なし
+  end
+  
+  local replacement = {}
+  for i = start_idx, end_new do
+    table.insert(replacement, new_lines[i])
+  end
+  
+  vim.api.nvim_buf_set_lines(buf, start_idx - 1, end_old, false, replacement)
+end
+
 -- ファイルまたはバッファに行リストを書き込む
 function M.write_lines(path, lines)
   local buf = get_buf_by_name(path)
   
   if buf then
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    update_lines_incrementally(buf, lines)
     M.format_buffer(buf)
     -- 未保存の編集内容を上書きしないよう、保存はユーザーのアクションやBufWritePreに委ねる
   else

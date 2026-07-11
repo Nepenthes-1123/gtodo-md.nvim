@@ -644,7 +644,7 @@ function M.open_queue(mode, previous_target_id)
     -- 現在の行のIDを記録 (filepath:lnum)
     local cursor_idx = vim.api.nvim_win_get_cursor(0)[1] - 1
     local current_source = line_map[cursor_idx]
-    local target_id = current_source and (current_source.filepath .. ":" .. current_source.lnum) or nil
+    local target_id = current_source and (current_source.filepath .. ":" .. vim.trim(current_source.original_line)) or nil
     
     local next_mode = mode == "due" and "wait" or "due"
     M.open_queue(next_mode, target_id)
@@ -690,7 +690,7 @@ function M.open_queue(mode, previous_target_id)
   -- もし前のビューから引き継いだターゲットがあれば復元
   if previous_target_id then
     for idx, source in pairs(line_map) do
-      if source and (source.filepath .. ":" .. source.lnum) == previous_target_id then
+      if source and (source.filepath .. ":" .. vim.trim(source.original_line)) == previous_target_id then
         pcall(vim.api.nvim_win_set_cursor, queue_win, { idx + 1, 0 })
         break
       end

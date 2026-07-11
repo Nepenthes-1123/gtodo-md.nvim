@@ -19,44 +19,53 @@ function M.parse(line)
   local text = rest
 
   local function extract_field(pattern)
-    local start_idx, end_idx, val = text:find(pattern)
-    if start_idx then
-      -- グループ指定がない場合はマッチ全体を返す
-      if not val then
-        val = text:sub(start_idx, end_idx)
-      end
-      text = text:sub(1, start_idx - 1) .. text:sub(end_idx + 1)
+    local start_idx = vim.fn.match(text, pattern)
+    if start_idx ~= -1 then
+      local end_idx = vim.fn.matchend(text, pattern)
+      local match_text = text:sub(start_idx + 1, end_idx)
+      text = text:sub(1, start_idx) .. text:sub(end_idx + 1)
+      return match_text
     end
-    return val
+    return nil
   end
 
   -- フィールド抽出
-  task.completed_at = extract_field("completed_at:(%d%d%d%d%-%d%d%-%d%d)")
-  task.done = extract_field("done:(%d%d%d%d%-%d%d%-%d%d)")
-  task.cancelled = extract_field("cancelled:(%d%d%d%d%-%d%d%-%d%d)")
-  task.from = extract_field("from:(%w+)")
-  -- due: は英数字・ハイフン・スラッシュ・プラスのみ許容（記号・URLを弾く）
-  local raw_due = extract_field("due:([%w%-/%+]+)")
+  local completed_at = extract_field("\\<completed_at:\\d\\{4}-\\d\\{2}-\\d\\{2}")
+  if completed_at then task.completed_at = completed_at:sub(14) end
+
+  local done = extract_field("\\<done:\\d\\{4}-\\d\\{2}-\\d\\{2}")
+  if done then task.done = done:sub(6) end
+
+  local cancelled = extract_field("\\<cancelled:\\d\\{4}-\\d\\{2}-\\d\\{2}")
+  if cancelled then task.cancelled = cancelled:sub(11) end
+
+  local from = extract_field("\\<from:\\w\\+")
+  if from then task.from = from:sub(6) end
+
+  local raw_due = extract_field("\\<due:[a-zA-Z0-9_/%+-]\\+")
   if raw_due then
+    raw_due = raw_due:sub(5)
     local normalized = require('gtodo-md.utils').parse_due_date(raw_due)
     task.due = normalized or raw_due
   end
-  task.created = extract_field("created:(%d%d%d%d%-%d%d%-%d%d)")
 
-  -- @context: 空白区切りが優先。行頭の@のみ fallback（メールアドレス等の誤検知を防ぐ）
-  task.context = extract_field("%s+(@[%w%-_/%.]+)") or extract_field("^(@[%w%-_/%.]+)")
+  local created = extract_field("\\<created:\\d\\{4}-\\d\\{2}-\\d\\{2}")
+  if created then task.created = created:sub(9) end
 
-  -- +project-name: 空白+プラスが優先。行頭の+のみ fallback（C++等の誤検知を防ぐ）
-  task.project = extract_field("%s%+([%w%-_/%.]+)") or extract_field("^%+([%w%-_/%.]+)")
-
-  -- wait:タグの抽出（句読点などのマルチバイト文字を安全に除外するため、Vimの正規表現エンジンを使用）
-  local wait_start = vim.fn.match(text, "\\<wait:[^[:space:]　。、.,()（）]\\+")
-  if wait_start ~= -1 then
-    local wait_end = vim.fn.matchend(text, "\\<wait:[^[:space:]　。、.,()（）]\\+")
-    local wait_match = text:sub(wait_start + 1, wait_end)
-    task.wait = wait_match:sub(6) -- "wait:" を除去
-    text = text:sub(1, wait_start) .. text:sub(wait_end + 1)
+  local context = extract_field("\\s\\+@[a-zA-Z0-9_/-]\\+")
+  if not context then
+    context = extract_field("^@[a-zA-Z0-9_/-]\\+")
   end
+  if context then task.context = vim.trim(context) end
+
+  local project = extract_field("\\s\\++[a-zA-Z0-9_/-]\\+")
+  if not project then
+    project = extract_field("^+[a-zA-Z0-9_/-]\\+")
+  end
+  if project then task.project = vim.trim(project):sub(2) end
+
+  local wait = extract_field("\\<wait:[^[:space:]　。、.,()（）]\\+")
+  if wait then task.wait = wait:sub(6) end
 
   -- 余分なスペースのトリミング
   text = text:gsub("%s+", " ")
