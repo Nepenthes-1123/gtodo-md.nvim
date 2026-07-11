@@ -121,11 +121,9 @@ function M.handle_buf_enter(bufnr)
   -- 2. dueチェック・自動移動
   logic_mod.check_dues(inbox_path, todo_path)
   
-  -- 3. 自動ソート（todo.mdのみ）または自動フォーマット（inbox.mdのみ）
+  -- 3. 自動ソート（todo.mdのみ）
   if filename == "todo.md" then
     logic_mod.sort_todo_file(todo_path)
-  elseif filename == "inbox.md" then
-    require('gtodo-md.io').format_buffer(bufnr)
   end
   
   -- バッファローカルキーマップを登録
@@ -528,17 +526,37 @@ function M.add_or_edit_task()
     local bufname = vim.api.nvim_buf_get_name(0)
     local filename = vim.fn.fnamemodify(bufname, ":t")
     
-    if filename == "todo.md" then
-      local current_sec = editor_mod.get_current_section()
-      if current_sec == "default" then current_sec = config.sections.TODAY end
-      local todo_data = io_mod.read_todo_file(todo_path)
-      if not todo_data.sections[current_sec] then
-        todo_data.sections[current_sec] = {}
+    -- 提案B: todo.md内で新規追加された場合でも、未来期日なら未整理としてInboxへルーティングする
+    if filename == "todo.md" and new_task.due and new_task.due ~= "" then
+      local today = os.date("%Y-%m-%d")
+      if new_task.due > today then
+        filename = "inbox.md"
       end
-      table.insert(todo_data.sections[current_sec], { type = "task", task = new_task })
+    end
+    
+    if filename == "todo.md" then
+      local target_sec = editor_mod.get_current_section()
+      if target_sec == "default" then target_sec = config.sections.TODAY end
+      
+      local todo_data = io_mod.read_todo_file(todo_path)
+      if not todo_data.sections[target_sec] then
+        todo_data.sections[target_sec] = {}
+      end
+      table.insert(todo_data.sections[target_sec], { type = "task", task = new_task })
       io_mod.write_todo_file(todo_path, todo_data)
       logic_mod.sort_todo_file(todo_path)
+      
+      -- reload if todo is open
+      for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+        if vim.api.nvim_buf_is_loaded(buf) then
+          local bname = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t")
+          if bname == "todo.md" then
+            vim.api.nvim_buf_call(buf, function() vim.cmd("checktime") end)
+          end
+        end
+      end
     else
+      -- inbox.md (またはその他) で追加された場合は inbox に留める
       local inbox_data = io_mod.read_todo_file(inbox_path)
       if not inbox_data.sections["default"] then
         inbox_data.sections["default"] = {}
@@ -555,19 +573,19 @@ function M.add_or_edit_task()
       local changed = logic_mod.check_dues(inbox_path, todo_path)
       if changed then
         logic_mod.sort_todo_file(todo_path)
-        -- reload if inbox is open
-        for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-          if vim.api.nvim_buf_is_loaded(buf) then
-            local bname = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t")
-            if bname == "inbox.md" or bname == "todo.md" then
-              vim.api.nvim_buf_call(buf, function() vim.cmd("checktime") end)
-            end
+      end
+      
+      -- reload if inbox is open
+      for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+        if vim.api.nvim_buf_is_loaded(buf) then
+          local bname = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t")
+          if bname == "inbox.md" or bname == "todo.md" then
+            vim.api.nvim_buf_call(buf, function() vim.cmd("checktime") end)
           end
         end
-      elseif filename ~= "inbox.md" then
+      end
+      if filename ~= "inbox.md" then
         vim.notify("Created new task in inbox.md", vim.log.levels.INFO)
-      else
-        vim.cmd("checktime")
       end
     end
   end)
