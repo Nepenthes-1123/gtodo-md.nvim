@@ -233,8 +233,17 @@ function M.search_tasks()
       return
     end
     
-    vim.fn.setqflist({}, " ", { title = string.format("Gtodo Search: %s", query), items = qf_list })
-    vim.cmd("copen")
+    vim.ui.select(qf_list, {
+      prompt = string.format("Gtodo Search: %s", query),
+      format_item = function(item)
+        local fname = vim.fn.fnamemodify(item.filename, ":t")
+        return string.format("%s:%d | %s", fname, item.lnum, item.text)
+      end,
+    }, function(choice)
+      if not choice then return end
+      M.open_float(choice.filename)
+      pcall(vim.api.nvim_win_set_cursor, 0, { choice.lnum, 0 })
+    end)
   end)
 end
 
