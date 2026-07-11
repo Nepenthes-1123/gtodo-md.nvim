@@ -86,9 +86,6 @@ function M.open_float(filepath, title)
 
   local file_buf = vim.api.nvim_get_current_buf()
 
-  vim.api.nvim_buf_set_keymap(file_buf, 'n', 'q',     ':q<CR>', { noremap = true, silent = true })
-  vim.api.nvim_buf_set_keymap(file_buf, 'n', '<Esc>', ':q<CR>', { noremap = true, silent = true })
-
   return file_buf, win
 end
 
@@ -235,8 +232,7 @@ function M.search_tasks()
       return
     end
     
-    vim.fn.setqflist(qf_list, "r")
-    vim.fn.setqflist({}, "r", { title = string.format("Gtodo Search: %s", query) })
+    vim.fn.setqflist({}, " ", { title = string.format("Gtodo Search: %s", query), items = qf_list })
     vim.cmd("copen")
   end)
 end
@@ -290,38 +286,62 @@ function M.render_project_tasks(bufnr)
   local done_counts = get_done_project_counts(done_path)
   completed_count = completed_count + (done_counts[project_tag] or 0)
   
-  -- inbox.md から該当プロジェクトのタスクを取得
-  if vim.fn.filereadable(inbox_path) == 1 then
-    local inbox_data = io_mod.read_todo_file(inbox_path)
-    if inbox_data.sections["default"] then
-      for _, item in ipairs(inbox_data.sections["default"]) do
-        if item.type == "task" and item.task.project == project_tag then
-          if item.task.status == "x" then
-            completed_count = completed_count + 1
-          else
-            table.insert(active_tasks, item.task)
-          end
-        end
+  -- キャッシュ機構による高速化
+  if not M._active_cache then
+    M._active_cache = { inbox_mtime = -1, todo_mtime = -1, projects = {} }
+  end
+  
+  local inbox_mtime = vim.fn.getftime(inbox_path)
+  local todo_mtime = vim.fn.getftime(todo_path)
+  
+  local is_modified = false
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_loaded(buf) and vim.bo[buf].modified then
+      local bname = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t")
+      if bname == "inbox.md" or bname == "todo.md" then
+        is_modified = true
       end
     end
   end
   
-  -- todo.md から該当プロジェクトのタスクを取得
-  if vim.fn.filereadable(todo_path) == 1 then
-    local todo_data = io_mod.read_todo_file(todo_path)
-    for _, sec in ipairs(todo_data.section_order) do
-      if todo_data.sections[sec] then
-        for _, item in ipairs(todo_data.sections[sec]) do
-          if item.type == "task" and item.task.project == project_tag then
-            if item.task.status == "x" then
-              completed_count = completed_count + 1
-            else
-              table.insert(active_tasks, item.task)
+  local projects = M._active_cache.projects
+  
+  if is_modified or M._active_cache.inbox_mtime ~= inbox_mtime or M._active_cache.todo_mtime ~= todo_mtime then
+    projects = {}
+    
+    local function parse_and_accumulate(filepath)
+      if vim.fn.filereadable(filepath) == 1 then
+        local data = io_mod.read_todo_file(filepath)
+        for _, section_tasks in pairs(data.sections) do
+          for _, item in ipairs(section_tasks) do
+            if item.type == "task" and item.task.project then
+              local p = item.task.project
+              if not projects[p] then projects[p] = { active = {}, completed = 0 } end
+              if item.task.status == "x" then
+                projects[p].completed = projects[p].completed + 1
+              else
+                table.insert(projects[p].active, item.task)
+              end
             end
           end
         end
       end
     end
+    
+    parse_and_accumulate(inbox_path)
+    parse_and_accumulate(todo_path)
+    
+    if not is_modified then
+      M._active_cache.inbox_mtime = inbox_mtime
+      M._active_cache.todo_mtime = todo_mtime
+      M._active_cache.projects = projects
+    end
+  end
+  
+  local proj_data = projects[project_tag]
+  if proj_data then
+    active_tasks = proj_data.active
+    completed_count = completed_count + proj_data.completed
   end
   
   -- 仮想テキストの描画処理
