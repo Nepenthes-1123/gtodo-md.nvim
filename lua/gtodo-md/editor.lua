@@ -219,4 +219,84 @@ function M.split_current_task()
   require('gtodo-md.split').split_current_task()
 end
 
+function M.assign_wait_tag(is_visual)
+  local bufnr = vim.api.nvim_get_current_buf()
+  local start_row, end_row
+  if is_visual then
+    start_row = vim.fn.line("'<")
+    end_row = vim.fn.line("'>")
+  else
+    start_row = vim.fn.line(".")
+    end_row = start_row
+  end
+  
+  -- 1. 非同期待機中の行追跡のためにExtmarksを打つ
+  local ns = vim.api.nvim_create_namespace("gtodo_wait_assign")
+  local marks = {}
+  for row = start_row, end_row do
+    local mark_id = vim.api.nvim_buf_set_extmark(bufnr, ns, row - 1, 0, {})
+    table.insert(marks, mark_id)
+  end
+  
+  -- 2. プロンプトを開く
+  vim.ui.input({ prompt = "Waiting for (empty to remove): " }, function(input)
+    -- 非同期コールバック
+    if not input then
+      -- aborted
+      vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+      return
+    end
+    
+    input = vim.trim(input)
+    local lines_to_update = {}
+    
+    for _, mark_id in ipairs(marks) do
+      local pos = vim.api.nvim_buf_get_extmark_by_id(bufnr, ns, mark_id, {})
+      if pos and pos[1] then
+        local r = pos[1]
+        local line = vim.api.nvim_buf_get_lines(bufnr, r, r + 1, false)[1]
+        if line and task_mod.parse(line) then
+          local new_line
+          if input == "" then
+            -- 削除
+            new_line = line:gsub("%s*wait:[^%s　。、%.,%(%)（）]+", "")
+          else
+            -- 追加または置換
+            if line:match("wait:[^%s　。、%.,%(%)（）]+") then
+              new_line = line:gsub("wait:[^%s　。、%.,%(%)（）]+", "wait:" .. input)
+            else
+              -- 末尾の空白をトリムして追加
+              new_line = vim.trim(line) .. " wait:" .. input
+            end
+          end
+          table.insert(lines_to_update, { row = r, text = new_line })
+        end
+      end
+    end
+    
+    -- Extmarkの掃除
+    vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+    
+    if #lines_to_update == 0 then return end
+    
+    -- 3. 一括でバッファを更新し、undo履歴を連結する
+    local ok, err = pcall(function()
+      vim.cmd("undojoin")
+      for _, update in ipairs(lines_to_update) do
+        vim.api.nvim_buf_set_lines(bufnr, update.row, update.row + 1, false, { update.text })
+      end
+    end)
+    
+    -- もし undojoin が直前の変更がないという理由で失敗した場合のフォールバック
+    if not ok and err and tostring(err):match("E790") then
+      for _, update in ipairs(lines_to_update) do
+        vim.api.nvim_buf_set_lines(bufnr, update.row, update.row + 1, false, { update.text })
+      end
+    end
+    
+    -- 保存
+    pcall(vim.api.nvim_buf_call, bufnr, function() vim.cmd("silent! write") end)
+  end)
+end
+
 return M

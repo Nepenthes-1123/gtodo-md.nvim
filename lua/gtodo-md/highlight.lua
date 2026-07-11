@@ -25,6 +25,15 @@ function M.setup()
   vim.api.nvim_set_hl(0, "GTodoPriorityA", { link = "DiagnosticError", default = true })
   vim.api.nvim_set_hl(0, "GTodoPriorityB", { link = "DiagnosticWarn", default = true })
   vim.api.nvim_set_hl(0, "GTodoPriorityC", { link = "DiagnosticInfo", default = true })
+  vim.api.nvim_set_hl(0, "GTodoWait", { link = "Special", default = true })
+  
+  -- wait: タグは静的な syntax match で処理する
+  vim.cmd([[
+    augroup GTodoWaitSyntax
+      autocmd!
+      autocmd Syntax markdown,gtodo syntax match GTodoWait /\(^\|\s\+\)wait:[^[:space:]　。、.,()（）]\+/ containedin=ALL
+    augroup END
+  ]])
 end
 
 function M.update_highlights(bufnr)

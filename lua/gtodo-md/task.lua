@@ -49,6 +49,9 @@ function M.parse(line)
   -- +project-name: 空白+プラスが優先。行頭の+のみ fallback（C++等の誤検知を防ぐ）
   task.project = extract_field("%s%+([%w%-_/%.]+)") or extract_field("^%+([%w%-_/%.]+)")
 
+  -- wait:タグの抽出（句読点や括弧を除外）
+  task.wait = extract_field("wait:([^%s　。、%.,%(%)（）]+)")
+
   -- 余分なスペースのトリミング
   text = text:gsub("%s+", " ")
   task.content = vim.trim(text)
@@ -79,6 +82,10 @@ function M.serialize(task)
   
   if task.created and task.created ~= "" then
     table.insert(parts, "created:" .. task.created)
+  end
+  
+  if task.wait and task.wait ~= "" then
+    table.insert(parts, "wait:" .. task.wait)
   end
   
   if task.completed_at and task.completed_at ~= "" then
