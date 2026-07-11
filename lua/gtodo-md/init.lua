@@ -526,17 +526,17 @@ function M.add_or_edit_task()
     local bufname = vim.api.nvim_buf_get_name(0)
     local filename = vim.fn.fnamemodify(bufname, ":t")
     
+    -- 提案B: todo.md内で新規追加された場合でも、未来期日なら未整理としてInboxへルーティングする
+    if filename == "todo.md" and new_task.due and new_task.due ~= "" then
+      local today = os.date("%Y-%m-%d")
+      if new_task.due > today then
+        filename = "inbox.md"
+      end
+    end
+    
     if filename == "todo.md" then
       local target_sec = editor_mod.get_current_section()
       if target_sec == "default" then target_sec = config.sections.TODAY end
-      
-      -- todo.md内で追加された場合のみ、未来期日ならWaitingへ隔離する
-      if new_task.due and new_task.due ~= "" then
-        local today = os.date("%Y-%m-%d")
-        if new_task.due > today then
-          target_sec = config.sections.WAITING
-        end
-      end
       
       local todo_data = io_mod.read_todo_file(todo_path)
       if not todo_data.sections[target_sec] then
