@@ -526,25 +526,18 @@ function M.add_or_edit_task()
     local bufname = vim.api.nvim_buf_get_name(0)
     local filename = vim.fn.fnamemodify(bufname, ":t")
     
-    local target_file = filename
-    local target_sec = nil
-    
-    if new_task.due and new_task.due ~= "" then
-      target_file = "todo.md"
-      local today = os.date("%Y-%m-%d")
-      if new_task.due > today then
-        target_sec = config.sections.WAITING
-      else
-        target_sec = config.sections.TODAY
+    if filename == "todo.md" then
+      local target_sec = editor_mod.get_current_section()
+      if target_sec == "default" then target_sec = config.sections.TODAY end
+      
+      -- todo.md内で追加された場合のみ、未来期日ならWaitingへ隔離する
+      if new_task.due and new_task.due ~= "" then
+        local today = os.date("%Y-%m-%d")
+        if new_task.due > today then
+          target_sec = config.sections.WAITING
+        end
       end
-    else
-      if filename == "todo.md" then
-        target_sec = editor_mod.get_current_section()
-        if target_sec == "default" then target_sec = config.sections.TODAY end
-      end
-    end
-    
-    if target_file == "todo.md" then
+      
       local todo_data = io_mod.read_todo_file(todo_path)
       if not todo_data.sections[target_sec] then
         todo_data.sections[target_sec] = {}
@@ -562,10 +555,8 @@ function M.add_or_edit_task()
           end
         end
       end
-      if filename ~= "todo.md" then
-        vim.notify("Created new task in todo.md (" .. target_sec .. ")", vim.log.levels.INFO)
-      end
     else
+      -- inbox.md (またはその他) で追加された場合は inbox に留める
       local inbox_data = io_mod.read_todo_file(inbox_path)
       if not inbox_data.sections["default"] then
         inbox_data.sections["default"] = {}

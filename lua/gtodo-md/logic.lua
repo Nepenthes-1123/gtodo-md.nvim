@@ -118,12 +118,7 @@ function M.check_dues(inbox_path, todo_path)
             table.insert(remaining, item)
           end
         else
-          if auto_move_inbox then
-            table.insert(future_items_to_move, item)
-            inbox_changed = true
-          else
-            table.insert(remaining, item)
-          end
+          table.insert(remaining, item)
         end
       else
         table.insert(remaining, item)
