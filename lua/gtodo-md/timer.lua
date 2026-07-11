@@ -39,17 +39,19 @@ end
 local function should_skip_timer()
   local mode = vim.fn.mode()
   if mode ~= "n" then
-    local cur_buf = vim.api.nvim_get_current_buf()
-    local bname = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(cur_buf), ":t")
-    if bname == "inbox.md" or bname == "todo.md" or bname == "done.md" then
-      return true
-    end
+    return true
   end
 
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
     if vim.api.nvim_buf_is_loaded(buf) and vim.bo[buf].modified then
       local bname = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t")
+      local filepath = vim.api.nvim_buf_get_name(buf)
+      local filedir = vim.fn.fnamemodify(filepath, ":h:t")
+      
       if bname == "inbox.md" or bname == "todo.md" or bname == "done.md" then
+        return true
+      end
+      if filedir == "projects" and bname:match("%.md$") then
         return true
       end
     end
