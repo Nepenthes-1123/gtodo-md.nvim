@@ -662,7 +662,7 @@ function M.open_queue(mode, previous_target_id)
     local new_buf, new_win = M.open_float(source.filepath, fname)
     
     local new_lnum = nil
-    if source.mark_id and source.bufnr then
+    if source.mark_id and source.bufnr and vim.api.nvim_buf_is_valid(source.bufnr) then
       local pos = vim.api.nvim_buf_get_extmark_by_id(source.bufnr, ns, source.mark_id, {})
       if pos and pos[1] then
         new_lnum = pos[1] + 1
