@@ -56,6 +56,7 @@ end
 
 -- フローティングウィンドウでファイルを開く
 function M.open_float(filepath, title)
+  title = title or vim.fn.fnamemodify(filepath, ":t")
   -- 既存のgtodoフロートを閉じてから新しく開く
   close_current_float()
 
