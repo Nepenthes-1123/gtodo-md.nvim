@@ -659,16 +659,31 @@ function M.open_queue(mode, previous_target_id)
     -- Queue ウィンドウを閉じてフローティングでファイルを開き該当行へ移動
     vim.cmd("q")
     local fname = vim.fn.fnamemodify(source.filepath, ":t:r"):upper()
-    local _, new_win = M.open_float(source.filepath, fname)
+    local new_buf, new_win = M.open_float(source.filepath, fname)
+    
+    local new_lnum = nil
     if source.mark_id and source.bufnr then
       local pos = vim.api.nvim_buf_get_extmark_by_id(source.bufnr, ns, source.mark_id, {})
       if pos and pos[1] then
-        pcall(vim.api.nvim_win_set_cursor, new_win, { pos[1] + 1, 0 })
-      else
-        pcall(vim.api.nvim_win_set_cursor, new_win, { source.lnum, 0 })
+        new_lnum = pos[1] + 1
       end
-    elseif source.lnum then
-      pcall(vim.api.nvim_win_set_cursor, new_win, { source.lnum, 0 })
+    end
+    
+    -- Extmarkがバッファ全置換で消失した場合、行の完全一致でフォールバック検索する
+    if not new_lnum and source.original_line and new_buf then
+      local lines_in_buf = vim.api.nvim_buf_get_lines(new_buf, 0, -1, false)
+      for i, l in ipairs(lines_in_buf) do
+        if vim.trim(l) == vim.trim(source.original_line) then
+          new_lnum = i
+          break
+        end
+      end
+    end
+    
+    new_lnum = new_lnum or source.lnum
+    
+    if new_lnum then
+      pcall(vim.api.nvim_win_set_cursor, new_win, { new_lnum, 0 })
     end
   end, { buffer = buf, noremap = true, silent = true })
 

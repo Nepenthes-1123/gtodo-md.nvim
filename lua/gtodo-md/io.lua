@@ -39,8 +39,8 @@ function M.format_buffer(bufnr)
       require("conform").format({ bufnr = bufnr, async = false })
     elseif vim.fn.exists(":Neoformat") == 2 then
       vim.cmd("Neoformat")
-    elseif vim.fn.exists(":FormatWrite") == 2 then
-      vim.cmd("FormatWrite")
+    elseif vim.fn.exists(":Format") == 2 then
+      vim.cmd("Format")
     else
       vim.lsp.buf.format({ bufnr = bufnr, async = false })
     end
