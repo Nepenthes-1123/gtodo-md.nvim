@@ -85,7 +85,8 @@ function M.open_float(filepath, title)
   vim.cmd("edit " .. vim.fn.fnameescape(filepath))
 
   local file_buf = vim.api.nvim_get_current_buf()
-
+  vim.bo[file_buf].buflisted = false
+  
   return file_buf, win
 end
 
