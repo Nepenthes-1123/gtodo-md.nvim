@@ -85,8 +85,6 @@ function M.open_float(filepath, title)
   vim.cmd("edit " .. vim.fn.fnameescape(filepath))
 
   local file_buf = vim.api.nvim_get_current_buf()
-  vim.bo[file_buf].buflisted = false
-  vim.bo[file_buf].bufhidden = "wipe"
 
   vim.api.nvim_buf_set_keymap(file_buf, 'n', 'q',     ':q<CR>', { noremap = true, silent = true })
   vim.api.nvim_buf_set_keymap(file_buf, 'n', '<Esc>', ':q<CR>', { noremap = true, silent = true })
@@ -616,7 +614,7 @@ function M.open_queue(mode, previous_target_id)
   vim.bo[buf].buftype    = "nofile"
   vim.bo[buf].bufhidden  = "wipe"
 
-  local queue_win = vim.api.nvim_open_win(buf, true, {
+  local ok, queue_win = pcall(vim.api.nvim_open_win, buf, true, {
     relative  = "editor",
     width     = width,
     height    = height,
@@ -627,6 +625,13 @@ function M.open_queue(mode, previous_target_id)
     title     = " Queue ",
     title_pos = "center",
   })
+  
+  if not ok or not queue_win then
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
+    vim.notify("Failed to open Queue window. Terminal size might be too small.", vim.log.levels.ERROR)
+    return
+  end
+
   register_float_win(queue_win)
 
   -- ハイライト適用
@@ -647,7 +652,9 @@ function M.open_queue(mode, previous_target_id)
     local target_id = current_source and (current_source.filepath .. ":" .. vim.trim(current_source.original_line)) or nil
     
     local next_mode = mode == "due" and "wait" or "due"
-    M.open_queue(next_mode, target_id)
+    vim.schedule(function()
+      M.open_queue(next_mode, target_id)
+    end)
   end, { buffer = buf, noremap = true, silent = true })
 
   -- Enter: カーソル行のタスクのファイル・行へジャンプ
