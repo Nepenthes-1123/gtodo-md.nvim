@@ -6,8 +6,10 @@ local io_mod = require('gtodo-md.io')
 local mem_last_notify_time = 0
 local mem_last_notify_content = ""
 
--- セクション内のタスクをソートする
-function M.sort_section_tasks(items)
+-- items リストをソートする内部ヘルパー
+-- 入力: { type="task"|"text", ... } のフラット配列
+-- 出力: 同形式でタスクのみソートされた新しい配列
+local function sort_items(items)
   local tasks = {}
   local task_indices = {}
   for i, item in ipairs(items) do
@@ -17,7 +19,7 @@ function M.sort_section_tasks(items)
       table.insert(task_indices, i)
     end
   end
-  
+
   table.sort(tasks, function(a, b)
     local t_a = a.task
     local t_b = b.task
@@ -27,41 +29,60 @@ function M.sort_section_tasks(items)
     if done_a ~= done_b then
       return done_b
     end
-    
+
     -- 2. dueあり優先、dueなしは末尾
     local has_due_a = (t_a.due ~= nil and t_a.due ~= "")
     local has_due_b = (t_b.due ~= nil and t_b.due ~= "")
     if has_due_a ~= has_due_b then
       return has_due_a
     end
-    
+
     if has_due_a and has_due_b then
       if t_a.due ~= t_b.due then
         return t_a.due < t_b.due
       end
     end
-    
+
     -- 3. 優先度 (A > B > C ... > Z) ※Zは優先度指定なし扱い
     local p_a = t_a.content:match("^%(([A-Z])%)") or "Z"
     local p_b = t_b.content:match("^%(([A-Z])%)") or "Z"
     if p_a ~= p_b then
       return p_a < p_b
     end
-    
+
     -- 4. stable sort
     return a.original_index < b.original_index
   end)
-  
+
   local new_items = {}
   for i, item in ipairs(items) do
     new_items[i] = item
   end
-  
   for i, idx in ipairs(task_indices) do
     new_items[idx] = { type = "task", task = tasks[i].task }
   end
-  
   return new_items
+end
+
+-- セクション内のタスクをソートする
+-- 入力: data.sections[sec]（ネスト構造 { items, subsections } ）
+-- 出力: 同形式で items と各 subsections.items がそれぞれソートされたもの
+function M.sort_section_tasks(sec_data)
+  -- ネスト構造（現行実装）
+  if type(sec_data) == "table" and sec_data.items ~= nil then
+    local sorted_items = sort_items(sec_data.items)
+    local sorted_subsections = {}
+    for _, sub in ipairs(sec_data.subsections or {}) do
+      table.insert(sorted_subsections, {
+        name  = sub.name,
+        items = sort_items(sub.items),
+      })
+    end
+    return { items = sorted_items, subsections = sorted_subsections }
+  end
+
+  -- 旧フラット配列への安全フォールバック（実際には到達しない）
+  return sort_items(sec_data or {})
 end
 
 -- todo.mdをソートする
@@ -72,6 +93,7 @@ function M.sort_todo_file(filepath)
   end
   io_mod.write_todo_file(filepath, data)
 end
+
 
 local function get_last_notify_state(persist)
   if persist then
@@ -106,8 +128,10 @@ function M.check_dues(inbox_path, todo_path)
   local future_items_to_move = {}
   
   if inbox_data.sections["default"] then
+    local sec = inbox_data.sections["default"]
+    local sec_items = io_mod.get_section_items(sec)
     local remaining = {}
-    for _, item in ipairs(inbox_data.sections["default"]) do
+    for _, item in ipairs(sec_items) do
       if item.type == "task" and item.task.status ~= "x" and item.task.due then
         if item.task.due <= today then
           if auto_move_inbox then
@@ -124,7 +148,12 @@ function M.check_dues(inbox_path, todo_path)
         table.insert(remaining, item)
       end
     end
-    inbox_data.sections["default"] = remaining
+    -- items のみ差し替え（subsections は inbox.md では使用しないため不変）
+    if type(sec) == "table" and sec.items ~= nil then
+      sec.items = remaining
+    else
+      inbox_data.sections["default"] = remaining
+    end
   end
   
   if inbox_changed then
@@ -152,22 +181,22 @@ function M.check_dues(inbox_path, todo_path)
   local todo_changed = false
   
   if not todo_data.sections[config.sections.TODAY] then
-    todo_data.sections[config.sections.TODAY] = {}
+    todo_data.sections[config.sections.TODAY] = { items = {}, subsections = {} }
     table.insert(todo_data.section_order, 1, config.sections.TODAY)
   end
-  
+
   for _, item in ipairs(items_to_move) do
-    table.insert(todo_data.sections[config.sections.TODAY], item)
+    table.insert(io_mod.get_section_items(todo_data.sections[config.sections.TODAY]), item)
     moved_count = moved_count + 1
     todo_changed = true
   end
   
   if #future_items_to_move > 0 then
     if not todo_data.sections[config.sections.WAITING] then
-      todo_data.sections[config.sections.WAITING] = {}
+      todo_data.sections[config.sections.WAITING] = { items = {}, subsections = {} }
     end
     for _, item in ipairs(future_items_to_move) do
-      table.insert(todo_data.sections[config.sections.WAITING], item)
+      table.insert(io_mod.get_section_items(todo_data.sections[config.sections.WAITING]), item)
       moved_count = moved_count + 1
       todo_changed = true
     end
@@ -175,42 +204,27 @@ function M.check_dues(inbox_path, todo_path)
   
   for _, from_sec in ipairs({ config.sections.NEXT, config.sections.SOMEDAY, config.sections.WAITING }) do
     if todo_data.sections[from_sec] then
+      local sec = todo_data.sections[from_sec]
+      local sec_items = io_mod.get_section_items(sec)
       local remaining_items = {}
-      for _, item in ipairs(todo_data.sections[from_sec]) do
+      for _, item in ipairs(sec_items) do
         if item.type == "task" and item.task.status ~= "x" and item.task.due and item.task.due <= today then
           item.task.wait = nil -- 自動移動時も wait: を剥がす
-          table.insert(todo_data.sections[config.sections.TODAY], item)
+          table.insert(io_mod.get_section_items(todo_data.sections[config.sections.TODAY]), item)
           moved_count = moved_count + 1
           todo_changed = true
         else
           table.insert(remaining_items, item)
         end
       end
-      todo_data.sections[from_sec] = remaining_items
-    end
-  end
-  
-  -- 逆方向ルーティング (Today / Next -> Waiting)
-  local function route_future_to_wait(section_name)
-    if not todo_data.sections[section_name] then return end
-    local remaining = {}
-    for _, item in ipairs(todo_data.sections[section_name]) do
-      if item.type == "task" and item.task.status ~= "x" and item.task.due and item.task.due > today then
-        if not todo_data.sections[config.sections.WAITING] then
-          todo_data.sections[config.sections.WAITING] = {}
-        end
-        table.insert(todo_data.sections[config.sections.WAITING], item)
-        moved_count = moved_count + 1
-        todo_changed = true
+      -- items のみ差し替え（subsections は不変）
+      if type(sec) == "table" and sec.items ~= nil then
+        sec.items = remaining_items
       else
-        table.insert(remaining, item)
+        todo_data.sections[from_sec] = remaining_items
       end
     end
-    todo_data.sections[section_name] = remaining
   end
-  
-  route_future_to_wait(config.sections.TODAY)
-  route_future_to_wait(config.sections.NEXT)
   
   if todo_changed then
     io_mod.write_todo_file(todo_path, todo_data)
@@ -272,8 +286,10 @@ function M.move_completed_tasks(inbox_path, todo_path, done_path)
   local inbox_data = io_mod.read_todo_file(inbox_path)
   local inbox_changed = false
   if inbox_data.sections["default"] then
+    local sec = inbox_data.sections["default"]
+    local sec_items = io_mod.get_section_items(sec)
     local remaining = {}
-    for _, item in ipairs(inbox_data.sections["default"]) do
+    for _, item in ipairs(sec_items) do
       if item.type == "task" and item.task.status == "x" then
         table.insert(moved_tasks, { task = item.task, from = "inbox" })
         inbox_changed = true
@@ -281,7 +297,11 @@ function M.move_completed_tasks(inbox_path, todo_path, done_path)
         table.insert(remaining, item)
       end
     end
-    inbox_data.sections["default"] = remaining
+    if type(sec) == "table" and sec.items ~= nil then
+      sec.items = remaining
+    else
+      inbox_data.sections["default"] = remaining
+    end
   end
   if inbox_changed then
     io_mod.write_todo_file(inbox_path, inbox_data)
@@ -292,8 +312,10 @@ function M.move_completed_tasks(inbox_path, todo_path, done_path)
   local todo_changed = false
   for _, sec in ipairs({ config.sections.TODAY, config.sections.NEXT, config.sections.WAITING, config.sections.SOMEDAY }) do
     if todo_data.sections[sec] then
+      local sec_data = todo_data.sections[sec]
+      local sec_items = io_mod.get_section_items(sec_data)
       local remaining = {}
-      for _, item in ipairs(todo_data.sections[sec]) do
+      for _, item in ipairs(sec_items) do
         if item.type == "task" and item.task.status == "x" then
           table.insert(moved_tasks, { task = item.task, from = sec:lower() })
           todo_changed = true
@@ -301,7 +323,12 @@ function M.move_completed_tasks(inbox_path, todo_path, done_path)
           table.insert(remaining, item)
         end
       end
-      todo_data.sections[sec] = remaining
+      -- items のみ差し替え（subsections は不変）
+      if type(sec_data) == "table" and sec_data.items ~= nil then
+        sec_data.items = remaining
+      else
+        todo_data.sections[sec] = remaining
+      end
     end
   end
   if todo_changed then
