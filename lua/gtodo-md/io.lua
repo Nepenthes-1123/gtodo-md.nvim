@@ -108,110 +108,158 @@ function M.read_todo_file(filepath)
   return M.parse_markdown(lines)
 end
 
+-- data.sections[sec] の items を返すヘルパー（フラット互換のための内部ユーティリティ）
+-- 現在の実装では sections[sec] は常にネスト構造なので、そのまま .items を返す
+function M.get_section_items(sec_data)
+  if type(sec_data) == "table" and sec_data.items ~= nil then
+    return sec_data.items
+  end
+  -- 旧フラット構造への互換（本来到達しないが安全ガード）
+  return sec_data or {}
+end
+
+-- 空のセクションデータを生成するヘルパー
+local function new_section()
+  return { items = {}, subsections = {} }
+end
+
 function M.parse_markdown(lines)
   local data = {
     header = {},
     sections = {},
     section_order = {},
   }
-  
+
   local current_section = "default"
-  data.sections[current_section] = {}
-  
+  data.sections[current_section] = new_section()
+
+  -- 現在のサブセクション状態
+  -- nil のときはトップレベル（### なし）、文字列のときはそのサブセクション配下
+  local current_subsection = nil
+
   local header_done = false
-  
+
   for _, line in ipairs(lines) do
+    -- ## セクション境界
     local sec_name = line:match("^##%s+(.*)$")
+    -- ### サブセクション境界（## に続く # で始まるものは除外済みなので ^### で OK）
+    local subsec_name = (not sec_name) and line:match("^###%s+(.-)%s*$") or nil
     local task = task_mod.parse(line)
-    
+
     if sec_name then
       sec_name = vim.trim(sec_name)
       current_section = sec_name
+      current_subsection = nil -- 新セクションでサブセクションをリセット
       if not data.sections[current_section] then
-        data.sections[current_section] = {}
+        data.sections[current_section] = new_section()
         table.insert(data.section_order, current_section)
       end
+      header_done = true
+    elseif subsec_name then
+      -- ### 見出し: 現在のセクション配下に新しいサブセクションを追加
+      current_subsection = subsec_name
+      local sec = data.sections[current_section]
+      -- 同名サブセクションが既に存在する場合は再利用しない（順序保持のため新規追加）
+      table.insert(sec.subsections, { name = subsec_name, items = {} })
       header_done = true
     elseif task then
       header_done = true
     end
-    
+
     if not header_done then
       table.insert(data.header, line)
-    else
-      if not sec_name then
-        if task then
-          table.insert(data.sections[current_section], { type = "task", task = task, line = line })
-        else
-          -- 空行はソート時のインデックスズレやMarkdownリスト分断の原因になるため無視する
-          if vim.trim(line) ~= "" then
-            table.insert(data.sections[current_section], { type = "text", line = line })
-          end
+    elseif not sec_name and not subsec_name then
+      local sec = data.sections[current_section]
+      -- 挿入先: サブセクション配下 or トップレベル items
+      local target_items
+      if current_subsection then
+        -- 末尾のサブセクション（最後に追加されたもの）に挿入
+        local sub = sec.subsections[#sec.subsections]
+        target_items = sub and sub.items or sec.items
+      else
+        target_items = sec.items
+      end
+
+      if task then
+        table.insert(target_items, { type = "task", task = task, line = line })
+      else
+        -- 空行はソート時のインデックスズレやMarkdownリスト分断の原因になるため無視する
+        if vim.trim(line) ~= "" then
+          table.insert(target_items, { type = "text", line = line })
         end
       end
     end
   end
-  
+
   return data
+end
+
+-- items リスト（task/text のフラット配列）を行リストに変換するローカルヘルパー
+local function items_to_lines(items, lines)
+  for _, item in ipairs(items) do
+    if item.type == "task" then
+      table.insert(lines, task_mod.serialize(item.task))
+    else
+      local text = item.line
+      if vim.trim(text) == "" then
+        if #lines > 0 and vim.trim(lines[#lines]) ~= "" then
+          table.insert(lines, text)
+        end
+      else
+        table.insert(lines, text)
+      end
+    end
+  end
 end
 
 -- パースしたデータを書き戻す
 function M.write_todo_file(filepath, data)
   local lines = {}
-  
+
   for _, l in ipairs(data.header) do
     table.insert(lines, l)
   end
-  
-  if data.sections["default"] and #data.sections["default"] > 0 then
+
+  -- default セクション（## なし領域）の書き出し
+  local default_sec = data.sections["default"]
+  local default_items = default_sec and M.get_section_items(default_sec) or {}
+  if #default_items > 0 then
     if #lines > 0 and lines[#lines] ~= "" then
       table.insert(lines, "")
     end
-    for _, item in ipairs(data.sections["default"]) do
-      if item.type == "task" then
-        table.insert(lines, task_mod.serialize(item.task))
-      else
-        local text = item.line
-        if vim.trim(text) == "" then
-          if #lines > 0 and vim.trim(lines[#lines]) ~= "" then
-            table.insert(lines, text)
-          end
-        else
-          table.insert(lines, text)
-        end
-      end
-    end
+    items_to_lines(default_items, lines)
   end
-  
+
   for _, sec in ipairs(data.section_order) do
     if #lines > 0 and lines[#lines] ~= "" then
       table.insert(lines, "")
     end
     table.insert(lines, "## " .. sec)
     table.insert(lines, "")
-    
-    local items = data.sections[sec] or {}
-    for _, item in ipairs(items) do
-      if item.type == "task" then
-        table.insert(lines, task_mod.serialize(item.task))
-      else
-        local text = item.line
-        if vim.trim(text) == "" then
-          if #lines > 0 and vim.trim(lines[#lines]) ~= "" then
-            table.insert(lines, text)
-          end
-        else
-          table.insert(lines, text)
-        end
+
+    local sec_data = data.sections[sec] or new_section()
+
+    -- トップレベル items の書き出し
+    items_to_lines(M.get_section_items(sec_data), lines)
+
+    -- サブセクションの書き出し
+    local subsections = (type(sec_data) == "table" and sec_data.subsections) or {}
+    for _, sub in ipairs(subsections) do
+      -- サブセクション見出しの前に空行を入れる（直前が空でなければ）
+      if #lines > 0 and lines[#lines] ~= "" then
+        table.insert(lines, "")
       end
+      table.insert(lines, "### " .. sub.name)
+      table.insert(lines, "")
+      items_to_lines(sub.items, lines)
     end
   end
-  
+
   while #lines > 0 and lines[#lines] == "" do
     table.remove(lines)
   end
   table.insert(lines, "")
-  
+
   M.write_lines(filepath, lines)
   return true
 end

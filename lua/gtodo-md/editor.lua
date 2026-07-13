@@ -37,8 +37,9 @@ local function update_task_in_todo(task, section, action_fn)
 
   if not todo_data.sections[section] then return false end
 
+  local sec_items = io_mod.get_section_items(todo_data.sections[section])
   local found_idx = nil
-  for i, item in ipairs(todo_data.sections[section]) do
+  for i, item in ipairs(sec_items) do
     -- BUG-19対応: original_lineを使わず content+created で同定
     -- (split後に original_line が古くなる問題を回避)
     if item.type == "task"
@@ -51,7 +52,7 @@ local function update_task_in_todo(task, section, action_fn)
 
   if not found_idx then return false end
 
-  action_fn(todo_data, section, found_idx)
+  action_fn(todo_data, section, found_idx, sec_items)
   io_mod.write_todo_file(todo_path, todo_data)
   return true
 end
@@ -71,8 +72,8 @@ function M.toggle_complete()
 
   if filename == "todo.md" then
     local current_sec = M.get_current_section()
-    local ok = update_task_in_todo(task, current_sec, function(todo_data, section, idx)
-      local t = todo_data.sections[section][idx].task
+    local ok = update_task_in_todo(task, current_sec, function(todo_data, section, idx, sec_items)
+      local t = sec_items[idx].task
       if is_completed then
         t.status = " "
         t.completed_at = nil
@@ -127,9 +128,9 @@ function M._execute_move(task, row, target_section)
       todo_data.section_order = { config.sections.TODAY, config.sections.NEXT, config.sections.WAITING, config.sections.SOMEDAY }
     end
     if not todo_data.sections[target_section] then
-      todo_data.sections[target_section] = {}
+      todo_data.sections[target_section] = { items = {}, subsections = {} }
     end
-    table.insert(todo_data.sections[target_section], { type = "task", task = task })
+    table.insert(io_mod.get_section_items(todo_data.sections[target_section]), { type = "task", task = task })
     todo_data.sections[target_section] = logic_mod.sort_section_tasks(todo_data.sections[target_section])
     io_mod.write_todo_file(todo_path, todo_data)
     vim.notify(string.format("Moved task to todo.md [%s]", target_section), vim.log.levels.INFO)
@@ -143,11 +144,11 @@ function M._execute_move(task, row, target_section)
 
     -- BUG-15対応: update_task_in_todo の戻り値を確認してから notify
     local moved = false
-    local ok = update_task_in_todo(task, current_sec, function(todo_data, section, idx)
-      table.remove(todo_data.sections[section], idx)
+    local ok = update_task_in_todo(task, current_sec, function(todo_data, section, idx, sec_items)
+      table.remove(sec_items, idx)
 
       if not todo_data.sections[target_section] then
-        todo_data.sections[target_section] = {}
+        todo_data.sections[target_section] = { items = {}, subsections = {} }
         local has_sec = false
         for _, s in ipairs(todo_data.section_order) do
           if s == target_section then has_sec = true; break end
@@ -157,8 +158,8 @@ function M._execute_move(task, row, target_section)
         end
       end
 
-      table.insert(todo_data.sections[target_section], { type = "task", task = task })
-      todo_data.sections[section] = logic_mod.sort_section_tasks(todo_data.sections[section] or {})
+      table.insert(io_mod.get_section_items(todo_data.sections[target_section]), { type = "task", task = task })
+      todo_data.sections[section] = logic_mod.sort_section_tasks(todo_data.sections[section] or { items = {}, subsections = {} })
       todo_data.sections[target_section] = logic_mod.sort_section_tasks(todo_data.sections[target_section])
       moved = true
     end)
@@ -208,8 +209,8 @@ function M.cancel_current_task()
 
   if filename == "todo.md" then
     local current_sec = M.get_current_section()
-    local ok = update_task_in_todo(task, current_sec, function(todo_data, section, idx)
-      table.remove(todo_data.sections[section], idx)
+    local ok = update_task_in_todo(task, current_sec, function(todo_data, section, idx, sec_items)
+      table.remove(sec_items, idx)
     end)
     if not ok then
       vim.notify("Task not found in todo.md.", vim.log.levels.WARN)
