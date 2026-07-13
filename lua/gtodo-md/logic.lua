@@ -190,28 +190,6 @@ function M.check_dues(inbox_path, todo_path)
     end
   end
   
-  -- 逆方向ルーティング (Today / Next -> Waiting)
-  local function route_future_to_wait(section_name)
-    if not todo_data.sections[section_name] then return end
-    local remaining = {}
-    for _, item in ipairs(todo_data.sections[section_name]) do
-      if item.type == "task" and item.task.status ~= "x" and item.task.due and item.task.due > today then
-        if not todo_data.sections[config.sections.WAITING] then
-          todo_data.sections[config.sections.WAITING] = {}
-        end
-        table.insert(todo_data.sections[config.sections.WAITING], item)
-        moved_count = moved_count + 1
-        todo_changed = true
-      else
-        table.insert(remaining, item)
-      end
-    end
-    todo_data.sections[section_name] = remaining
-  end
-  
-  route_future_to_wait(config.sections.TODAY)
-  route_future_to_wait(config.sections.NEXT)
-  
   if todo_changed then
     io_mod.write_todo_file(todo_path, todo_data)
     vim.notify(string.format("Moved %d tasks to Today due to deadline.", moved_count), vim.log.levels.INFO)
