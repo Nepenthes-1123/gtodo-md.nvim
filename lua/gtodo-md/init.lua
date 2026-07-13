@@ -540,9 +540,9 @@ function M.add_or_edit_task()
       
       local todo_data = io_mod.read_todo_file(todo_path)
       if not todo_data.sections[target_sec] then
-        todo_data.sections[target_sec] = {}
+        todo_data.sections[target_sec] = { items = {}, subsections = {} }
       end
-      table.insert(todo_data.sections[target_sec], { type = "task", task = new_task })
+      table.insert(io_mod.get_section_items(todo_data.sections[target_sec]), { type = "task", task = new_task })
       io_mod.write_todo_file(todo_path, todo_data)
       logic_mod.sort_todo_file(todo_path)
       
@@ -559,15 +559,15 @@ function M.add_or_edit_task()
       -- inbox.md (またはその他) で追加された場合は inbox に留める
       local inbox_data = io_mod.read_todo_file(inbox_path)
       if not inbox_data.sections["default"] then
-        inbox_data.sections["default"] = {}
+        inbox_data.sections["default"] = { items = {}, subsections = {} }
       end
-      
-      local sec = inbox_data.sections["default"]
-      while #sec > 0 and sec[#sec].type == "text" and vim.trim(sec[#sec].line) == "" do
-        table.remove(sec)
+
+      local sec_items = io_mod.get_section_items(inbox_data.sections["default"])
+      while #sec_items > 0 and sec_items[#sec_items].type == "text" and vim.trim(sec_items[#sec_items].line) == "" do
+        table.remove(sec_items)
       end
-      
-      table.insert(sec, { type = "task", task = new_task })
+
+      table.insert(sec_items, { type = "task", task = new_task })
       io_mod.write_todo_file(inbox_path, inbox_data)
       
       local changed = logic_mod.check_dues(inbox_path, todo_path)
