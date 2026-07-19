@@ -9,8 +9,8 @@ function M.check()
 	if has_plenary then
 		vim.health.ok("plenary.nvim is installed")
 	else
-		vim.health.error("plenary.nvim is missing", {
-			"Install 'nvim-lua/plenary.nvim' which is required for tasks searching.",
+		vim.health.warn("plenary.nvim is not installed", {
+			"Optional: Install 'nvim-lua/plenary.nvim' if you want to run the plugin's test suite.",
 		})
 	end
 
