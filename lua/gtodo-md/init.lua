@@ -500,13 +500,13 @@ function M.add_or_edit_task()
       -- 編集
       require('gtodo-md.task').prompt_task(task, function(updated_task)
         local newline = require('gtodo-md.task').serialize(updated_task)
-        
         -- ポップアップ編集中に裏側でソートが走り行番号がズレる対策（文字一致で現在行を再探査）
         local target_row = nil
         if old_line then
+          local normalized_old_line = require('gtodo-md.task').serialize(task)
           local current_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
           for i, l in ipairs(current_lines) do
-            if l == old_line then
+            if l == old_line or l == normalized_old_line then
               target_row = i
               break
             end
