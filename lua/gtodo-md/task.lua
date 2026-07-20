@@ -18,54 +18,54 @@ function M.parse(line)
 
   local text = rest
 
-  local function extract_field(pattern)
-    local start_idx = vim.fn.match(text, pattern)
-    if start_idx ~= -1 then
-      local end_idx = vim.fn.matchend(text, pattern)
-      local match_text = text:sub(start_idx + 1, end_idx)
-      text = text:sub(1, start_idx) .. text:sub(end_idx + 1)
-      return match_text
+  local patterns = {
+    { key = "completed_at", pat = "\\<completed_at:\\d\\{4}-\\d\\{2}-\\d\\{2}\\s*$" },
+    { key = "done", pat = "\\<done:\\d\\{4}-\\d\\{2}-\\d\\{2}\\s*$" },
+    { key = "cancelled", pat = "\\<cancelled:\\d\\{4}-\\d\\{2}-\\d\\{2}\\s*$" },
+    { key = "from", pat = "\\<from:\\w\\+\\s*$" },
+    { key = "due", pat = "\\<due:[a-zA-Z0-9_/%+-]\\+\\s*$" },
+    { key = "created", pat = "\\<created:\\d\\{4}-\\d\\{2}-\\d\\{2}\\s*$" },
+    { key = "context", pat = "\\s\\+@[a-zA-Z0-9_/.-]\\+\\s*$" },
+    { key = "project", pat = "\\s\\++[a-zA-Z0-9_/.-]\\+\\s*$" },
+    { key = "wait", pat = "\\<wait:[^[:space:]　。、.,()（）]\\+\\s*$" }
+  }
+
+  -- 安全に行頭のタグも抽出できるように先頭にスペースを付与しておく
+  text = " " .. text
+
+  local matched_any = true
+  while matched_any do
+    matched_any = false
+    for _, p in ipairs(patterns) do
+      local start_idx = vim.fn.match(text, p.pat)
+      if start_idx ~= -1 then
+        local end_idx = vim.fn.matchend(text, p.pat)
+        local match_text = vim.trim(text:sub(start_idx + 1, end_idx))
+        text = text:sub(1, start_idx)
+
+        if p.key == "project" then
+          task[p.key] = match_text:sub(2)
+        elseif p.key == "context" then
+          task[p.key] = match_text
+        elseif p.key == "due" then
+          local raw_due = match_text:sub(5)
+          local normalized = require('gtodo-md.utils').parse_due_date(raw_due)
+          task[p.key] = normalized or raw_due
+        else
+          local colon_idx = match_text:find(":")
+          if colon_idx then
+            task[p.key] = match_text:sub(colon_idx + 1)
+          end
+        end
+
+        matched_any = true
+        break -- 変更後、文字列末尾が変化したため最初から再チェック
+      end
     end
-    return nil
   end
 
-  -- フィールド抽出
-  local completed_at = extract_field("\\<completed_at:\\d\\{4}-\\d\\{2}-\\d\\{2}")
-  if completed_at then task.completed_at = completed_at:sub(14) end
+  text = vim.trim(text)
 
-  local done = extract_field("\\<done:\\d\\{4}-\\d\\{2}-\\d\\{2}")
-  if done then task.done = done:sub(6) end
-
-  local cancelled = extract_field("\\<cancelled:\\d\\{4}-\\d\\{2}-\\d\\{2}")
-  if cancelled then task.cancelled = cancelled:sub(11) end
-
-  local from = extract_field("\\<from:\\w\\+")
-  if from then task.from = from:sub(6) end
-
-  local raw_due = extract_field("\\<due:[a-zA-Z0-9_/%+-]\\+")
-  if raw_due then
-    raw_due = raw_due:sub(5)
-    local normalized = require('gtodo-md.utils').parse_due_date(raw_due)
-    task.due = normalized or raw_due
-  end
-
-  local created = extract_field("\\<created:\\d\\{4}-\\d\\{2}-\\d\\{2}")
-  if created then task.created = created:sub(9) end
-
-  local context = extract_field("\\s\\+@[a-zA-Z0-9_/.-]\\+")
-  if not context then
-    context = extract_field("^@[a-zA-Z0-9_/.-]\\+")
-  end
-  if context then task.context = vim.trim(context) end
-
-  local project = extract_field("\\s\\++[a-zA-Z0-9_/.-]\\+")
-  if not project then
-    project = extract_field("^+[a-zA-Z0-9_/.-]\\+")
-  end
-  if project then task.project = vim.trim(project):sub(2) end
-
-  local wait = extract_field("\\<wait:[^[:space:]　。、.,()（）]\\+")
-  if wait then task.wait = wait:sub(6) end
 
   -- 優先度の抽出: 行頭 (A) 形式
   -- 後ろスペース必須で本文のタイプミスと区別する（P0-3 の位置的制約と同じ設計方針）
