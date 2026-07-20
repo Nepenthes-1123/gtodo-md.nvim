@@ -108,7 +108,7 @@ function M.start_daily_rollover_timer()
 		interval,
 		vim.schedule_wrap(function()
 			if not should_skip_timer() then
-				require("gtodo-md").check_daily_rollover()
+				require("gtodo-md.daily").check_daily_rollover()
 			end
 		end)
 	)
