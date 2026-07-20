@@ -6,8 +6,6 @@ local logic_mod = require("gtodo-md.logic")
 local editor_mod = require("gtodo-md.editor")
 local timer_mod = require("gtodo-md.timer")
 
-
-
 function M.setup(opts)
 	config.setup(opts)
 
@@ -38,7 +36,6 @@ end
 
 -- BufEnter時の自動処理
 function M.handle_buf_enter(bufnr)
-
 	local bufname = vim.api.nvim_buf_get_name(bufnr)
 	local filename = vim.fn.fnamemodify(bufname, ":t")
 
