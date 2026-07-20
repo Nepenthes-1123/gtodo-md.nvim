@@ -94,21 +94,26 @@ function M.open_float(filepath, title)
   vim.api.nvim_create_autocmd("WinLeave", {
     buffer = file_buf,
     callback = function()
-      -- フォーカスが外れたらまずは安全のために保存
+      vim.notify("[WinLeave] Fired for todo.md! Saving...", vim.log.levels.INFO)
       vim.cmd("silent! write")
 
-      -- 少し遅延させて「次にフォーカスが移った先のウィンドウ」を判定
       vim.schedule(function()
-        if not vim.api.nvim_win_is_valid(win) then return end
+        if not vim.api.nvim_win_is_valid(win) then
+          vim.notify("[WinLeave] Window is already invalid.", vim.log.levels.INFO)
+          return
+        end
         
         local cur_win = vim.api.nvim_get_current_win()
         local win_config = vim.api.nvim_win_get_config(cur_win)
         
-        -- 次のウィンドウが通常の画面（relative == ""）であれば、
-        -- 本来の作業に戻ったと判断してポップアップを閉じる。
-        -- （スプリット機能などのフローティング画面への移動なら閉じない）
+        vim.notify(string.format("[WinLeave] New focused win: %s, relative: '%s'", cur_win, win_config.relative), vim.log.levels.INFO)
+        
         if win_config.relative == "" then
-          pcall(vim.api.nvim_win_close, win, false)
+          vim.notify("[WinLeave] Closing the popup now!", vim.log.levels.INFO)
+          local ok, err = pcall(vim.api.nvim_win_close, win, false)
+          if not ok then
+            vim.notify("[WinLeave] Failed to close: " .. tostring(err), vim.log.levels.ERROR)
+          end
         end
       end)
     end
