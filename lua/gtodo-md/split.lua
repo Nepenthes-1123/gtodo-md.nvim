@@ -293,7 +293,6 @@ function M.split_current_task()
 
 				parent_line = current_parent_line
 				bq_prefix = c_bq_prefix
-				marker_width = c_marker_width
 			end
 
 			local payload = vim.api.nvim_buf_get_lines(scratch_buf, 0, -1, false)
@@ -341,7 +340,7 @@ function M.split_current_task()
 					local p_indent_spaces = p_line:match("^(%s*)")
 					p_indent_spaces = p_indent_spaces:gsub("\t", string.rep(" ", sw))
 					local total_indent_num = base_offset + #p_indent_spaces
-					local _ = ""
+					local total_indent_str
 					if not expandtab then
 						local tabs = math.floor(total_indent_num / sw)
 						local spaces = total_indent_num % sw
