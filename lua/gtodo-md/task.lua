@@ -67,9 +67,19 @@ function M.parse(line)
   local wait = extract_field("\\<wait:[^[:space:]　。、.,()（）]\\+")
   if wait then task.wait = wait:sub(6) end
 
-  -- 余分なスペースのトリミング
-  text = text:gsub("%s+", " ")
-  task.content = vim.trim(text)
+  -- 優先度の抽出: 行頭 (A) 形式
+  -- 後ろスペース必須で本文のタイプミスと区別する（P0-3 の位置的制約と同じ設計方針）
+  -- (A) タスク   → priority="A", content="タスク"
+  -- (WIP) タスク → priority=nil,  content="(WIP) タスク" (複数文字は除外)
+  -- (A)タスク    → priority=nil,  content="(A)タスク"   (後ろスペースなし → 除外)
+  local cleaned = vim.trim(text:gsub("%s+", " "))
+  local pri, after_pri = cleaned:match("^%(([A-Z])%)%s+(.*)")
+  if pri then
+    task.priority = pri
+    task.content = vim.trim(after_pri)
+  else
+    task.content = cleaned
+  end
 
   return task
 end
@@ -77,7 +87,9 @@ end
 -- タスクのテーブルから文字列表現を生成する
 function M.serialize(task)
   local parts = {}
-  table.insert(parts, string.format("%s- [%s] %s", task.indent or "", task.status or " ", task.content or ""))
+  -- priority が存在する場合は content 先頭に "(A) " 形式で付与して書き戻す
+  local priority_prefix = (task.priority and task.priority ~= "") and ("(" .. task.priority .. ") ") or ""
+  table.insert(parts, string.format("%s- [%s] %s%s", task.indent or "", task.status or " ", priority_prefix, task.content or ""))
   
   if task.project and task.project ~= "" then
     table.insert(parts, "+" .. task.project)
