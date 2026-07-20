@@ -1,5 +1,7 @@
 # gtodo-md.nvim
 
+[![CI](https://github.com/Nepenthes-1123/gtodo-md.nvim/actions/workflows/ci.yml/badge.svg)](https://github.com/Nepenthes-1123/gtodo-md.nvim/actions/workflows/ci.yml)
+
 [🇯🇵 日本語のドキュメントはこちら (Japanese)](README_ja.md)
 
 A lightweight GTD (Getting Things Done) oriented Todo management plugin for Neovim, using pure Markdown.
