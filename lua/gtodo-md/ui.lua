@@ -65,9 +65,6 @@ function M.open_float(filepath, title)
   local col = math.floor((vim.o.columns - width) / 2)
   local row = math.floor((vim.o.lines - height) / 2)
 
-  local buf = vim.api.nvim_create_buf(false, true)
-  vim.bo[buf].bufhidden = "wipe"
-
   local opts = {
     relative = "editor",
     width = width,
@@ -80,14 +77,40 @@ function M.open_float(filepath, title)
     title_pos = "center",
   }
 
-  local win = vim.api.nvim_open_win(buf, true, opts)
-  register_float_win(win)
-
-  vim.cmd("edit " .. vim.fn.fnameescape(filepath))
-
-  local file_buf = vim.api.nvim_get_current_buf()
+  -- 1. ファイルを裏側でバッファとして登録
+  local file_buf = vim.fn.bufadd(filepath)
+  
+  -- 2. 読み込む前に即座にタブ一覧から除外する
   vim.bo[file_buf].buflisted = false
   
+  -- 3. ファイルの内容と色付け(Syntax/Filetype)をロードする
+  vim.fn.bufload(file_buf)
+  
+  -- 4. 用意したバッファで直接フローティングウィンドウを開く
+  local win = vim.api.nvim_open_win(file_buf, true, opts)
+  register_float_win(win)
+
+  -- 5. 賢いゾンビ化対策（自動保存＆条件付きクローズ）
+  vim.api.nvim_create_autocmd("WinLeave", {
+    buffer = file_buf,
+    callback = function()
+      -- フォーカスが外れたらまずは安全のために保存
+      vim.cmd("silent! write")
+
+      vim.schedule(function()
+        if not vim.api.nvim_win_is_valid(win) then return end
+        
+        local cur_win = vim.api.nvim_get_current_win()
+        local win_config = vim.api.nvim_win_get_config(cur_win)
+        
+        -- 次のウィンドウが通常の画面（relative == ""）であれば、本来の作業に戻ったと判断して閉じる
+        if win_config.relative == "" then
+          pcall(vim.api.nvim_win_close, win, false)
+        end
+      end)
+    end
+  })
+
   return file_buf, win
 end
 
