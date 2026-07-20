@@ -87,7 +87,9 @@ end
 -- タスクのテーブルから文字列表現を生成する
 function M.serialize(task)
   local parts = {}
-  table.insert(parts, string.format("%s- [%s] %s", task.indent or "", task.status or " ", task.content or ""))
+  -- priority が存在する場合は content 先頭に "(A) " 形式で付与して書き戻す
+  local priority_prefix = (task.priority and task.priority ~= "") and ("(" .. task.priority .. ") ") or ""
+  table.insert(parts, string.format("%s- [%s] %s%s", task.indent or "", task.status or " ", priority_prefix, task.content or ""))
   
   if task.project and task.project ~= "" then
     table.insert(parts, "+" .. task.project)

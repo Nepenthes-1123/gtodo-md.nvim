@@ -166,4 +166,35 @@ describe("task.priority (P2-1: 優先度マーカーの誤検出防止)", functi
 
   end)
 
+  -- ----------------------------------------------------------------
+  -- serialize: parse した priority が書き戻し時に失われない
+  -- ----------------------------------------------------------------
+  describe("serialize: parse → serialize のラウンドトリップ", function()
+
+    it("(A) タスク が serialize で (A) を保持する", function()
+      local task = task_mod.parse("- [ ] (A) 資料整備")
+      local serialized = task_mod.serialize(task)
+      assert.equals("- [ ] (A) 資料整備", serialized)
+    end)
+
+    it("(B) タスク due 付き が serialize で完全に復元される", function()
+      local task = task_mod.parse("- [ ] (B) 会議準備 due:2025-01-10 created:2025-01-01")
+      local serialized = task_mod.serialize(task)
+      assert.equals("- [ ] (B) 会議準備 due:2025-01-10 created:2025-01-01", serialized)
+    end)
+
+    it("優先度なしタスクは serialize で変化しない", function()
+      local task = task_mod.parse("- [ ] 通常タスク due:2025-01-10")
+      local serialized = task_mod.serialize(task)
+      assert.equals("- [ ] 通常タスク due:2025-01-10", serialized)
+    end)
+
+    it("(WIP) タスクは serialize で変化しない（priority=nil なので prefix なし）", function()
+      local task = task_mod.parse("- [ ] (WIP) 資料整備")
+      local serialized = task_mod.serialize(task)
+      assert.equals("- [ ] (WIP) 資料整備", serialized)
+    end)
+
+  end)
+
 end)
