@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main", "develop" ]
+
+jobs:
+  lint:
+    name: Luacheck & Stylua
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Lua
+        uses: leafo/gh-actions-lua@v10
+      - name: Setup Luarocks
+        uses: leafo/gh-actions-luarocks@v4
+      - name: Install Luacheck
+        run: luarocks install luacheck
+      - name: Run Luacheck
+        run: luacheck lua/ tests/
+      - name: Run Stylua
+        uses: JohnnyMorganz/stylua-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: latest
+          args: --check lua/ tests/
+
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        neovim_version: ['v0.10.0', 'nightly']
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Neovim
+        uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: ${{ matrix.neovim_version }}
+      - name: Checkout plenary.nvim
+        uses: actions/checkout@v4
+        with:
+          repository: nvim-lua/plenary.nvim
+          path: plenary
+      - name: Run tests
+        run: nvim --headless -u tests/minimal_init.lua -S tests/run_tests.lua

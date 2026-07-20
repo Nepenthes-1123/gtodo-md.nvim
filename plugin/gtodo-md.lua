@@ -10,7 +10,7 @@ vim.api.nvim_create_user_command("GtodoSort", function()
     require('gtodo-md').setup({})
   end
   local todo_path = config.options.data_dir .. "/todo.md"
-  require('gtodo-md.file').sort_todo_file(todo_path)
+  require('gtodo-md.logic').sort_todo_file(todo_path)
   vim.notify("Todo sorted manually.", vim.log.levels.INFO)
 end, {})
 

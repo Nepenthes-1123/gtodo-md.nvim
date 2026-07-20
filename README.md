@@ -1,5 +1,7 @@
 # gtodo-md.nvim
 
+[![CI](https://github.com/Nepenthes-1123/gtodo-md.nvim/actions/workflows/ci.yml/badge.svg)](https://github.com/Nepenthes-1123/gtodo-md.nvim/actions/workflows/ci.yml)
+
 [🇯🇵 日本語のドキュメントはこちら (Japanese)](README_ja.md)
 
 A lightweight GTD (Getting Things Done) oriented Todo management plugin for Neovim, using pure Markdown.
@@ -105,23 +107,38 @@ dashboard = {
 ```
 
 ### Pickers (Telescope / Snacks / fzf-lua)
-When `picker = "auto"` is set, running `:GtodoSearch` (or `<Leader>ts`) automatically uses your installed picker. 
+When `picker = "auto"` is set, running `:GtodoSearch` (or `<Leader>t/`) automatically uses your installed picker. 
 **Pro-tip**: You can select multiple tasks with `<Tab>`, and press `x` (Normal mode) or `<C-x>` (Insert mode) to mark them all as done directly from the picker!
 
 ## Keymaps
-If `use_default_keymaps = true`, the prefix is `<Leader>t`:
+If `use_default_keymaps = true`, the prefix is `<Leader>t`.
+
+### Global keymaps (available in all buffers)
 
 | Keymap | Mode | Action |
 | --- | --- | --- |
 | `<Leader>tt` | Normal | Open `todo.md` in a floating window |
 | `<Leader>ti` | Normal | Open `inbox.md` in a floating window |
-| `<Leader>td` | Normal | Open `done.md` in a floating window |
-| `<Leader>tc` | Normal | Open `cancelled.md` in a floating window |
+| `<Leader>thd` | Normal | Open `done.md` in a floating window |
+| `<Leader>thc` | Normal | Open `cancelled.md` in a floating window |
 | `<Leader>ta` | Normal | Add/Edit task interactively (via UI prompts) |
-| `<Leader>ts` | Normal | Search tasks (Tags, Contexts) using your picker |
+| `<Leader>t/` | Normal | Search tasks (Tags, Contexts) using your picker |
 | `<Leader>tq` | Normal | Open the Queue view (due dates grouped) |
-| `<Leader>tp` | Normal | (Inside todo.md/inbox.md) Split / Promote task |
-| `gd` | Normal | (Inside markdown) Jump to the project file corresponding to the `+Project` tag under cursor |
+
+### Buffer-local keymaps (available inside `todo.md` / `inbox.md`)
+
+| Keymap | Mode | Action |
+| --- | --- | --- |
+| `<Leader>td` | Normal | Move task under cursor to `Today` section |
+| `<Leader>tn` | Normal | Move task under cursor to `Next` section |
+| `<Leader>tw` | Normal | Move task under cursor to `Waiting` section |
+| `<Leader>ts` | Normal | Move task under cursor to `Someday` section |
+| `<Leader>tx` | Normal | Toggle task completion (`[ ]` ↔ `[x]`) |
+| `<Leader>tc` | Normal | Cancel task and move it to `cancelled.md` |
+| `<Leader>tp` | Normal | Split task into subtasks or promote to a project |
+| `<Leader>tjp` | Normal | Jump to the project file for the `+Project` tag under cursor |
+| `<Leader>ttw` | Normal / Visual | Assign a `wait:` tag to the task |
+| `<Leader>to` | Normal | Manually run due-date check & sort |
 
 ## Commands
 - `:GtodoTodo` - Open `todo.md`

@@ -9,8 +9,8 @@ function M.check()
 	if has_plenary then
 		vim.health.ok("plenary.nvim is installed")
 	else
-		vim.health.error("plenary.nvim is missing", {
-			"Install 'nvim-lua/plenary.nvim' which is required for tasks searching.",
+		vim.health.warn("plenary.nvim is not installed", {
+			"Optional: Install 'nvim-lua/plenary.nvim' if you want to run the plugin's test suite.",
 		})
 	end
 
@@ -39,12 +39,9 @@ function M.check()
 	if #pickers > 0 then
 		vim.health.ok("Available pickers: " .. table.concat(pickers, ", "))
 	else
-		vim.health.warn(
-			"No advanced fuzzy pickers installed. Falling back to builtin quickfix list.",
-			{
-				"Install 'nvim-telescope/telescope.nvim' or 'ibhagwan/fzf-lua' for enhanced task search UI.",
-			}
-		)
+		vim.health.warn("No advanced fuzzy pickers installed. Falling back to builtin quickfix list.", {
+			"Install 'nvim-telescope/telescope.nvim' or 'ibhagwan/fzf-lua' for enhanced task search UI.",
+		})
 	end
 
 	-- 2. 設定 & データディレクトリのチェック

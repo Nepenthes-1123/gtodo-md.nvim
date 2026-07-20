@@ -99,16 +99,28 @@ The following user commands are provided:
 Default keybindings when `use_default_keymaps = true`.
 (Examples below assume the prefix is `<Leader>t`)
 
-<Leader>tt  : Open `todo.md`
-<Leader>ti  : Open `inbox.md`
-<Leader>td  : Open `done.md`
-<Leader>tc  : Open `cancelled.md`
-<Leader>ta  : Add/Edit task interactively
-<Leader>ts  : Search tasks
-<Leader>tq  : Open the Queue view
+Global keymaps (available in all buffers):~
 
-gd          : Inside a markdown file, jump to the project file corresponding
-              to the `+Project` tag under the cursor.
+<Leader>tt  : Open `todo.md` in a floating window
+<Leader>ti  : Open `inbox.md` in a floating window
+<Leader>thd : Open `done.md` in a floating window
+<Leader>thc : Open `cancelled.md` in a floating window
+<Leader>ta  : Add/Edit task interactively (via UI prompts)
+<Leader>t/  : Search tasks (Tags, Contexts) using your picker
+<Leader>tq  : Open the Queue view (due dates grouped)
+
+Buffer-local keymaps (available inside `todo.md` / `inbox.md` only):~
+
+<Leader>td  : Move task under cursor to `Today` section
+<Leader>tn  : Move task under cursor to `Next` section
+<Leader>tw  : Move task under cursor to `Waiting` section
+<Leader>ts  : Move task under cursor to `Someday` section
+<Leader>tx  : Toggle task completion ([ ] <-> [x])
+<Leader>tc  : Cancel task and move it to `cancelled.md`
+<Leader>tp  : Split task into subtasks or promote to a project
+<Leader>tjp : Jump to the project file for the `+Project` tag under cursor
+<Leader>ttw : Assign a `wait:` tag to the task (Normal / Visual)
+<Leader>to  : Manually run due-date check & sort
 
 *Picker Actions*:
 When using `:GtodoSearch` with Snacks, Telescope, or fzf-lua:
