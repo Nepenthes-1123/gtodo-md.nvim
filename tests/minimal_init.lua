@@ -10,9 +10,9 @@ local plenary_path = vim.fn.stdpath("data") .. "/site/pack/core/opt/plenary.nvim
 local local_plenary = vim.fn.getcwd() .. "/plenary"
 
 if vim.fn.isdirectory(plenary_path) == 1 then
-  vim.opt.runtimepath:prepend(plenary_path)
+	vim.opt.runtimepath:prepend(plenary_path)
 elseif vim.fn.isdirectory(local_plenary) == 1 then
-  vim.opt.runtimepath:prepend(local_plenary)
+	vim.opt.runtimepath:prepend(local_plenary)
 else
-  print("Warning: plenary.nvim not found. Tests may fail if plenary is required.")
+	print("Warning: plenary.nvim not found. Tests may fail if plenary is required.")
 end

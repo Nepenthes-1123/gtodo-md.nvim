@@ -5,3 +5,6 @@ globals = {
 exclude_files = {
 	"doc/*",
 }
+ignore = {
+	"631", -- line is too long
+}

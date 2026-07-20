@@ -1,46 +1,44 @@
 local M = {}
 
 M.defaults = {
-  data_dir = vim.fn.stdpath("data") .. "/gtodo-md", -- デフォルトはNeovimのデータディレクトリ
-  use_default_keymaps = true,
-  picker = "auto", -- ピッカー指定 ("auto" | "snacks" | "telescope" | "fzf-lua" | "builtin")
-  keymap_prefix = "<Leader>t", -- キーマップ of プレフィックス接頭辞
-  due_notification_cooldown = 1800, -- 期限切れ通知の最小間隔（秒）。デフォルト30分
-  due_notification_persist = true, -- trueでNeovim終了後も時間を維持、falseで起動中のみ
-  auto_move_inbox_to_today = true, -- Inboxの期日到達タスクを自動でTodayに移動するかどうか
-  waiting_warning_days = 2, -- Waitingタスクの期限警告日数
-  enable_waiting_warning = true, -- Waitingタスクの期限警告通知を有効にするか
-  waiting_warning_interval = 3600, -- Waitingタスク警告のチェック間隔（秒）。デフォルト1時間
-  enable_project_progress = true, -- プロジェクトファイル最下部に進捗バーを表示するかどうか
+	data_dir = vim.fn.stdpath("data") .. "/gtodo-md", -- デフォルトはNeovimのデータディレクトリ
+	use_default_keymaps = true,
+	picker = "auto", -- ピッカー指定 ("auto" | "snacks" | "telescope" | "fzf-lua" | "builtin")
+	keymap_prefix = "<Leader>t", -- キーマップ of プレフィックス接頭辞
+	due_notification_cooldown = 1800, -- 期限切れ通知の最小間隔（秒）。デフォルト30分
+	due_notification_persist = true, -- trueでNeovim終了後も時間を維持、falseで起動中のみ
+	auto_move_inbox_to_today = true, -- Inboxの期日到達タスクを自動でTodayに移動するかどうか
+	waiting_warning_days = 2, -- Waitingタスクの期限警告日数
+	enable_waiting_warning = true, -- Waitingタスクの期限警告通知を有効にするか
+	waiting_warning_interval = 3600, -- Waitingタスク警告のチェック間隔（秒）。デフォルト1時間
+	enable_project_progress = true, -- プロジェクトファイル最下部に進捗バーを表示するかどうか
 }
 
 M.options = {}
 
 M.sections = {
-  TODAY = "Today",
-  NEXT = "Next",
-  WAITING = "Waiting",
-  SOMEDAY = "Someday",
+	TODAY = "Today",
+	NEXT = "Next",
+	WAITING = "Waiting",
+	SOMEDAY = "Someday",
 }
 
-
 function M.setup(opts)
-  M.options = vim.tbl_deep_extend("force", M.defaults, opts or {})
-  -- ディレクトリが存在しない場合は作成
-  local projects_dir = M.options.data_dir .. '/projects'
-  if vim.fn.isdirectory(projects_dir) == 0 then
-    vim.fn.mkdir(projects_dir, "p")
-  end
+	M.options = vim.tbl_deep_extend("force", M.defaults, opts or {})
+	-- ディレクトリが存在しない場合は作成
+	local projects_dir = M.options.data_dir .. "/projects"
+	if vim.fn.isdirectory(projects_dir) == 0 then
+		vim.fn.mkdir(projects_dir, "p")
+	end
 end
 
 -- オプション値を取得する。未設定の場合はデフォルト値を返す
 function M.get(key)
-  local val = M.options[key]
-  if val == nil then
-    return M.defaults[key]
-  end
-  return val
+	local val = M.options[key]
+	if val == nil then
+		return M.defaults[key]
+	end
+	return val
 end
-
 
 return M
