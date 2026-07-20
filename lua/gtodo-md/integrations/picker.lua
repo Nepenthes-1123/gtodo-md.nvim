@@ -1,6 +1,5 @@
 local M = {}
 
-
 -- タスクのトグル処理（全ピッカーで共通利用）
 -- ファイルパスと行番号を受け取り、その行の [ ] を [x] に（またはその逆）切り替える
 function M.toggle_task_file_line(file, lnum)

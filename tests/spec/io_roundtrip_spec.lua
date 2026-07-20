@@ -1,6 +1,5 @@
 local io_mod = require("gtodo-md.io")
 
-
 describe("io.lua parse_markdown and write_todo_file roundtrip", function()
 	it("parse_markdown と write_todo_file で内容が完全に一致する", function()
 		local original_lines = {
