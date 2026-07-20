@@ -44,8 +44,9 @@ local function sort_items(items)
     end
 
     -- 3. 優先度 (A > B > C ... > Z) ※Zは優先度指定なし扱い
-    local p_a = t_a.content:match("^%(([A-Z])%)") or "Z"
-    local p_b = t_b.content:match("^%(([A-Z])%)") or "Z"
+    -- task.lua が parse 時に task.priority へ分離済み（P2-1 修正）
+    local p_a = t_a.priority or "Z"
+    local p_b = t_b.priority or "Z"
     if p_a ~= p_b then
       return p_a < p_b
     end
