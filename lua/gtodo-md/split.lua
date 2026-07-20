@@ -271,7 +271,7 @@ function M.split_current_task()
 			end
 
 			if current_parent_line ~= parent_line then
-				local c_bq_prefix, c_marker, c_marker_width = get_list_marker_info(current_parent_line)
+				local c_bq_prefix, c_marker, _ = get_list_marker_info(current_parent_line)
 				if not c_marker then
 					vim.notify(
 						string.format(
