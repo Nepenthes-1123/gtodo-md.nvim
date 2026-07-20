@@ -13,7 +13,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Setup Lua
-        uses: leafo/setup-lua@v1
+        uses: leafo/gh-actions-lua@v10
+      - name: Setup Luarocks
+        uses: leafo/gh-actions-luarocks@v4
       - name: Install Luacheck
         run: luarocks install luacheck
       - name: Run Luacheck
