@@ -495,12 +495,26 @@ function M.add_or_edit_task()
   local todo_path = data_dir .. "/todo.md"
   
   if filename == "todo.md" or filename == "inbox.md" then
-    local task, row = editor_mod.get_current_task()
+    local task, row, old_line = editor_mod.get_current_task()
     if task then
       -- 編集
       require('gtodo-md.task').prompt_task(task, function(updated_task)
         local newline = require('gtodo-md.task').serialize(updated_task)
-        vim.api.nvim_buf_set_lines(0, row - 1, row, false, { newline })
+        
+        -- ポップアップ編集中に裏側でソートが走り行番号がズレる対策（文字一致で現在行を再探査）
+        local target_row = nil
+        if old_line then
+          local current_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+          for i, l in ipairs(current_lines) do
+            if l == old_line then
+              target_row = i
+              break
+            end
+          end
+        end
+        target_row = target_row or row
+        
+        vim.api.nvim_buf_set_lines(0, target_row - 1, target_row, false, { newline })
         vim.cmd("silent! write")
         if filename == "todo.md" then
           local changed = logic_mod.check_dues(inbox_path, todo_path)
