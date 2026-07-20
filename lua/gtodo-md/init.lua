@@ -559,19 +559,18 @@ function M.add_or_edit_task()
 
 	-- 新規追加
 	require("gtodo-md.task").prompt_task(nil, function(new_task)
-		local newline = require("gtodo-md.task").serialize(new_task)
-		local bufname = vim.api.nvim_buf_get_name(0)
-		local filename = vim.fn.fnamemodify(bufname, ":t")
+		local cb_bufname = vim.api.nvim_buf_get_name(0)
+		local cb_filename = vim.fn.fnamemodify(cb_bufname, ":t")
 
 		-- 提案B: todo.md内で新規追加された場合でも、未来期日なら未整理としてInboxへルーティングする
-		if filename == "todo.md" and new_task.due and new_task.due ~= "" then
+		if cb_filename == "todo.md" and new_task.due and new_task.due ~= "" then
 			local today = os.date("%Y-%m-%d")
 			if new_task.due > today then
-				filename = "inbox.md"
+				cb_filename = "inbox.md"
 			end
 		end
 
-		if filename == "todo.md" then
+		if cb_filename == "todo.md" then
 			local target_sec = editor_mod.get_current_section()
 			if target_sec == "default" then
 				target_sec = config.sections.TODAY

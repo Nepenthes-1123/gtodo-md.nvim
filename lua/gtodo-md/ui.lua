@@ -180,17 +180,17 @@ function M.search_tasks()
 	local picker_opt = config.get("picker")
 
 	local pickers = {
-		snacks = function(items)
+		snacks = function(picker_items)
 			local ok, p = pcall(require, "gtodo-md.integrations.picker")
-			return ok and p.snacks(items)
+			return ok and p.snacks(picker_items)
 		end,
-		telescope = function(items)
+		telescope = function(picker_items)
 			local ok, p = pcall(require, "gtodo-md.integrations.picker")
-			return ok and p.telescope(items)
+			return ok and p.telescope(picker_items)
 		end,
-		["fzf-lua"] = function(items)
+		["fzf-lua"] = function(picker_items)
 			local ok, p = pcall(require, "gtodo-md.integrations.picker")
-			return ok and p.fzf_lua(items)
+			return ok and p.fzf_lua(picker_items)
 		end,
 	}
 
@@ -462,7 +462,6 @@ end
 function M.open_queue(mode, previous_target_id)
 	mode = mode or "due"
 	local data_dir = config.get("data_dir")
-	local io_mod = require("gtodo-md.io")
 
 	-- inbox.md と todo.md から対象タスクを収集
 	local source_files = {
@@ -618,17 +617,13 @@ function M.open_queue(mode, previous_target_id)
 			add(sep, "Comment")
 			for _, entry in ipairs(overdue) do
 				local days_over = math.floor((today_time - utils.date_to_time(entry.task.due)) / 86400)
-				add(
-					task_line(entry, "  ⚠ ") .. string.format(" (%d日超過)", days_over),
-					"DiagnosticError",
-					{
-						filepath = entry.filepath,
-						original_line = entry.task.original_line,
-						lnum = entry.lnum,
-						mark_id = entry.mark_id,
-						bufnr = entry.bufnr,
-					}
-				)
+				add(task_line(entry, "  ⚠ ") .. string.format(" (%d日超過)", days_over), "DiagnosticError", {
+					filepath = entry.filepath,
+					original_line = entry.task.original_line,
+					lnum = entry.lnum,
+					mark_id = entry.mark_id,
+					bufnr = entry.bufnr,
+				})
 			end
 		end
 		-- 今日〜7日後（タスクある日のみ）
@@ -638,17 +633,13 @@ function M.open_queue(mode, previous_target_id)
 			add(label, hl)
 			add(sep, "Comment")
 			for _, entry in ipairs(by_date[date]) do
-				add(
-					task_line(entry),
-					nil,
-					{
-						filepath = entry.filepath,
-						original_line = entry.task.original_line,
-						lnum = entry.lnum,
-						mark_id = entry.mark_id,
-						bufnr = entry.bufnr,
-					}
-				)
+				add(task_line(entry), nil, {
+					filepath = entry.filepath,
+					original_line = entry.task.original_line,
+					lnum = entry.lnum,
+					mark_id = entry.mark_id,
+					bufnr = entry.bufnr,
+				})
 			end
 		end
 
@@ -660,17 +651,13 @@ function M.open_queue(mode, previous_target_id)
 			for _, entry in ipairs(later) do
 				local mo = tonumber(entry.task.due:sub(6, 7))
 				local d = tonumber(entry.task.due:sub(9, 10))
-				add(
-					task_line(entry) .. string.format("  due:%d/%d", mo, d),
-					"Comment",
-					{
-						filepath = entry.filepath,
-						original_line = entry.task.original_line,
-						lnum = entry.lnum,
-						mark_id = entry.mark_id,
-						bufnr = entry.bufnr,
-					}
-				)
+				add(task_line(entry) .. string.format("  due:%d/%d", mo, d), "Comment", {
+					filepath = entry.filepath,
+					original_line = entry.task.original_line,
+					lnum = entry.lnum,
+					mark_id = entry.mark_id,
+					bufnr = entry.bufnr,
+				})
 			end
 		end
 
@@ -686,17 +673,13 @@ function M.open_queue(mode, previous_target_id)
 			add(" " .. person .. " 待ち", "DiagnosticWarn")
 			add(sep, "Comment")
 			for _, entry in ipairs(by_person[person]) do
-				add(
-					task_line(entry),
-					nil,
-					{
-						filepath = entry.filepath,
-						original_line = entry.task.original_line,
-						lnum = entry.lnum,
-						mark_id = entry.mark_id,
-						bufnr = entry.bufnr,
-					}
-				)
+				add(task_line(entry), nil, {
+					filepath = entry.filepath,
+					original_line = entry.task.original_line,
+					lnum = entry.lnum,
+					mark_id = entry.mark_id,
+					bufnr = entry.bufnr,
+				})
 			end
 		end
 

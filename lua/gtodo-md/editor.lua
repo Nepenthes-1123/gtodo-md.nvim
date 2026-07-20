@@ -142,7 +142,6 @@ function M._execute_move(task, row, target_section)
 	local filename = vim.fn.fnamemodify(bufname, ":t")
 
 	local data_dir = config.get("data_dir")
-	local inbox_path = data_dir .. "/inbox.md"
 	local todo_path = data_dir .. "/todo.md"
 
 	if filename == "inbox.md" then
@@ -248,7 +247,7 @@ function M.cancel_current_task()
 
 	if filename == "todo.md" then
 		local current_sec = M.get_current_section()
-		local ok = update_task_in_todo(task, current_sec, function(todo_data, section, idx, sec_items)
+		local ok = update_task_in_todo(task, current_sec, function(_, _, idx, sec_items)
 			table.remove(sec_items, idx)
 		end)
 		if not ok then

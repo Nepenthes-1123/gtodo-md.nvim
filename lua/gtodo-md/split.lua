@@ -1,5 +1,4 @@
 local M = {}
-local config = require("gtodo-md.config")
 
 local active_splits = {}
 local ns_id = vim.api.nvim_create_namespace("gtodo_split_ns")
@@ -54,7 +53,7 @@ function M.split_current_task()
 		return
 	end
 
-	local bq_prefix, marker, marker_width = get_list_marker_info(parent_line)
+	local bq_prefix, marker, _ = get_list_marker_info(parent_line)
 	if not marker then
 		vim.notify("[gtodo-md] Not on a valid task line.", vim.log.levels.WARN)
 		return
@@ -342,7 +341,7 @@ function M.split_current_task()
 					local p_indent_spaces = p_line:match("^(%s*)")
 					p_indent_spaces = p_indent_spaces:gsub("\t", string.rep(" ", sw))
 					local total_indent_num = base_offset + #p_indent_spaces
-					local total_indent_str = ""
+					local _ = ""
 					if not expandtab then
 						local tabs = math.floor(total_indent_num / sw)
 						local spaces = total_indent_num % sw

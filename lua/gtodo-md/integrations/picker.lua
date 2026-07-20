@@ -1,5 +1,4 @@
 local M = {}
-local task_mod = require("gtodo-md.task")
 local config = require("gtodo-md.config")
 
 -- タスクのトグル処理（全ピッカーで共通利用）
@@ -49,7 +48,7 @@ function M.snacks(items)
 		title = "Gtodo Search",
 		items = items,
 		-- 独自のハイライトとアイコンを適用するためのフォーマット関数
-		format = function(item, picker)
+		format = function(item, _)
 			local parts = {}
 
 			-- セクション部分 (例: [Today])
@@ -145,7 +144,7 @@ end
 -- Telescope 連携
 --------------------------------------------------------------------------------
 function M.telescope(items)
-	local ok, telescope = pcall(require, "telescope")
+	local ok, _ = pcall(require, "telescope")
 	if not ok then
 		return false
 	end
@@ -258,15 +257,10 @@ function M.fzf_lua(items)
 	end
 
 	local fzf_items = {}
-	local lookup = {}
 	for _, item in ipairs(items) do
 		local colored = to_ansi(item.text)
 		local line_str = string.format("%s:%d:%d:%s", item.file, item.pos[1], item.pos[2], colored)
 		table.insert(fzf_items, line_str)
-
-		-- 生のテキストから元のアイテムを逆引きするためのキャッシュ
-		local raw_str = string.format("%s:%d:%d", item.file, item.pos[1], item.pos[2])
-		lookup[raw_str] = item
 	end
 
 	fzf.fzf_exec(fzf_items, {
@@ -276,7 +270,7 @@ function M.fzf_lua(items)
 			["--bind"] = "　:put( )",
 		},
 		actions = {
-			["default"] = function(selected, opts)
+			["default"] = function(selected, _)
 				if not selected or #selected == 0 then
 					return
 				end
@@ -287,7 +281,7 @@ function M.fzf_lua(items)
 					pcall(vim.api.nvim_win_set_cursor, 0, { tonumber(lnum), 0 })
 				end
 			end,
-			["ctrl-x"] = function(selected, opts)
+			["ctrl-x"] = function(selected, _)
 				if not selected or #selected == 0 then
 					return
 				end
