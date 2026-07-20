@@ -304,7 +304,7 @@ function M.ensure_files()
 
 	for _, f in ipairs(files) do
 		if vim.fn.filereadable(f.path) == 0 then
-			local file = io.open(f.path, "w")
+			local file = io.open(f.path, "wb")
 			if file then
 				file:write(f.title .. "\n")
 				file:close()

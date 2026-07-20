@@ -110,7 +110,7 @@ local function write_state(data)
 		vim.fn.mkdir(dir, "p")
 	end
 	local tmp_path = path .. ".tmp"
-	local f = io.open(tmp_path, "w")
+	local f = io.open(tmp_path, "wb")
 	if f then
 		local ok, content = pcall(vim.json.encode, data)
 		if ok then
@@ -190,7 +190,7 @@ function M.create_project_file(project_tag)
 		}
 
 		local tmp_file = proj_file .. ".tmp"
-		local ok, f = pcall(io.open, tmp_file, "w")
+		local ok, f = pcall(io.open, tmp_file, "wb")
 		if ok and f then
 			for _, l in ipairs(template) do
 				f:write(l .. "\n")
