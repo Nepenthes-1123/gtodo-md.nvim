@@ -521,7 +521,7 @@ function M.add_or_edit_task()
 		local task, row, old_line = editor_mod.get_current_task()
 		if task then
 			-- 編集
-			require("gtodo-md.task").prompt_task(task, function(updated_task)
+			require("gtodo-md.ui.prompt").prompt_task(task, function(updated_task)
 				local newline = require("gtodo-md.task").serialize(updated_task)
 				-- ポップアップ編集中に裏側でソートが走り行番号がズレる対策（文字一致で現在行を再探査）
 				local target_row = nil
@@ -558,7 +558,7 @@ function M.add_or_edit_task()
 	end
 
 	-- 新規追加
-	require("gtodo-md.task").prompt_task(nil, function(new_task)
+	require("gtodo-md.ui.prompt").prompt_task(nil, function(new_task)
 		local cb_bufname = vim.api.nvim_buf_get_name(0)
 		local cb_filename = vim.fn.fnamemodify(cb_bufname, ":t")
 
