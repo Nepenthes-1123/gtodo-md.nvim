@@ -31,6 +31,41 @@ end
 -- BUG-5/BUG-15対応: todo.md内のタスク検索・更新の共通ヘルパー
 -- action_fn(todo_data, section, idx) を受け取って変更を加える
 -- タスクが見つかれば true、見つからなければ false を返す
+
+-- P1-4: タスク同定ヘルパー（テスト可能なパブリック関数）
+-- Primary  : task.original_line と item.task.original_line の完全一致
+-- Fallback : content + created の一致（BUG-19 互換性維持）
+--
+-- BUG-19 の経緯:「split後に original_line が古くなる」問題があった。
+-- ここで参照する original_line は task.parse() が生成した「その時点でのバッファ行」
+-- であり、io_mod.read_todo_file() が生成したアイテムの original_line と
+-- バッファ・ファイルが同期している限り一致する。保存した古い値を使う訳ではないので
+-- BUG-19 の問題は生じない。
+function M._find_task_idx(sec_items, task)
+  local orig = task.original_line
+
+  -- Primary: original_line で完全一致（重複タスクを行テキストで区別）
+  if orig and orig ~= "" then
+    for i, item in ipairs(sec_items) do
+      if item.type == "task" and item.task.original_line == orig then
+        return i
+      end
+    end
+  end
+
+  -- Fallback: content + created（original_line が nil や空の場合、
+  -- または serialize ラウンドトリップで original_line が欠落した場合）
+  for i, item in ipairs(sec_items) do
+    if item.type == "task"
+      and item.task.content == task.content
+      and item.task.created == task.created then
+      return i
+    end
+  end
+
+  return nil
+end
+
 local function update_task_in_todo(task, section, action_fn)
   local todo_path = config.get("data_dir") .. "/todo.md"
   local todo_data = io_mod.read_todo_file(todo_path)
@@ -38,17 +73,7 @@ local function update_task_in_todo(task, section, action_fn)
   if not todo_data.sections[section] then return false end
 
   local sec_items = io_mod.get_section_items(todo_data.sections[section])
-  local found_idx = nil
-  for i, item in ipairs(sec_items) do
-    -- BUG-19対応: original_lineを使わず content+created で同定
-    -- (split後に original_line が古くなる問題を回避)
-    if item.type == "task"
-      and item.task.content == task.content
-      and item.task.created == task.created then
-      found_idx = i
-      break
-    end
-  end
+  local found_idx = M._find_task_idx(sec_items, task)
 
   if not found_idx then return false end
 
