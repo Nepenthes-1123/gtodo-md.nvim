@@ -28,6 +28,9 @@ function M.read_lines(path)
 			return lines
 		end
 		for line in f:lines() do
+			if line:sub(-1) == "\r" then
+				line = line:sub(1, -2)
+			end
 			table.insert(lines, line)
 		end
 		f:close()
@@ -91,11 +94,24 @@ function M.write_lines(path, lines)
 			end)
 		end
 	else
+		local is_crlf = false
+		if vim.fn.filereadable(path) == 1 then
+			local fr = io.open(path, "rb")
+			if fr then
+				local content = fr:read(2048) or ""
+				if content:find("\r\n") then
+					is_crlf = true
+				end
+				fr:close()
+			end
+		end
+
 		local tmp_path = path .. ".tmp"
-		local f = io.open(tmp_path, "w")
+		local f = io.open(tmp_path, "wb")
 		if f then
+			local nl = is_crlf and "\r\n" or "\n"
 			for _, line in ipairs(lines) do
-				f:write(line .. "\n")
+				f:write(line .. nl)
 			end
 			f:close()
 			vim.fn.rename(tmp_path, path)
