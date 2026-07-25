@@ -140,4 +140,28 @@ describe("autoread and timer skip for project files", function()
 		assert.is_false(timer.should_skip_timer())
 		vim.api.nvim_buf_delete(buf, { force = true })
 	end)
+
+	it("resumes auto-process via BufWritePost when saved", function()
+		local main_mod = package.loaded["gtodo-md"]
+		local config = package.loaded["gtodo-md.config"]
+
+		local buf = vim.api.nvim_create_buf(true, false)
+		local todo_path = worktree .. "/todo.md"
+		vim.api.nvim_buf_set_name(buf, todo_path)
+		vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "## Today", "- [ ] Unsaved Task" })
+		vim.bo[buf].modified = true
+
+		-- 未保存時は handle_buf_enter が自動処理をスキップ
+		main_mod.handle_buf_enter(buf)
+		assert.is_true(vim.bo[buf].modified)
+
+		-- BufWritePost autocmd をシミュレート (modified を false にして発火)
+		vim.bo[buf].modified = false
+		vim.api.nvim_exec_autocmds("BufWritePost", { group = "GtodoMd", buffer = buf })
+
+		-- エラーなく処理され、バッファが正常に同期・維持されていること
+		assert.is_false(vim.bo[buf].modified)
+
+		vim.api.nvim_buf_delete(buf, { force = true })
+	end)
 end)

@@ -50,20 +50,37 @@ function M.handle_buf_enter(bufnr)
 
 	local daily_mod = require("gtodo-md.daily")
 
-	-- 1. 完了タスク移動などの大掃除フェイルセーフ
+	-- 全 gtodo バッファの中に未保存編集中のものが1つでも存在するかチェック
+	local has_modified_gtodo = false
+	for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+		if vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_is_loaded(buf) and vim.bo[buf].modified then
+			local bname = vim.api.nvim_buf_get_name(buf)
+			if utils_mod.is_gtodo_file(bname) then
+				has_modified_gtodo = true
+				break
+			end
+		end
+	end
+
+	-- 未保存バッファが存在する場合は、ディスク更新によるデータ上書き消失を避けるため
+	-- check_daily_rollover も含めたディスク自動更新をすべてスキップ
+	if has_modified_gtodo then
+		if config.get("use_default_keymaps") then
+			M.setup_buffer_keymaps(bufnr)
+		end
+		return
+	end
+
+	-- 1. 安全な状態（未保存なし）でのみ大掃除・日付変更チェックを実行
 	daily_mod.check_daily_rollover()
 
 	local current_inbox_mtime = vim.fn.getftime(inbox_path)
 	local current_todo_mtime = vim.fn.getftime(todo_path)
-	local is_modified = vim.bo[bufnr].modified
 
 	-- スキップ判定
 	local skip_process = true
 	local cached_mtimes = daily_mod.get_cache()
-	if is_modified then
-		-- 未保存バッファが存在する場合は、ディスク更新によるデータ上書き消失を避けるため自動移動・ソートをスキップ
-		skip_process = true
-	elseif current_inbox_mtime ~= cached_mtimes.inbox then
+	if current_inbox_mtime ~= cached_mtimes.inbox then
 		skip_process = false
 	elseif current_todo_mtime ~= cached_mtimes.todo then
 		skip_process = false
@@ -417,14 +434,51 @@ function M.setup_autocmds()
 		end,
 	})
 
-	-- フォーカスが戻った時の日付変更検知
+	-- gtodo バッファ保存 (:w) 完了後の自動整理・全バッファ同期再開
+	vim.api.nvim_create_autocmd("BufWritePost", {
+		group = group,
+		pattern = "*",
+		callback = function(args)
+			if vim.api.nvim_buf_is_valid(args.buf) then
+				local bufname = vim.api.nvim_buf_get_name(args.buf)
+				if utils_mod.is_gtodo_file(bufname) then
+					vim.schedule(function()
+						M.handle_buf_enter(args.buf)
+						-- 他のロード済み未保存なし gtodo バッファも一括 checktime 同期
+						for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+							if vim.api.nvim_buf_is_loaded(buf) and not vim.bo[buf].modified then
+								local bname = vim.api.nvim_buf_get_name(buf)
+								if utils_mod.is_gtodo_file(bname) then
+									vim.api.nvim_buf_call(buf, function()
+										vim.cmd("checktime")
+									end)
+								end
+							end
+						end
+					end)
+				end
+			end
+		end,
+	})
+
+	-- フォーカスが戻った時の日付変更検知と全 gtodo バッファの最新一括同期
 	vim.api.nvim_create_autocmd("FocusGained", {
 		group = group,
 		pattern = "*",
 		callback = function()
 			vim.schedule(function()
-				if not require("gtodo-md.timer").should_skip_timer() then
+				if not timer_mod.should_skip_timer() then
 					require("gtodo-md.daily").check_daily_rollover()
+					for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+						if vim.api.nvim_buf_is_loaded(buf) and not vim.bo[buf].modified then
+							local bname = vim.api.nvim_buf_get_name(buf)
+							if utils_mod.is_gtodo_file(bname) then
+								vim.api.nvim_buf_call(buf, function()
+									vim.cmd("checktime")
+								end)
+							end
+						end
+					end
 				end
 			end)
 		end,
