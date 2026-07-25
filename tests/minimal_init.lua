@@ -2,8 +2,17 @@
 -- NOTE: このファイルはパス設定のみ。テスト実行ロジックは含めない。
 -- plenary.test_harness が子プロセスを起動するときに -u として使用する。
 
--- プラグイン自身の lua/ をランタイムパスに追加
-vim.opt.runtimepath:prepend(vim.fn.getcwd())
+-- プラグイン自身の lua/ を最優先で package.path と runtimepath に追加
+local script_path = debug.getinfo(1, "S").source:sub(2)
+local worktree_root = vim.fn.fnamemodify(script_path, ":p:h:h"):gsub("\\", "/")
+package.path = worktree_root .. "/lua/?.lua;" .. worktree_root .. "/lua/?/init.lua;" .. package.path
+vim.opt.runtimepath:prepend(worktree_root)
+
+for k, _ in pairs(package.loaded) do
+	if k:match("^gtodo%-md") then
+		package.loaded[k] = nil
+	end
+end
 
 -- plenary のパスを追加
 local plenary_path = vim.fn.stdpath("data") .. "/site/pack/core/opt/plenary.nvim"

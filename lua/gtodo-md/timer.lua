@@ -40,22 +40,17 @@ function M.check_waiting_tasks()
 	end
 end
 
-local function should_skip_timer()
+function M.should_skip_timer()
 	local mode = vim.fn.mode()
 	if mode ~= "n" then
 		return true
 	end
 
+	local utils = require("gtodo-md.utils")
 	for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-		if vim.api.nvim_buf_is_loaded(buf) and vim.bo[buf].modified then
-			local bname = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t")
+		if vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_is_loaded(buf) and vim.bo[buf].modified then
 			local filepath = vim.api.nvim_buf_get_name(buf)
-			local filedir = vim.fn.fnamemodify(filepath, ":h:t")
-
-			if bname == "inbox.md" or bname == "todo.md" or bname == "done.md" then
-				return true
-			end
-			if filedir == "projects" and bname:match("%.md$") then
+			if filepath ~= "" and utils.is_gtodo_file(filepath) then
 				return true
 			end
 		end
@@ -75,7 +70,7 @@ function M.start_waiting_timer()
 
 	-- 起動時に一度即時チェックを実行 (遅延ロードや起動シーケンスと競合しないよう非同期にスケジューリング)
 	vim.schedule(function()
-		if not should_skip_timer() then
+		if not M.should_skip_timer() then
 			M.check_waiting_tasks()
 		end
 	end)
@@ -86,7 +81,7 @@ function M.start_waiting_timer()
 		interval,
 		interval,
 		vim.schedule_wrap(function()
-			if not should_skip_timer() then
+			if not M.should_skip_timer() then
 				M.check_waiting_tasks()
 			end
 		end)
@@ -107,7 +102,7 @@ function M.start_daily_rollover_timer()
 		interval,
 		interval,
 		vim.schedule_wrap(function()
-			if not should_skip_timer() then
+			if not M.should_skip_timer() then
 				require("gtodo-md.daily").check_daily_rollover()
 			end
 		end)
