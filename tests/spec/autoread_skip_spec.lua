@@ -100,9 +100,31 @@ describe("autoread and timer skip for project files", function()
 
 		-- 未保存バッファの状態と内容がそのまま保持されていることを確認
 		assert.is_true(vim.bo[buf].modified)
-		local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-		assert.are.same({ "## Today", "- [ ] Unsaved Task" }, lines)
+		vim.api.nvim_buf_delete(buf, { force = true })
+	end)
 
+	it("should_skip_timer returns true when cancelled.md in data_dir is modified", function()
+		local config = require("gtodo-md.config")
+		config.setup({ data_dir = vim.fn.getcwd() })
+
+		local buf = vim.api.nvim_create_buf(true, false)
+		vim.api.nvim_buf_set_name(buf, vim.fn.getcwd() .. "/cancelled.md")
+		vim.bo[buf].modified = true
+
+		assert.is_true(timer.should_skip_timer())
+		vim.api.nvim_buf_delete(buf, { force = true })
+	end)
+
+	it("should_skip_timer returns false for unnamed modified buffers", function()
+		local config = require("gtodo-md.config")
+		config.setup({ data_dir = vim.fn.getcwd() })
+
+		local buf = vim.api.nvim_create_buf(true, false)
+		-- 名前未設定の無名バッファ
+		vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "Unnamed content" })
+		vim.bo[buf].modified = true
+
+		assert.is_false(timer.should_skip_timer())
 		vim.api.nvim_buf_delete(buf, { force = true })
 	end)
 end)

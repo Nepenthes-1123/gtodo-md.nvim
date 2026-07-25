@@ -46,16 +46,11 @@ function M.should_skip_timer()
 		return true
 	end
 
+	local utils = require("gtodo-md.utils")
 	for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-		if vim.api.nvim_buf_is_loaded(buf) and vim.bo[buf].modified then
-			local bname = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t")
+		if vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_is_loaded(buf) and vim.bo[buf].modified then
 			local filepath = vim.api.nvim_buf_get_name(buf)
-			local filedir = vim.fn.fnamemodify(filepath, ":h:t")
-
-			if bname == "inbox.md" or bname == "todo.md" or bname == "done.md" then
-				return true
-			end
-			if filedir == "projects" and bname:match("%.md$") then
+			if filepath ~= "" and utils.is_gtodo_file(filepath) then
 				return true
 			end
 		end
