@@ -393,10 +393,20 @@ function M.setup_autocmds()
 	-- gtodo-md 対象バッファへ autoread を設定
 	vim.api.nvim_create_autocmd({ "BufReadPost", "BufEnter" }, {
 		group = group,
-		pattern = { "inbox.md", "todo.md", "done.md", "cancelled.md" },
+		pattern = "*",
 		callback = function(args)
 			if vim.api.nvim_buf_is_valid(args.buf) then
-				vim.bo[args.buf].autoread = true
+				local bufname = vim.api.nvim_buf_get_name(args.buf)
+				local bname = vim.fn.fnamemodify(bufname, ":t")
+				if
+					bname == "inbox.md"
+					or bname == "todo.md"
+					or bname == "done.md"
+					or bname == "cancelled.md"
+					or bufname:find("projects") ~= nil
+				then
+					vim.bo[args.buf].autoread = true
+				end
 			end
 		end,
 	})
@@ -453,14 +463,20 @@ function M.setup_autocmds()
 		end,
 	})
 
-	-- projects/*.md 用 (仮想テキストの描画)
+	-- projects/*.md 用 (仮想テキストの描画および autoread 設定)
 	vim.api.nvim_create_autocmd({ "BufEnter", "BufWritePost" }, {
 		group = group,
-		pattern = { "*/projects/*.md" },
+		pattern = "*",
 		callback = function(args)
-			vim.schedule(function()
-				require("gtodo-md.ui").render_project_tasks(args.buf)
-			end)
+			if vim.api.nvim_buf_is_valid(args.buf) then
+				local bufname = vim.api.nvim_buf_get_name(args.buf)
+				if bufname:find("projects") ~= nil then
+					vim.bo[args.buf].autoread = true
+					vim.schedule(function()
+						require("gtodo-md.ui").render_project_tasks(args.buf)
+					end)
+				end
+			end
 		end,
 	})
 
