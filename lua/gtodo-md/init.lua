@@ -399,7 +399,7 @@ function M.setup_autocmds()
 		callback = function(args)
 			if vim.api.nvim_buf_is_valid(args.buf) then
 				local bufname = vim.api.nvim_buf_get_name(args.buf)
-				if require("gtodo-md.utils").is_gtodo_file(bufname) then
+				if utils_mod.is_gtodo_file(bufname) then
 					vim.bo[args.buf].autoread = true
 				end
 			end
