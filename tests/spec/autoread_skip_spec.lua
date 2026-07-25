@@ -143,7 +143,6 @@ describe("autoread and timer skip for project files", function()
 
 	it("resumes auto-process via BufWritePost when saved", function()
 		local main_mod = package.loaded["gtodo-md"]
-		local config = package.loaded["gtodo-md.config"]
 
 		local buf = vim.api.nvim_create_buf(true, false)
 		local todo_path = worktree .. "/todo.md"

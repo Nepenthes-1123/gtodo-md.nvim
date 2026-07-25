@@ -114,7 +114,7 @@ function M.handle_buf_enter(bufnr)
 	vim.bo[bufnr].autoread = true
 
 	-- 自動処理によってディスク上のファイルが変更された場合、未保存の変更がなければバッファを同期（リロード）する
-	if not is_modified then
+	if not vim.bo[bufnr].modified then
 		vim.cmd("checktime")
 	end
 
