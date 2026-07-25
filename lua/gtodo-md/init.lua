@@ -437,23 +437,15 @@ function M.setup_autocmds()
 	-- gtodo バッファ保存 (:w) 完了後の自動整理・全バッファ同期再開
 	vim.api.nvim_create_autocmd("BufWritePost", {
 		group = group,
-		pattern = "*",
+		pattern = "*.md",
 		callback = function(args)
 			if vim.api.nvim_buf_is_valid(args.buf) then
 				local bufname = vim.api.nvim_buf_get_name(args.buf)
 				if utils_mod.is_gtodo_file(bufname) then
 					vim.schedule(function()
 						M.handle_buf_enter(args.buf)
-						-- 他のロード済み未保存なし gtodo バッファも一括 checktime 同期
-						for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-							if vim.api.nvim_buf_is_loaded(buf) and not vim.bo[buf].modified then
-								local bname = vim.api.nvim_buf_get_name(buf)
-								if utils_mod.is_gtodo_file(bname) then
-									vim.api.nvim_buf_call(buf, function()
-										vim.cmd("checktime")
-									end)
-								end
-							end
+						if not timer_mod.should_skip_timer() then
+							vim.cmd("checktime")
 						end
 					end)
 				end
@@ -469,16 +461,7 @@ function M.setup_autocmds()
 			vim.schedule(function()
 				if not timer_mod.should_skip_timer() then
 					require("gtodo-md.daily").check_daily_rollover()
-					for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-						if vim.api.nvim_buf_is_loaded(buf) and not vim.bo[buf].modified then
-							local bname = vim.api.nvim_buf_get_name(buf)
-							if utils_mod.is_gtodo_file(bname) then
-								vim.api.nvim_buf_call(buf, function()
-									vim.cmd("checktime")
-								end)
-							end
-						end
-					end
+					vim.cmd("checktime")
 				end
 			end)
 		end,
