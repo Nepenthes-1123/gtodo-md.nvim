@@ -60,11 +60,12 @@ function M.handle_buf_enter(bufnr)
 	-- スキップ判定
 	local skip_process = true
 	local cached_mtimes = daily_mod.get_cache()
-	if current_inbox_mtime ~= cached_mtimes.inbox then
+	if is_modified then
+		-- 未保存バッファが存在する場合は、ディスク更新によるデータ上書き消失を避けるため自動移動・ソートをスキップ
+		skip_process = true
+	elseif current_inbox_mtime ~= cached_mtimes.inbox then
 		skip_process = false
 	elseif current_todo_mtime ~= cached_mtimes.todo then
-		skip_process = false
-	elseif is_modified then
 		skip_process = false
 	end
 
