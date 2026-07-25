@@ -37,6 +37,10 @@ end
 
 -- BufEnter時の自動処理
 function M.handle_buf_enter(bufnr)
+	if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) or not vim.api.nvim_buf_is_loaded(bufnr) then
+		return
+	end
+
 	local bufname = vim.api.nvim_buf_get_name(bufnr)
 	local filename = vim.fn.fnamemodify(bufname, ":t")
 
@@ -396,7 +400,7 @@ function M.setup_autocmds()
 	-- バッファが完全にメモリから消去された時のみキャッシュメモリを解放
 	vim.api.nvim_create_autocmd("BufWipeout", {
 		group = group,
-		pattern = { "done.md", "cancelled.md", "*/projects/*.md" },
+		pattern = "*",
 		callback = function(args)
 			local bufnr = args.buf
 			-- バッファがまだ有効またはロード済みの場合は、誤検知なのでクリアをスキップする！
@@ -529,7 +533,8 @@ end
 
 -- 適応的なタスクの追加または編集 (外部呼び出し可能)
 function M.add_or_edit_task()
-	local bufname = vim.api.nvim_buf_get_name(0)
+	local target_buf = vim.api.nvim_get_current_buf()
+	local bufname = vim.api.nvim_buf_get_name(target_buf)
 	local filename = vim.fn.fnamemodify(bufname, ":t")
 	local data_dir = config.get("data_dir")
 	local inbox_path = data_dir .. "/inbox.md"
@@ -540,12 +545,15 @@ function M.add_or_edit_task()
 		if task then
 			-- 編集
 			require("gtodo-md.ui.prompt").prompt_task(task, function(updated_task)
+				if not vim.api.nvim_buf_is_valid(target_buf) then
+					return
+				end
 				local newline = require("gtodo-md.task").serialize(updated_task)
 				-- ポップアップ編集中に裏側でソートが走り行番号がズレる対策（文字一致で現在行を再探査）
 				local target_row = nil
 				if old_line then
 					local normalized_old_line = require("gtodo-md.task").serialize(task)
-					local current_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+					local current_lines = vim.api.nvim_buf_get_lines(target_buf, 0, -1, false)
 					for i, l in ipairs(current_lines) do
 						if l == old_line or l == normalized_old_line then
 							target_row = i
@@ -555,19 +563,21 @@ function M.add_or_edit_task()
 				end
 				target_row = target_row or row
 
-				vim.api.nvim_buf_set_lines(0, target_row - 1, target_row, false, { newline })
-				vim.cmd("silent! write")
+				vim.api.nvim_buf_set_lines(target_buf, target_row - 1, target_row, false, { newline })
+				vim.api.nvim_buf_call(target_buf, function()
+					vim.cmd("silent! write")
+				end)
 				if filename == "todo.md" then
 					local changed = logic_mod.check_dues(inbox_path, todo_path)
 					logic_mod.sort_todo_file(todo_path)
-					if changed and not vim.bo[0].modified then
+					if changed and not vim.bo[target_buf].modified then
 						vim.cmd("checktime")
 					end
 				else
 					local changed = logic_mod.check_dues(inbox_path, todo_path)
 					if changed then
 						logic_mod.sort_todo_file(todo_path)
-						if not vim.bo[0].modified then
+						if not vim.bo[target_buf].modified then
 							vim.cmd("checktime")
 						end
 					end
@@ -579,7 +589,7 @@ function M.add_or_edit_task()
 
 	-- 新規追加
 	require("gtodo-md.ui.prompt").prompt_task(nil, function(new_task)
-		local cb_bufname = vim.api.nvim_buf_get_name(0)
+		local cb_bufname = vim.api.nvim_buf_get_name(target_buf)
 		local cb_filename = vim.fn.fnamemodify(cb_bufname, ":t")
 
 		-- 提案B: todo.md内で新規追加された場合でも、未来期日なら未整理としてInboxへルーティングする
