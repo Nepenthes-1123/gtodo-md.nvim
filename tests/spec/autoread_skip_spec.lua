@@ -85,7 +85,13 @@ describe("autoread and timer skip for project files", function()
 		assert.is_true(utils.is_gtodo_file("C:/my_gtodo_data/cancelled.md"))
 		assert.is_true(utils.is_gtodo_file("C:/my_gtodo_data/projects/my_project.md"))
 
-		-- 外部プロジェクトや対象外ファイル
+		-- 相対パスでも正しく判定できること
+		config.setup({ data_dir = vim.fn.getcwd() })
+		assert.is_true(utils.is_gtodo_file("inbox.md"))
+		assert.is_true(utils.is_gtodo_file("projects/my_proj_modified.md"))
+
+		-- 隣接名ディレクトリや外部プロジェクトの拒否
+		assert.is_false(utils.is_gtodo_file("C:/my_gtodo_data_backup/inbox.md"))
 		assert.is_false(utils.is_gtodo_file("C:/external/projects/my_project.md"))
 		assert.is_false(utils.is_gtodo_file("C:/my_gtodo_data/readme.md"))
 		assert.is_false(utils.is_gtodo_file(""))

@@ -47,10 +47,11 @@ function M.check_daily_rollover()
 		last_processed_mtimes.inbox = vim.fn.getftime(inbox_path)
 		last_processed_mtimes.todo = vim.fn.getftime(todo_path)
 
+		local utils = require("gtodo-md.utils")
 		for _, buf in ipairs(vim.api.nvim_list_bufs()) do
 			if vim.api.nvim_buf_is_loaded(buf) and not vim.bo[buf].modified then
-				local bname = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t")
-				if bname == "inbox.md" or bname == "todo.md" or bname == "done.md" then
+				local bufname = vim.api.nvim_buf_get_name(buf)
+				if utils.is_gtodo_file(bufname) then
 					vim.api.nvim_buf_call(buf, function()
 						vim.cmd("checktime")
 					end)

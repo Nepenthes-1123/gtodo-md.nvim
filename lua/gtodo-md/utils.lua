@@ -222,15 +222,19 @@ function M.is_gtodo_file(bufname)
 		return false
 	end
 
-	local norm_bufname = bufname:gsub("\\", "/"):lower()
-	local norm_datadir = data_dir:gsub("\\", "/"):lower()
+	-- 相対パス・ドットパスを絶対パスへ正規化
+	local abs_bufname = vim.fn.fnamemodify(bufname, ":p")
+	local abs_datadir = vim.fn.fnamemodify(data_dir, ":p")
 
-	if norm_datadir:sub(-1) == "/" then
-		norm_datadir = norm_datadir:sub(1, -2)
+	local norm_bufname = abs_bufname:gsub("\\", "/"):lower()
+	local norm_datadir = abs_datadir:gsub("\\", "/"):lower()
+
+	if norm_datadir:sub(-1) ~= "/" then
+		norm_datadir = norm_datadir .. "/"
 	end
 
 	if norm_bufname:sub(1, #norm_datadir) == norm_datadir then
-		local rel = norm_bufname:sub(#norm_datadir + 1):gsub("^/+", "")
+		local rel = norm_bufname:sub(#norm_datadir + 1)
 		if rel == "inbox.md" or rel == "todo.md" or rel == "done.md" or rel == "cancelled.md" then
 			return true
 		end
