@@ -10,12 +10,20 @@ describe("autoread and timer skip for project files", function()
 		package.loaded["gtodo-md"] = package.loaded["gtodo-md.init"]
 		utils = package.loaded["gtodo-md.utils"]
 		timer = package.loaded["gtodo-md.timer"]
+
+		local config = package.loaded["gtodo-md.config"]
+		config.setup({ data_dir = worktree })
+
+		for _, b in ipairs(vim.api.nvim_list_bufs()) do
+			if vim.api.nvim_buf_is_valid(b) then
+				pcall(vim.api.nvim_buf_delete, b, { force = true })
+			end
+		end
 	end)
+
 	it("should_skip_timer returns true when a project file in projects/ is modified", function()
 		local buf = vim.api.nvim_create_buf(true, false)
-		-- パスを projects/test_project.md に設定
-		local current_dir = vim.fn.getcwd()
-		local proj_path = current_dir .. "/projects/test_project.md"
+		local proj_path = worktree .. "/projects/test_proj_modified.md"
 		vim.api.nvim_buf_set_name(buf, proj_path)
 		vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "---", "title: Test", "---" })
 		vim.bo[buf].modified = true
@@ -28,8 +36,7 @@ describe("autoread and timer skip for project files", function()
 
 	it("should_skip_timer returns false when project file is not modified", function()
 		local buf = vim.api.nvim_create_buf(true, false)
-		local current_dir = vim.fn.getcwd()
-		local proj_path = current_dir .. "/projects/test_project.md"
+		local proj_path = worktree .. "/projects/test_proj_unmodified.md"
 		vim.api.nvim_buf_set_name(buf, proj_path)
 		vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "---", "title: Test", "---" })
 		vim.bo[buf].modified = false

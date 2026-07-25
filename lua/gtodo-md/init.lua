@@ -567,16 +567,9 @@ function M.add_or_edit_task()
 			io_mod.write_todo_file(todo_path, todo_data)
 			logic_mod.sort_todo_file(todo_path)
 
-			-- reload if todo is open
-			for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-				if vim.api.nvim_buf_is_loaded(buf) and not vim.bo[buf].modified then
-					local bname = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t")
-					if bname == "todo.md" then
-						vim.api.nvim_buf_call(buf, function()
-							vim.cmd("checktime")
-						end)
-					end
-				end
+			-- reload open buffers if not modified
+			if not timer_mod.should_skip_timer() then
+				vim.cmd("checktime")
 			end
 		else
 			-- inbox.md (またはその他) で追加された場合は inbox に留める
@@ -602,16 +595,9 @@ function M.add_or_edit_task()
 				logic_mod.sort_todo_file(todo_path)
 			end
 
-			-- reload if inbox is open
-			for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-				if vim.api.nvim_buf_is_loaded(buf) and not vim.bo[buf].modified then
-					local bname = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t")
-					if bname == "inbox.md" or bname == "todo.md" then
-						vim.api.nvim_buf_call(buf, function()
-							vim.cmd("checktime")
-						end)
-					end
-				end
+			-- reload open buffers if not modified
+			if not timer_mod.should_skip_timer() then
+				vim.cmd("checktime")
 			end
 			if filename ~= "inbox.md" then
 				vim.notify("Created new task in inbox.md", vim.log.levels.INFO)
