@@ -40,7 +40,7 @@ function M.check_waiting_tasks()
 	end
 end
 
-local function should_skip_timer()
+function M.should_skip_timer()
 	local mode = vim.fn.mode()
 	if mode ~= "n" then
 		return true
@@ -75,7 +75,7 @@ function M.start_waiting_timer()
 
 	-- 起動時に一度即時チェックを実行 (遅延ロードや起動シーケンスと競合しないよう非同期にスケジューリング)
 	vim.schedule(function()
-		if not should_skip_timer() then
+		if not M.should_skip_timer() then
 			M.check_waiting_tasks()
 		end
 	end)
@@ -86,7 +86,7 @@ function M.start_waiting_timer()
 		interval,
 		interval,
 		vim.schedule_wrap(function()
-			if not should_skip_timer() then
+			if not M.should_skip_timer() then
 				M.check_waiting_tasks()
 			end
 		end)
@@ -107,7 +107,7 @@ function M.start_daily_rollover_timer()
 		interval,
 		interval,
 		vim.schedule_wrap(function()
-			if not should_skip_timer() then
+			if not M.should_skip_timer() then
 				require("gtodo-md.daily").check_daily_rollover()
 			end
 		end)

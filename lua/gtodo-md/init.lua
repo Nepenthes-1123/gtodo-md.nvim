@@ -91,11 +91,16 @@ function M.handle_buf_enter(bufnr)
 	-- 構文ハイライトのアタッチ
 	require("gtodo-md.highlight").attach(bufnr)
 
+	-- gtodo-md 対象バッファに autoread を設定
+	vim.bo[bufnr].autoread = true
+
+	-- 自動処理によってディスク上のファイルが変更された場合、未保存の変更がなければバッファを同期（リロード）する
+	if not is_modified then
+		vim.cmd("checktime")
+	end
+
 	-- キャッシュを最新化
 	daily_mod.update_cache(vim.fn.getftime(inbox_path), vim.fn.getftime(todo_path))
-
-	-- 自動処理によってディスク上のファイルが変更された場合、バッファを強制同期（リロード）する
-	vim.cmd("checktime")
 end
 
 function M.setup_autocmds()
@@ -385,6 +390,17 @@ function M.setup_autocmds()
 		end,
 	})
 
+	-- gtodo-md 対象バッファへ autoread を設定
+	vim.api.nvim_create_autocmd({ "BufReadPost", "BufEnter" }, {
+		group = group,
+		pattern = { "inbox.md", "todo.md", "done.md", "cancelled.md" },
+		callback = function(args)
+			if vim.api.nvim_buf_is_valid(args.buf) then
+				vim.bo[args.buf].autoread = true
+			end
+		end,
+	})
+
 	-- inbox.md, todo.md 用
 	vim.api.nvim_create_autocmd("BufEnter", {
 		group = group,
@@ -402,7 +418,9 @@ function M.setup_autocmds()
 		pattern = "*",
 		callback = function()
 			vim.schedule(function()
-				require("gtodo-md.daily").check_daily_rollover()
+				if not require("gtodo-md.timer").should_skip_timer() then
+					require("gtodo-md.daily").check_daily_rollover()
+				end
 			end)
 		end,
 	})
@@ -495,14 +513,16 @@ function M.add_or_edit_task()
 				if filename == "todo.md" then
 					local changed = logic_mod.check_dues(inbox_path, todo_path)
 					logic_mod.sort_todo_file(todo_path)
-					if changed then
+					if changed and not vim.bo[0].modified then
 						vim.cmd("checktime")
 					end
 				else
 					local changed = logic_mod.check_dues(inbox_path, todo_path)
 					if changed then
 						logic_mod.sort_todo_file(todo_path)
-						vim.cmd("checktime")
+						if not vim.bo[0].modified then
+							vim.cmd("checktime")
+						end
 					end
 				end
 			end)
@@ -539,7 +559,7 @@ function M.add_or_edit_task()
 
 			-- reload if todo is open
 			for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-				if vim.api.nvim_buf_is_loaded(buf) then
+				if vim.api.nvim_buf_is_loaded(buf) and not vim.bo[buf].modified then
 					local bname = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t")
 					if bname == "todo.md" then
 						vim.api.nvim_buf_call(buf, function()
@@ -574,7 +594,7 @@ function M.add_or_edit_task()
 
 			-- reload if inbox is open
 			for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-				if vim.api.nvim_buf_is_loaded(buf) then
+				if vim.api.nvim_buf_is_loaded(buf) and not vim.bo[buf].modified then
 					local bname = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t")
 					if bname == "inbox.md" or bname == "todo.md" then
 						vim.api.nvim_buf_call(buf, function()
