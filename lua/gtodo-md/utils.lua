@@ -212,4 +212,37 @@ function M.create_project_file(project_tag)
 	return true
 end
 
+function M.is_gtodo_file(bufname)
+	if not bufname or bufname == "" then
+		return false
+	end
+	local config = require("gtodo-md.config")
+	local data_dir = config.get("data_dir")
+	if not data_dir or data_dir == "" then
+		return false
+	end
+
+	-- 相対パス・ドットパスを絶対パスへ正規化
+	local abs_bufname = vim.fn.fnamemodify(bufname, ":p")
+	local abs_datadir = vim.fn.fnamemodify(data_dir, ":p")
+
+	local norm_bufname = abs_bufname:gsub("\\", "/"):lower()
+	local norm_datadir = abs_datadir:gsub("\\", "/"):lower()
+
+	if norm_datadir:sub(-1) ~= "/" then
+		norm_datadir = norm_datadir .. "/"
+	end
+
+	if norm_bufname:sub(1, #norm_datadir) == norm_datadir then
+		local rel = norm_bufname:sub(#norm_datadir + 1)
+		if rel == "inbox.md" or rel == "todo.md" or rel == "done.md" or rel == "cancelled.md" then
+			return true
+		end
+		if rel:match("^projects/[^/]+%.md$") then
+			return true
+		end
+	end
+	return false
+end
+
 return M
