@@ -123,7 +123,12 @@ function M.handle_buf_enter(bufnr)
 	end
 
 	-- キャッシュを最新化
-	daily_mod.update_cache(vim.fn.getftime(inbox_path), vim.fn.getftime(todo_path))
+	local done_path = data_dir .. "/done.md"
+	daily_mod.update_cache(
+		vim.fn.getftime(inbox_path),
+		vim.fn.getftime(todo_path),
+		vim.fn.getftime(done_path)
+	)
 end
 
 function M.setup_autocmds()

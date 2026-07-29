@@ -17,9 +17,10 @@ function M.get_cache()
 end
 
 -- キャッシュ更新用アクセサ
-function M.update_cache(inbox_mtime, todo_mtime)
+function M.update_cache(inbox_mtime, todo_mtime, done_mtime)
 	last_processed_mtimes.inbox = inbox_mtime
 	last_processed_mtimes.todo = todo_mtime
+	last_processed_mtimes.done = done_mtime or vim.fn.getftime(config.get("data_dir") .. "/done.md")
 	last_processed_date = os.date("%Y-%m-%d")
 end
 
