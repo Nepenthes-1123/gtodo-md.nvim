@@ -123,9 +123,9 @@ function M.check_daily_rollover()
 
 		if not try_acquire_rollover_lock(lock_path) then
 			-- 別インスタンスがロールオーバー実行中。
-			-- last_processed_date を今日に設定し、以後の early return 内の
-			-- reload_if_externally_changed() による変更検知に任せる。
-			last_processed_date = today
+			-- last_processed_date は更新せず、現時点での外部変更チェックを実行して終了する。
+			-- 別インスタンスの完了後に次回の呼び出しで last_opened == today 側に分岐して処理される。
+			reload_if_externally_changed()
 			return
 		end
 
