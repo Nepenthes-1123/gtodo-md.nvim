@@ -26,7 +26,8 @@ end
 -- プラグイン管理ファイルのバッファに autoread を設定したうえで checktime を実行する。
 -- autoread をバッファ単位で設定することで、ユーザーの他ファイルの設定に影響を与えずに
 -- 確認ダイアログを抑制できる。グローバルな &autoread を変更しない理由はここにある。
-local function reload_managed_bufs()
+-- init.lua の各 checktime 呼び出し箇所からも参照できるよう公開している。
+function M.reload_managed_bufs()
 	for _, buf in ipairs(vim.api.nvim_list_bufs()) do
 		if vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_is_loaded(buf) then
 			local bname = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t")
@@ -62,7 +63,7 @@ local function reload_if_externally_changed()
 	end
 
 	if changed then
-		reload_managed_bufs()
+		M.reload_managed_bufs()
 	end
 end
 
@@ -147,7 +148,7 @@ function M.check_daily_rollover()
 			last_processed_mtimes.inbox = vim.fn.getftime(inbox_path)
 			last_processed_mtimes.todo = vim.fn.getftime(todo_path)
 			last_processed_mtimes.done = vim.fn.getftime(done_path)
-			reload_managed_bufs()
+			M.reload_managed_bufs()
 		end
 	else
 		-- 別インスタンスが先にロールオーバーを実施した可能性があるためチェック

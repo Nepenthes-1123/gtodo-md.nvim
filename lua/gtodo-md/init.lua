@@ -449,7 +449,7 @@ function M.setup_autocmds()
 					vim.schedule(function()
 						M.handle_buf_enter(args.buf)
 						if not timer_mod.should_skip_timer() then
-							vim.cmd("checktime")
+							require("gtodo-md.daily").reload_managed_bufs()
 						end
 					end)
 				end
@@ -464,8 +464,11 @@ function M.setup_autocmds()
 		callback = function()
 			vim.schedule(function()
 				if not timer_mod.should_skip_timer() then
-					require("gtodo-md.daily").check_daily_rollover()
-					vim.cmd("checktime")
+					local daily_mod = require("gtodo-md.daily")
+					daily_mod.check_daily_rollover()
+					-- check_daily_rollover が内部で reload_managed_bufs を呼ぶが、
+					-- ロールオーバーが不要な場合でも mtime 変化を拾うため明示的に再呼び出しする
+					daily_mod.reload_managed_bufs()
 				end
 			end)
 		end,
@@ -571,14 +574,14 @@ function M.add_or_edit_task()
 					local changed = logic_mod.check_dues(inbox_path, todo_path)
 					logic_mod.sort_todo_file(todo_path)
 					if changed and not vim.bo[target_buf].modified then
-						vim.cmd("checktime")
+						require("gtodo-md.daily").reload_managed_bufs()
 					end
 				else
 					local changed = logic_mod.check_dues(inbox_path, todo_path)
 					if changed then
 						logic_mod.sort_todo_file(todo_path)
 						if not vim.bo[target_buf].modified then
-							vim.cmd("checktime")
+							require("gtodo-md.daily").reload_managed_bufs()
 						end
 					end
 				end
@@ -616,7 +619,7 @@ function M.add_or_edit_task()
 
 			-- reload open buffers if not modified
 			if not timer_mod.should_skip_timer() then
-				vim.cmd("checktime")
+				require("gtodo-md.daily").reload_managed_bufs()
 			end
 		else
 			-- inbox.md (またはその他) で追加された場合は inbox に留める
@@ -644,7 +647,7 @@ function M.add_or_edit_task()
 
 			-- reload open buffers if not modified
 			if not timer_mod.should_skip_timer() then
-				vim.cmd("checktime")
+				require("gtodo-md.daily").reload_managed_bufs()
 			end
 			if filename ~= "inbox.md" then
 				vim.notify("Created new task in inbox.md", vim.log.levels.INFO)
