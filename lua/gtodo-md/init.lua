@@ -448,9 +448,6 @@ function M.setup_autocmds()
 				if utils_mod.is_gtodo_file(bufname) then
 					vim.schedule(function()
 						M.handle_buf_enter(args.buf)
-						if not timer_mod.should_skip_timer() then
-							require("gtodo-md.daily").reload_managed_bufs()
-						end
 					end)
 				end
 			end
