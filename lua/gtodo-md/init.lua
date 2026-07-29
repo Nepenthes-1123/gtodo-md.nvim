@@ -114,16 +114,12 @@ function M.handle_buf_enter(bufnr)
 	-- 構文ハイライトのアタッチ
 	require("gtodo-md.highlight").attach(bufnr)
 
-	-- gtodo-md 対象バッファに autoread を設定
-	vim.bo[bufnr].autoread = true
-
-	-- 自動処理によってディスク上のファイルが変更された場合、未保存の変更がなければバッファを同期（リロード）する
-	if not vim.bo[bufnr].modified then
-		vim.cmd("checktime")
-	end
+	-- 自動処理によってディスク上のファイルが変更された場合、未保存の変更がなければ管理バッファを一括同期（リロード）する
+	daily_mod.reload_managed_bufs()
 
 	-- キャッシュを最新化
-	daily_mod.update_cache(vim.fn.getftime(inbox_path), vim.fn.getftime(todo_path))
+	local done_path = data_dir .. "/done.md"
+	daily_mod.update_cache(vim.fn.getftime(inbox_path), vim.fn.getftime(todo_path), vim.fn.getftime(done_path))
 end
 
 function M.setup_autocmds()
@@ -448,9 +444,6 @@ function M.setup_autocmds()
 				if utils_mod.is_gtodo_file(bufname) then
 					vim.schedule(function()
 						M.handle_buf_enter(args.buf)
-						if not timer_mod.should_skip_timer() then
-							vim.cmd("checktime")
-						end
 					end)
 				end
 			end
@@ -465,7 +458,6 @@ function M.setup_autocmds()
 			vim.schedule(function()
 				if not timer_mod.should_skip_timer() then
 					require("gtodo-md.daily").check_daily_rollover()
-					vim.cmd("checktime")
 				end
 			end)
 		end,
@@ -571,14 +563,14 @@ function M.add_or_edit_task()
 					local changed = logic_mod.check_dues(inbox_path, todo_path)
 					logic_mod.sort_todo_file(todo_path)
 					if changed and not vim.bo[target_buf].modified then
-						vim.cmd("checktime")
+						require("gtodo-md.daily").reload_managed_bufs()
 					end
 				else
 					local changed = logic_mod.check_dues(inbox_path, todo_path)
 					if changed then
 						logic_mod.sort_todo_file(todo_path)
 						if not vim.bo[target_buf].modified then
-							vim.cmd("checktime")
+							require("gtodo-md.daily").reload_managed_bufs()
 						end
 					end
 				end
@@ -616,7 +608,7 @@ function M.add_or_edit_task()
 
 			-- reload open buffers if not modified
 			if not timer_mod.should_skip_timer() then
-				vim.cmd("checktime")
+				require("gtodo-md.daily").reload_managed_bufs()
 			end
 		else
 			-- inbox.md (またはその他) で追加された場合は inbox に留める
@@ -644,7 +636,7 @@ function M.add_or_edit_task()
 
 			-- reload open buffers if not modified
 			if not timer_mod.should_skip_timer() then
-				vim.cmd("checktime")
+				require("gtodo-md.daily").reload_managed_bufs()
 			end
 			if filename ~= "inbox.md" then
 				vim.notify("Created new task in inbox.md", vim.log.levels.INFO)
