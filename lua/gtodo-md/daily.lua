@@ -131,7 +131,7 @@ function M.check_daily_rollover()
 
 		-- ロック取得成功 → ロールオーバーを実行する。
 		-- pcall でラップし、エラー発生時もロック解放を保証する（finally 相当）。
-		local ok = pcall(function()
+		local ok, err = pcall(function()
 			local todo_changed = logic_mod.move_completed_tasks(inbox_path, todo_path, done_path)
 			if logic_mod.check_dues(inbox_path, todo_path) then
 				todo_changed = true
@@ -150,13 +150,15 @@ function M.check_daily_rollover()
 			last_processed_mtimes.todo = vim.fn.getftime(todo_path)
 			last_processed_mtimes.done = vim.fn.getftime(done_path)
 			M.reload_managed_bufs()
+			last_processed_date = today
+		else
+			vim.notify("[gtodo-md] Daily rollover failed: " .. tostring(err), vim.log.levels.ERROR)
 		end
 	else
 		-- 別インスタンスが先にロールオーバーを実施した可能性があるためチェック
 		reload_if_externally_changed()
+		last_processed_date = today
 	end
-
-	last_processed_date = today
 end
 
 return M
