@@ -114,13 +114,8 @@ function M.handle_buf_enter(bufnr)
 	-- 構文ハイライトのアタッチ
 	require("gtodo-md.highlight").attach(bufnr)
 
-	-- gtodo-md 対象バッファに autoread を設定
-	vim.bo[bufnr].autoread = true
-
-	-- 自動処理によってディスク上のファイルが変更された場合、未保存の変更がなければバッファを同期（リロード）する
-	if not vim.bo[bufnr].modified then
-		vim.cmd("checktime")
-	end
+	-- 自動処理によってディスク上のファイルが変更された場合、未保存の変更がなければ管理バッファを一括同期（リロード）する
+	daily_mod.reload_managed_bufs()
 
 	-- キャッシュを最新化
 	local done_path = data_dir .. "/done.md"
