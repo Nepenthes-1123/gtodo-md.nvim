@@ -469,11 +469,7 @@ function M.setup_autocmds()
 		callback = function()
 			vim.schedule(function()
 				if not timer_mod.should_skip_timer() then
-					local daily_mod = require("gtodo-md.daily")
-					daily_mod.check_daily_rollover()
-					-- check_daily_rollover が内部で reload_managed_bufs を呼ぶが、
-					-- ロールオーバーが不要な場合でも mtime 変化を拾うため明示的に再呼び出しする
-					daily_mod.reload_managed_bufs()
+					require("gtodo-md.daily").check_daily_rollover()
 				end
 			end)
 		end,
