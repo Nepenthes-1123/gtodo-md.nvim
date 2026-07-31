@@ -3,19 +3,12 @@ local task_mod = require("gtodo-md.task")
 local io_mod = require("gtodo-md.io")
 
 -- 履歴ファイル (done.md / cancelled.md) へタスクを追記する
+-- バッファが開いている場合は io_mod.read_lines がその内容(未保存分を含む)を
+-- 優先して返すため、ディスク直読みによる未保存編集の見落とし・上書きを避けられる
 function M.append_to_history(filepath, header_title, section_name, tasks)
-	local lines = {}
-	local file_exists = vim.fn.filereadable(filepath) == 1
+	local lines = io_mod.read_lines(filepath)
 
-	if file_exists then
-		local f = io.open(filepath, "r")
-		if f then
-			for line in f:lines() do
-				table.insert(lines, line)
-			end
-			f:close()
-		end
-	else
+	if #lines == 0 then
 		table.insert(lines, "# " .. header_title)
 		table.insert(lines, "")
 	end
