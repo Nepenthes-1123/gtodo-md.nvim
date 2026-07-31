@@ -79,20 +79,59 @@ local function update_lines_incrementally(buf, new_lines)
 	vim.api.nvim_buf_set_lines(buf, start_idx - 1, end_old, false, replacement)
 end
 
--- ファイルまたはバッファに行リストを書き込む
+-- inbox.md / todo.md への書き込み後、開いているプロジェクトバッファの進捗仮想テキストを更新する。
+-- write_lines が :write を使わなくなったため、旧実装が依存していた
+-- BufWritePost 経由の自動更新が効かなくなった分をここで肩代わりする。
+local function refresh_project_views_if_relevant(path)
+	local filename = vim.fn.fnamemodify(path, ":t")
+	if filename ~= "inbox.md" and filename ~= "todo.md" then
+		return
+	end
+	pcall(function()
+		local ui_project = require("gtodo-md.ui.project")
+		for _, b in ipairs(vim.api.nvim_list_bufs()) do
+			if vim.api.nvim_buf_is_loaded(b) then
+				ui_project.render_project_tasks(b)
+			end
+		end
+	end)
+end
+
+-- 行リストをファイルへアトミックに書き込む(改行コードを指定)
+local function write_lines_to_disk(path, lines, use_crlf)
+	local tmp_path = path .. ".tmp"
+	local f = io.open(tmp_path, "wb")
+	if f then
+		local nl = use_crlf and "\r\n" or "\n"
+		for _, line in ipairs(lines) do
+			f:write(line .. nl)
+		end
+		f:close()
+		vim.fn.rename(tmp_path, path)
+	end
+end
+
+-- ファイルまたはバッファに行リストを書き込む。
+--
+-- バッファが開いている場合でも nvim_buf_call + :write は使わない。
+-- カレントバッファを一瞬切り替えることによる画面のちらつき(#57)や、
+-- BufWritePre 等の意図しないautocmd発火(検証の誤発火・処理の多重発火)を
+-- 避けるため、バッファへは直接内容を反映して modified フラグをクリアするに
+-- 留め、ディスクへは別途アトミックに書き込む。
+--
+-- バッファが未保存(dirty)であっても常に反映・保存する。read_lines が
+-- ライブバッファの内容(未保存分を含む)を読み取った上でこの関数に渡される
+-- 想定のため、自動処理による変更とユーザーの未保存編集はマージされて
+-- 保存され、未保存編集が失われることはない。
 function M.write_lines(path, lines)
 	local buf = get_buf_by_name(path)
 
 	if buf then
-		local was_modified = vim.bo[buf].modified
 		update_lines_incrementally(buf, lines)
-
-		if not was_modified then
-			-- バックグラウンドタイマーやプログラムによる自動更新でバッファがサイレントに汚染されるのを防ぐため、元々クリーンだった場合は即座に保存する
-			pcall(vim.api.nvim_buf_call, buf, function()
-				vim.cmd("silent! write")
-			end)
+		if vim.bo[buf].modified then
+			vim.bo[buf].modified = false
 		end
+		write_lines_to_disk(path, lines, vim.bo[buf].fileformat == "dos")
 	else
 		local is_crlf = false
 		if vim.fn.filereadable(path) == 1 then
@@ -106,17 +145,10 @@ function M.write_lines(path, lines)
 			end
 		end
 
-		local tmp_path = path .. ".tmp"
-		local f = io.open(tmp_path, "wb")
-		if f then
-			local nl = is_crlf and "\r\n" or "\n"
-			for _, line in ipairs(lines) do
-				f:write(line .. nl)
-			end
-			f:close()
-			vim.fn.rename(tmp_path, path)
-		end
+		write_lines_to_disk(path, lines, is_crlf)
 	end
+
+	refresh_project_views_if_relevant(path)
 end
 
 -- 指定ファイルをパースして、セクションごとの行のリストにする
