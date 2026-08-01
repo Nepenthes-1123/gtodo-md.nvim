@@ -10,14 +10,14 @@ local utils = require("gtodo-md.utils")
 -- os.time にそのまま委譲するため、暦計算そのものはモックしていない。
 local function with_fixed_now(y, m, d, hh, fn)
 	local original_time = os.time
-	os.time = function(t)
+	os.time = function(t) -- luacheck: ignore
 		if t then
 			return original_time(t)
 		end
 		return original_time({ year = y, month = m, day = d, hour = hh or 12 })
 	end
 	local ok, err = pcall(fn)
-	os.time = original_time
+	os.time = original_time -- luacheck: ignore
 	if not ok then
 		error(err, 0)
 	end
