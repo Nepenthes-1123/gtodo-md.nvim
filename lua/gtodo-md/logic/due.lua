@@ -25,6 +25,20 @@ local function set_last_notify_state(persist, time, content)
 end
 
 -- dueチェック・自動移動
+--
+-- 既知の残存リスク(R5-3、受容済み):
+-- 複数のNeovimインスタンスが同じ data_dir を同時に開いている場合、
+-- 他インスタンスの未保存(dirty)バッファの内容はこのインスタンスから
+-- 関知できない。あるインスタンス(A)が todo.md を未保存のまま長時間
+-- 開いている間に、別インスタンス(B)がこの関数でinbox→todoの昇格を
+-- 行いディスクに反映した後、(A)がその変更を知らないまま自分の
+-- (古い)バッファ内容をどこかのタイミングでコミットすると、
+-- (B)が昇格させたタスクが消失する可能性がある。
+-- move_completed_tasks(daily.lua の日付ゲート付きロールオーバー)は
+-- 「1日1回」の制御により同種の重複は起きないが、check_dues は
+-- イベント駆動で日付ゲートを持たないため、この経路にのみ残る。
+-- 発生には複数インスタンス同時使用・長時間の未保存編集・タイミングの
+-- 衝突が重なる必要があり、低確率と判断して許容している。
 function M.check_dues(inbox_path, todo_path)
 	local today = os.date("%Y-%m-%d")
 	local moved_count = 0

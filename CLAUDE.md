@@ -1,0 +1,70 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## プロジェクト概要
+
+gtodo-md.nvim は、プレーンな Markdown ファイル（`inbox.md`, `todo.md`, `done.md`, `cancelled.md`, `projects/*.md`）を裏付けとする、GTD 志向の Todo 管理を実装した Neovim プラグイン（純粋な Lua）です。ビルドステップは存在せず、`lua/` 配下から直接実行されます。
+
+リポジトリ構成に関する注意: このチェックアウトは、親ディレクトリの bare リポジトリから作られたブランチごとの git worktree の1つです。他のブランチ用の worktree が兄弟ディレクトリとして存在する場合があります。
+
+## コマンド
+
+Lua 5.1 のツールチェインと、PATH 上の Neovim が必要です。`plenary.nvim` が利用可能である必要があります（`stdpath("data")/site/pack/core/opt/plenary.nvim` に存在するか、リポジトリルートからの相対パス `./plenary` として存在すること — `tests/minimal_init.lua` を参照）。
+
+```sh
+# フルテストスイートを実行する（headless Neovim + plenary の busted 形式スペック）
+nvim --headless -u tests/minimal_init.lua -S tests/run_tests.lua
+
+# 単一のスペックファイルを実行する
+nvim --headless -u tests/minimal_init.lua -c "PlenaryBustedFile tests/spec/logic_sort_spec.lua"
+
+# Lint
+luarocks install luacheck   # 初回のみ
+luacheck lua/ tests/
+
+# フォーマットチェック / フォーマット
+stylua --check lua/ tests/
+stylua lua/ tests/
+```
+
+CI（`.github/workflows/ci.yml`）は luacheck と stylua の `--check` を実行し、Neovim `v0.10.0` と `nightly` の両方に対してテストを実行します。
+
+スタイル設定: タブインデント、幅4、列幅120、ダブルクォート文字列を優先（`stylua.toml`）。Luacheck は `lua51` をターゲットとし、グローバル `vim` を許可、行の長さに関する警告は無視します（`.luacheckrc`）。
+
+## アーキテクチャ
+
+### モジュール構成
+
+- `init.lua` — エントリーポイント（`M.setup`）。config・autocmd・keymap・ユーザーコマンドをここで結線する。キーマップ/コマンドから呼ばれる2つの大きな「適応的」エントリーポイント、`add_or_edit_task()` と `sort_and_check_dues()` もここにある。横断的な振る舞い（autoread、バッファ再読み込みのオーケストレーション、保存時バリデーション）の大部分はここの `setup_autocmds()` にある — 保存/リロード周りを触る前に必ず読むこと。
+- `config.lua` — デフォルト値と `M.options`/`M.get(key)` アクセサ、およびセクション名の正本（`config.sections.TODAY/NEXT/WAITING/SOMEDAY`）。セクション名は他の箇所で文字列として比較されるため、リネームする場合は `io.lua` のパース処理や `init.lua` の `BufWritePre` バリデーションと同期させる必要がある。
+- `task.lua` — タスク行の文法定義。`M.parse(line)` は `- [ ] ...` 形式の markdown 行をタスクテーブル（`status`, `content`, `priority`, `due`, `created`, `context`, `project`, `wait`, `completed_at`, `done`, `cancelled`, `from`）に変換し、`M.serialize(task)` は逆に行へ戻す。これはディスク上のタスクフォーマットの唯一の正本であり、`serialize` での末尾タグの順序はラウンドトリップテストに影響する。
+- `io.lua` — markdown ファイルの I/O と構造パース。`read_lines` は、開いているバッファがあればファイルシステムより優先して透過的に使用する（未保存の編集内容も含めて読み取るため）。`write_lines` は `nvim_buf_call` + `:write` を使わない — バッファが開いている場合は直接内容を差分反映して `modified` フラグをクリアするに留め、ディスクへは別途アトミックに（`.tmp` に書いてから rename）書き込む。これは自動処理によるカレントバッファの一瞬の切り替え（画面のちらつき）や、`BufWritePre` 等の意図しないautocmd発火を避けるためであり、バッファが未保存(dirty)であっても常に保存する。`parse_markdown`/`write_todo_file` は todo ファイルを `{ header, sections: { [name] = { items, subsections } }, section_order }` としてモデル化しており、`items` は `{type="task", task=...}` / `{type="text", line=...}` のフラットなリストである。
+- `logic/` — タスクリストに対する純粋な操作群。`logic/init.lua` でフラットに re-export されている:
+  - `sort.lua` — 並び順のルール（未完了が完了より上、due日付の昇順、次に優先度、それ以外は安定ソート — 正確な仕様は `tests/spec/logic_sort_spec.lua` を参照）。
+  - `due.lua` — due日付の評価/昇格（例: inbox → Today）。複数インスタンス間の既知の残存リスク(関数冒頭のコメント参照)についてもここに記載。
+  - `completion.lua` — 完了タスクを todo.md から done.md へ移動する処理。
+  - `history.lua` — `done.md`/`cancelled.md` の `## YYYY-MM` 見出し配下へのエントリ追記。`io_mod.read_lines` 経由でバッファの未保存内容を考慮して読む。
+- `lock.lua` — 自動処理（due チェック・ソート・日次ロールオーバー）全般で共有する排他ロック（`data_dir/.gtodo.lock`、O_EXCL相当のアトミックなファイル作成）。`with_write_lock(data_dir, fn)` は取得できた場合のみ `fn` を実行し、取得できなければ待機・リトライせず `false` を返す（呼び出し元はその回を諦めて次のトリガーに委ねる）。キーマップ経由のユーザー操作（editor.lua）はこの対象外。
+- `daily.lua` — 日付変更（ロールオーバー）の検知とオーケストレーション（完了タスクの履歴への繰り込み、due到達タスクの昇格）を行う。日付ゲート（`last_opened` の永続化）により1日1回しか実行されない。ロック自体は `lock.lua` を利用する。また、ディスク上のファイルが開いているバッファの外側で変更された際に使う、バッファの autoread/checktime ヘルパー `reload_managed_bufs()` もここにある。
+- `editor.lua` — バッファローカルなキーマップから呼ばれる、カーソル位置に対する操作群（完了トグル、セクション間のタスク移動、キャンセル、`wait:` タグの付与）。ソートによって行が並び替わるため、編集を跨いだタスクの同一性判定は `M._find_task_idx` で行っており、まず `original_line` で一致を試み、フォールバックとして `content` + `created` の一致を使う。
+- `split.lua` — タスクをサブタスクへ分割する処理、またはプロジェクトファイルへ昇格させる処理。
+- `ui/` — インタラクティブ/ビジュアルな UI 一式。`ui/init.lua` で re-export されている: `float.lua`（todo/inbox/done/cancelled のフローティングウィンドウビューア）、`queue.lua`（due日付でグルーピングした Queue ビュー。ファイルをバッファ化する際、未ロード分は `eventignore` で `BufRead` 系autocmdの誤発火を抑制する）、`search.lua`（タグ/コンテキスト検索のディスパッチ）、`project.lua`（プロジェクトファイルへのジャンプ + 進捗の virtual text 描画）、`prompt.lua`（タスクの追加/編集入力 UI）。
+- `integrations/` — 外部プラグイン向けの任意の連携: `lualine.lua`、`dashboard.lua`（snacks/alpha 用ウィジェット）、`picker.lua`（`config.picker` で選択される snacks.picker/telescope/fzf-lua の検索+トグルバックエンド）。
+- `api.lua` — statusline/dashboard 連携向けの小さく安定した公開インターフェース（例: `get_statusline_string`）。
+- `highlight.lua` — gtodo バッファに対する構文ハイライトと virtual text（相対的な due日付表示）。
+- `timer.lua` — バックグラウンドタイマー（Waiting タスクの警告、日次ロールオーバーチェック）。`should_skip_timer()` はノーマルモードかどうかのみを見る（未保存バッファの有無はもう見ない — 下記参照）。
+- `utils.lua` — 共有ヘルパー。due日付文字列のパース/正規化、`is_gtodo_file`（バッファが `data_dir` に属するかどうかのパスベースの判定）などを含む。
+
+### 編集前に把握しておくべきデータモデルと不変条件
+
+- タスク行は単一行の markdown チェックボックスで、末尾にスペース区切りのタグ（`+project`, `@context`, `due:`, `created:`, `wait:`, `completed_at:`, `done:`, `cancelled:`, `from:`）を持ち、任意で先頭に `(A)` のような優先度が付く。この文法を知っているべきなのは `task.lua` のみ。
+- `todo.md` には常に `## Today`, `## Next`, `## Waiting`, `## Someday` が含まれていなければならない — `init.lua` の `BufWritePre` バリデータで強制されており、必須のセクション見出しが欠けていると例外を投げて保存を中断する。
+- `inbox.md`/`done.md`/`cancelled.md` にはそれぞれ独自の `BufWritePre` ガードがある: 必須のトップヘッダー（`# Inbox`/`# Done`/`# Cancelled`）が失われないこと、また `done.md`/`cancelled.md` については、バッファ読み込み時に存在していた `## YYYY-MM` 見出しが保存時に削除されていないこと（`BufReadPost`/`BufEnter` 時にバッファごとのキャッシュへ記録して追跡している）。
+- `projects/*.md` ファイルは `title`, `tag`, `created`, `due`, `status`, `members` を含む YAML フロントマターを必須とする。`tag` はファイル名（拡張子なし）と一致していなければならず、`created` は一度設定されたら変更不可 — これらも `init.lua` の別の `BufWritePre` ガードで強制されている。
+- **自動処理（due チェック・ソート・日次ロールオーバー）の書き込みは、対象バッファが未保存(dirty)かどうかに関わらず常に実行・保存される。** 読み込みは常にライブバッファの内容（未保存分を含む）を参照するため、自動処理による変更とユーザーの未保存編集はマージされて保存され、失われることはない。以前存在した「未保存バッファがあれば自動処理を丸ごとスキップする」ゲート（`handle_buf_enter` の `has_modified_gtodo`、`should_skip_timer` のバッファ走査）は廃止済み。`handle_buf_enter` の mtime キャッシュによるスキップ判定は純粋な性能最適化であり、対象バッファ自身が dirty な場合は mtime が変化していなくてもスキップしない。
+- 同じ `data_dir` を複数の Neovim インスタンスが同時に共有し得る。自動処理（due チェック・ソート・ロールオーバー）は `lock.lua` の共有排他ロックにより複数インスタンス間で一度だけ実行される。ロックを取得できなければ待機・リトライせず、その回は諦めて次のトリガーに委ねる。他インスタンスの未保存内容は関知・保証しない（各インスタンスは自分が保有するバッファについてのみ責任を持つ）。この設計上、`check_dues`（`logic/due.lua`）には低確率の既知の残存リスクが残っている — 詳細は同ファイルの `M.check_dues` 冒頭のコメントを参照。
+
+### ローカライズに関する注意
+
+ソースコードのコメントとテストの説明文は日本語で書かれている（主要メンテナーの言語）。一方、ユーザー向けの `vim.notify` の文字列や識別子は英語である。全体を一括で変換するのではなく、編集するファイルに既にある慣習に合わせること。

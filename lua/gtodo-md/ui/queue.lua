@@ -3,6 +3,30 @@ local config = require("gtodo-md.config")
 local utils = require("gtodo-md.utils")
 local float_ui = require("gtodo-md.ui.float")
 
+-- ファイルをバッファとして読み込む。
+-- 既にロード済みならそのまま返す(何もイベントは発火しない)。
+-- 未ロードの場合、bufload() は BufRead/BufReadPre/BufReadPost 等の
+-- autocmdを発火させ、それが handle_buf_enter 相当の自動処理(due チェック等)を
+-- Queue を開くたびに誤って再発火させてしまう(#93)。一時的に該当イベントを
+-- 抑制することでこれを防ぐ。
+local function load_buf_quietly(filepath)
+	local buf = vim.fn.bufadd(filepath)
+	if vim.api.nvim_buf_is_loaded(buf) then
+		return buf
+	end
+
+	local prev_eventignore = vim.o.eventignore
+	vim.o.eventignore = "BufRead,BufReadPre,BufReadPost,BufEnter,FileType"
+	local ok, err = pcall(vim.fn.bufload, buf)
+	vim.o.eventignore = prev_eventignore
+
+	if not ok then
+		error(err, 0)
+	end
+	return buf
+end
+M._load_buf_quietly = load_buf_quietly
+
 -- Queue ビュー: due または wait 付き未完了タスクを表示する
 -- mode: "due" (デフォルト) または "wait"
 function M.open_queue(mode, previous_target_id)
@@ -21,8 +45,7 @@ function M.open_queue(mode, previous_target_id)
 
 	for _, filepath in ipairs(source_files) do
 		if vim.fn.filereadable(filepath) == 1 then
-			local buf = vim.fn.bufadd(filepath)
-			vim.fn.bufload(buf)
+			local buf = load_buf_quietly(filepath)
 			vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
 
 			local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)

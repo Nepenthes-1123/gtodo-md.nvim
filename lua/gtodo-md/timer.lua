@@ -40,22 +40,14 @@ function M.check_waiting_tasks()
 	end
 end
 
+-- 自動処理を安全に実行できるタイミングかどうかを判定する。
+-- 以前はここで gtodo 管理下のバッファが未保存(dirty)かどうかも見て
+-- 丸ごとスキップしていたが、自動処理は常にライブバッファの内容(未保存分を
+-- 含む)を読み取った上で保存するため未保存編集が失われることはなく、
+-- 未保存であることを理由にしたスキップは不要になった。
+-- ここではユーザーが入力中(Insertモード等)でないことのみを判定する。
 function M.should_skip_timer()
-	local mode = vim.fn.mode()
-	if mode ~= "n" then
-		return true
-	end
-
-	local utils = require("gtodo-md.utils")
-	for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-		if vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_is_loaded(buf) and vim.bo[buf].modified then
-			local filepath = vim.api.nvim_buf_get_name(buf)
-			if filepath ~= "" and utils.is_gtodo_file(filepath) then
-				return true
-			end
-		end
-	end
-	return false
+	return vim.fn.mode() ~= "n"
 end
 
 -- Waiting監視タイマーの開始
