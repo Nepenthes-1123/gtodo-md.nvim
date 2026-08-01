@@ -83,6 +83,21 @@ describe("task.lua parse and serialize roundtrip", function()
 			assert.are.same("f00ba1", task.id)
 			assert.are.same("タスク", task.content)
 		end)
+
+		it(
+			"id:の値が16進数以外(手編集等)でも、後続タグの抽出を巻き添えにせず正しくパースできる",
+			function()
+				-- id: は行の一番最後に置かれるため、その値が抽出パターンにマッチしないと
+				-- 各タグの抽出が行末 $ に固定されている都合上、id:より前のdue:等まで
+				-- 巻き添えで抽出に失敗する。id:の値は自動生成では常に16進数だが、
+				-- 手編集で非16進の値が入る可能性を考慮し、パース自体は非空白文字列を
+				-- 広く受け付ける。
+				local task = task_mod.parse("- [ ] タスク due:2025-01-01 id:not-hex-zzz")
+				assert.are.same("not-hex-zzz", task.id)
+				assert.are.same("2025-01-01", task.due)
+				assert.are.same("タスク", task.content)
+			end
+		)
 	end)
 
 	describe("_generate_id", function()
