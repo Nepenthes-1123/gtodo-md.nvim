@@ -1,5 +1,16 @@
 -- daily.check_daily_rollover が lock.lua 経由の共有ロックで正しく動作することを確認する。
 
+-- serialize が末尾に id:XXXXXX タグをランダム発行して付与するため、
+-- 行の完全一致ではなく前方一致(id:タグを除く)で存在確認する。
+local function contains_line_prefix(lines, prefix)
+	for _, line in ipairs(lines) do
+		if line == prefix or line:match("^" .. vim.pesc(prefix) .. " id:%x+$") then
+			return true
+		end
+	end
+	return false
+end
+
 describe("daily.check_daily_rollover (共有ロック経由)", function()
 	local data_dir
 	local daily_mod
@@ -46,10 +57,10 @@ describe("daily.check_daily_rollover (共有ロック経由)", function()
 			local today = os.date("%Y-%m-%d")
 			local done_lines = vim.fn.readfile(data_dir .. "/done.md")
 			assert.is_true(
-				vim.tbl_contains(done_lines, "- [x] 完了済みinboxタスク done:" .. today .. " from:inbox")
+				contains_line_prefix(done_lines, "- [x] 完了済みinboxタスク done:" .. today .. " from:inbox")
 			)
 			assert.is_true(
-				vim.tbl_contains(done_lines, "- [x] 完了済みtodoタスク done:" .. today .. " from:today")
+				contains_line_prefix(done_lines, "- [x] 完了済みtodoタスク done:" .. today .. " from:today")
 			)
 
 			local inbox_lines = vim.fn.readfile(data_dir .. "/inbox.md")
@@ -76,6 +87,49 @@ describe("daily.check_daily_rollover (共有ロック経由)", function()
 			assert.are.same(1, vim.fn.filereadable(data_dir .. "/.gtodo.lock"))
 
 			vim.fn.delete(data_dir .. "/.gtodo.lock")
+		end
+	)
+
+	-- 回帰テスト: reload_if_externally_changed(他インスタンス変更検知用)が
+	-- handle_buf_enter 用のキャッシュ(get_cache/update_cache)を巻き込んで
+	-- 更新してしまうと、todo.mdが実際に変化していてもhandle_buf_enter側が
+	-- 「変化なし」と誤判定してdueチェック・ソートをスキップしてしまう。
+	-- 手動テストで発覚: 保存直後にバッファへ入り直しただけでは自動処理が
+	-- 走らず、<Leader>to(手動実行、キャッシュ判定を経由しない)でのみ走っていた。
+	describe(
+		"mtimeキャッシュの分離(他インスタンス変更検知 と handle_buf_enter処理要否判定)",
+		function()
+			local uv = vim.uv or vim.loop
+
+			it(
+				"外部変更検知の実行は、handle_buf_enter用キャッシュ(get_cache)を変化させない",
+				function()
+					local utils = require("gtodo-md.utils")
+					utils.write_last_opened(os.date("%Y-%m-%d"))
+
+					-- 1回目の呼び出しで両キャッシュを初期化させる(同日パス)
+					daily_mod.check_daily_rollover()
+					local cache_before = daily_mod.get_cache()
+					local todo_mtime_before = cache_before.todo
+
+					-- todo.mdのmtimeを変更する(外部からの書き込みを模倣)
+					local todo_path = data_dir .. "/todo.md"
+					local future = os.time() + 5
+					uv.fs_utime(todo_path, future, future)
+
+					-- 2回目の呼び出し: 同日なので reload_if_externally_changed のみが走る
+					daily_mod.check_daily_rollover()
+
+					-- 外部変更検知は反応してよいが、handle_buf_enter用キャッシュは
+					-- 変化していないはず(handle_buf_enter自身がまだ処理していないため)
+					local cache_after = daily_mod.get_cache()
+					assert.are.same(
+						todo_mtime_before,
+						cache_after.todo,
+						"外部変更検知がhandle_buf_enter用キャッシュまで更新してしまっている"
+					)
+				end
+			)
 		end
 	)
 end)

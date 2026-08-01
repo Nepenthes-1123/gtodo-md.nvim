@@ -34,9 +34,16 @@ end
 -- action_fn(todo_data, section, idx) を受け取って変更を加える
 -- タスクが見つかれば true、見つからなければ false を返す
 
--- P1-4: タスク同定ヘルパー（テスト可能なパブリック関数）
--- Primary  : task.original_line と item.task.original_line の完全一致
--- Fallback : content + created の一致（BUG-19 互換性維持）
+-- P1-4/#82: タスク同定ヘルパー（テスト可能なパブリック関数）
+-- Primary   : task.id と item.task.id の完全一致（一意なIDによる最も信頼できる同定）
+-- Secondary : task.original_line と item.task.original_line の完全一致（BUG-19 互換性維持）
+-- Fallback  : content + created の一致（IDがまだ発行されていない旧形式のタスク向け）
+--
+-- #82の経緯: content+createdが同一の重複タスクが複数存在する場合、Fallbackだけでは
+-- どちらか一方を区別できず誤操作の原因になっていた。write_todo_file 等でファイルに
+-- 書き戻されたタスクは一意なIDを持つため、Primaryで確実に区別できるようになる。
+-- ただし手入力直後などIDがまだ無いタスクも存在しうるため、Secondary/Fallbackは
+-- 後方互換のため残す。
 --
 -- BUG-19 の経緯:「split後に original_line が古くなる」問題があった。
 -- ここで参照する original_line は task.parse() が生成した「その時点でのバッファ行」
@@ -44,9 +51,18 @@ end
 -- バッファ・ファイルが同期している限り一致する。保存した古い値を使う訳ではないので
 -- BUG-19 の問題は生じない。
 function M._find_task_idx(sec_items, task)
+	-- Primary: id で完全一致
+	if task.id and task.id ~= "" then
+		for i, item in ipairs(sec_items) do
+			if item.type == "task" and item.task.id == task.id then
+				return i
+			end
+		end
+	end
+
 	local orig = task.original_line
 
-	-- Primary: original_line で完全一致（重複タスクを行テキストで区別）
+	-- Secondary: original_line で完全一致（重複タスクを行テキストで区別）
 	if orig and orig ~= "" then
 		for i, item in ipairs(sec_items) do
 			if item.type == "task" and item.task.original_line == orig then

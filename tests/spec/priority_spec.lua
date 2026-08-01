@@ -18,6 +18,12 @@
 local task_mod = require("gtodo-md.task")
 local logic_mod = require("gtodo-md.logic")
 
+-- serialize が末尾に付与する id:XXXXXX タグはランダムに発行されるため、
+-- 厳密一致比較ではこれを除いた文字列で比較する。
+local function strip_id(line)
+	return (line:gsub("%s+id:%x+%s*$", ""))
+end
+
 describe("task.priority (P2-1: 優先度マーカーの誤検出防止)", function()
 	-- ----------------------------------------------------------------
 	-- パースフェーズ: task.priority フィールドの分離
@@ -165,25 +171,25 @@ describe("task.priority (P2-1: 優先度マーカーの誤検出防止)", functi
 		it("(A) タスク が serialize で (A) を保持する", function()
 			local task = task_mod.parse("- [ ] (A) 資料整備")
 			local serialized = task_mod.serialize(task)
-			assert.equals("- [ ] (A) 資料整備", serialized)
+			assert.equals("- [ ] (A) 資料整備", strip_id(serialized))
 		end)
 
 		it("(B) タスク due 付き が serialize で完全に復元される", function()
 			local task = task_mod.parse("- [ ] (B) 会議準備 due:2025-01-10 created:2025-01-01")
 			local serialized = task_mod.serialize(task)
-			assert.equals("- [ ] (B) 会議準備 due:2025-01-10 created:2025-01-01", serialized)
+			assert.equals("- [ ] (B) 会議準備 due:2025-01-10 created:2025-01-01", strip_id(serialized))
 		end)
 
 		it("優先度なしタスクは serialize で変化しない", function()
 			local task = task_mod.parse("- [ ] 通常タスク due:2025-01-10")
 			local serialized = task_mod.serialize(task)
-			assert.equals("- [ ] 通常タスク due:2025-01-10", serialized)
+			assert.equals("- [ ] 通常タスク due:2025-01-10", strip_id(serialized))
 		end)
 
 		it("(WIP) タスクは serialize で変化しない（priority=nil なので prefix なし）", function()
 			local task = task_mod.parse("- [ ] (WIP) 資料整備")
 			local serialized = task_mod.serialize(task)
-			assert.equals("- [ ] (WIP) 資料整備", serialized)
+			assert.equals("- [ ] (WIP) 資料整備", strip_id(serialized))
 		end)
 	end)
 end)

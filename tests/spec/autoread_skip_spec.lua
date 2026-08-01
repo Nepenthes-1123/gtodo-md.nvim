@@ -164,10 +164,109 @@ describe("autoread and timer skip for project files", function()
 		-- dirtyでも常に処理・保存されるため、未保存状態は解消される
 		assert.is_false(vim.bo[buf].modified)
 		-- 手動で追加した未保存分の内容は失われていない
+		-- (sort_todo_file がファイル全体を書き戻す際、serializeが末尾に
+		-- id:XXXXXX タグを新規発行するため前方一致で確認する)
 		local after_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-		assert.is_true(vim.tbl_contains(after_lines, "- [ ] 手動で追加した未保存タスク"))
+		local found = false
+		for _, line in ipairs(after_lines) do
+			if line:match("^%- %[ %] 手動で追加した未保存タスク%s*") then
+				found = true
+				break
+			end
+		end
+		assert.is_true(found, "手動タスクの行が見当たらない: " .. vim.inspect(after_lines))
 
 		vim.api.nvim_buf_delete(buf, { force = true })
 		vim.fn.delete(data_dir, "rf")
 	end)
+
+	-- 回帰テスト: 保存直後(クリーンな状態)にバッファへ入り直しても、
+	-- check_daily_rollover が先に外部変更検知用キャッシュを消費してしまい
+	-- handle_buf_enter 自身の dueチェック・ソートがスキップされていた不具合。
+	-- 手動テストで発覚(このsame-day経路を経由すると自動処理が実行されず、
+	-- <Leader>to のような無条件実行のコマンドでしか動かなかった)。
+	it(
+		"保存直後にクリーンなバッファへ入り直しても、dueチェック・ソートが実行される",
+		function()
+			local main_mod = require("gtodo-md")
+			local config = require("gtodo-md.config")
+			local utils_mod = require("gtodo-md.utils")
+			local daily_mod = require("gtodo-md.daily")
+			local uv = vim.uv or vim.loop
+
+			local data_dir = vim.fn.tempname()
+			vim.fn.mkdir(data_dir .. "/projects", "p")
+			config.setup({ data_dir = data_dir })
+			utils_mod.write_last_opened(os.date("%Y-%m-%d"))
+
+			local todo_path = data_dir .. "/todo.md"
+			vim.fn.writefile({ "# Inbox", "" }, data_dir .. "/inbox.md")
+			vim.fn.writefile({
+				"# Todo",
+				"",
+				"## Today",
+				"",
+				"- [ ] 既存タスク",
+				"",
+				"## Next",
+				"",
+				"## Waiting",
+				"",
+				"## Someday",
+				"",
+			}, todo_path)
+
+			-- プラグイン起動時相当の呼び出し(M.setupが行うのと同じ)で
+			-- 両キャッシュを初期化しておく
+			daily_mod.check_daily_rollover()
+
+			-- ユーザーが手打ちでタスクを追加して :w で保存した状態を模倣する
+			-- (バッファは無く、ディスクへ直接書き込み、mtimeを未来にずらして変化させる)
+			vim.fn.writefile({
+				"# Todo",
+				"",
+				"## Today",
+				"",
+				"- [ ] 既存タスク",
+				"- [ ] 手打ちタスク",
+				"",
+				"## Next",
+				"",
+				"## Waiting",
+				"",
+				"## Someday",
+				"",
+			}, todo_path)
+			local future = os.time() + 5
+			uv.fs_utime(todo_path, future, future)
+
+			-- 保存直後、クリーンなバッファでtodo.mdに入り直す
+			local buf = vim.api.nvim_create_buf(true, false)
+			vim.api.nvim_buf_set_name(buf, todo_path)
+			vim.api.nvim_buf_call(buf, function()
+				vim.cmd("edit!")
+			end)
+			assert.is_false(vim.bo[buf].modified)
+
+			main_mod.handle_buf_enter(buf)
+
+			-- dueチェック・ソートが実際に走っていれば、手打ちタスクにIDが付与される
+			local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+			local found = false
+			for _, line in ipairs(lines) do
+				if line:match("^%- %[ %] 手打ちタスク id:%x+$") then
+					found = true
+					break
+				end
+			end
+			assert.is_true(
+				found,
+				"手打ちタスクにIDが付与されていない(自動処理がスキップされた): "
+					.. vim.inspect(lines)
+			)
+
+			vim.api.nvim_buf_delete(buf, { force = true })
+			vim.fn.delete(data_dir, "rf")
+		end
+	)
 end)

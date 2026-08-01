@@ -257,10 +257,19 @@ function M.parse_markdown(lines)
 end
 
 -- items リスト（task/text のフラット配列）を行リストに変換するローカルヘルパー
-local function items_to_lines(items, lines)
+-- seen_ids: この write_todo_file 呼び出し全体(全セクション・全サブセクション)で
+-- 使用済みのIDを追跡する共有テーブル。コピー&ペーストで複製されたタスクが
+-- 同じIDを持ち続けないよう、既に登場済みのIDを持つタスクは再発行させる
+-- (ファイル内で最初に登場した方が元のIDを保持する)。
+local function items_to_lines(items, lines, seen_ids)
 	for _, item in ipairs(items) do
 		if item.type == "task" then
-			table.insert(lines, task_mod.serialize(item.task))
+			if item.task.id and item.task.id ~= "" and seen_ids[item.task.id] then
+				item.task.id = nil -- 重複しているので serialize に再発行させる
+			end
+			local line = task_mod.serialize(item.task)
+			seen_ids[item.task.id] = true
+			table.insert(lines, line)
 		else
 			local text = item.line
 			if vim.trim(text) == "" then
@@ -277,6 +286,8 @@ end
 -- パースしたデータを書き戻す
 function M.write_todo_file(filepath, data)
 	local lines = {}
+	-- このファイル書き出し全体を通してIDの重複を検知するための共有テーブル
+	local seen_ids = {}
 
 	for _, l in ipairs(data.header) do
 		table.insert(lines, l)
@@ -289,7 +300,7 @@ function M.write_todo_file(filepath, data)
 		if #lines > 0 and lines[#lines] ~= "" then
 			table.insert(lines, "")
 		end
-		items_to_lines(default_items, lines)
+		items_to_lines(default_items, lines, seen_ids)
 	end
 
 	for _, sec in ipairs(data.section_order) do
@@ -302,7 +313,7 @@ function M.write_todo_file(filepath, data)
 		local sec_data = data.sections[sec] or new_section()
 
 		-- トップレベル items の書き出し
-		items_to_lines(M.get_section_items(sec_data), lines)
+		items_to_lines(M.get_section_items(sec_data), lines, seen_ids)
 
 		-- サブセクションの書き出し
 		local subsections = (type(sec_data) == "table" and sec_data.subsections) or {}
@@ -313,7 +324,7 @@ function M.write_todo_file(filepath, data)
 			end
 			table.insert(lines, "### " .. sub.name)
 			table.insert(lines, "")
-			items_to_lines(sub.items, lines)
+			items_to_lines(sub.items, lines, seen_ids)
 		end
 	end
 

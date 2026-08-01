@@ -9,11 +9,18 @@ local float_ui = require("gtodo-md.ui.float")
 -- autocmdを発火させ、それが handle_buf_enter 相当の自動処理(due チェック等)を
 -- Queue を開くたびに誤って再発火させてしまう(#93)。一時的に該当イベントを
 -- 抑制することでこれを防ぐ。
+--
+-- また、この読み込みはQueue表示用の一時的なものであり編集を伴わないため、
+-- swapfile によるクラッシュ復旧保護は不要。同じファイルを別ウィンドウで
+-- 既に編集中の場合の "swap file already exists" 警告や、(まれに)swapファイル
+-- 用ディレクトリ作成の競合を避けるため無効化しておく。
 local function load_buf_quietly(filepath)
 	local buf = vim.fn.bufadd(filepath)
 	if vim.api.nvim_buf_is_loaded(buf) then
 		return buf
 	end
+
+	vim.bo[buf].swapfile = false
 
 	local prev_eventignore = vim.o.eventignore
 	vim.o.eventignore = "BufRead,BufReadPre,BufReadPost,BufEnter,FileType"

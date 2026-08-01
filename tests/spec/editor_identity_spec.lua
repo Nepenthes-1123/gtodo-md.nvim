@@ -87,6 +87,53 @@ describe("editor._find_task_idx (P1-4: 重複タスクの正しい同定)", func
 	end)
 
 	-- ----------------------------------------------------------------
+	-- #82: IDによる最優先の同定
+	-- ----------------------------------------------------------------
+	describe("#82: IDによる最優先の同定", function()
+		it("idが一致すれば、original_lineが一致しなくても正しく同定できる", function()
+			local items = {
+				make_item("- [ ] Task A due:2025-01-10 id:aaa111"),
+				make_item("- [ ] Task A due:2025-01-20 id:bbb222"),
+			}
+			-- 何らかの理由でoriginal_lineが変化しているが、idは一致する
+			local cursor_task = {
+				id = "bbb222",
+				content = "Task A",
+				due = "2025-01-20",
+				status = " ",
+				original_line = "- [ ] Task A due:2025-01-20 id:bbb222 (改変された行)",
+			}
+			local idx = editor_mod._find_task_idx(items, cursor_task)
+			assert.equals(2, idx)
+		end)
+
+		it(
+			"content+createdが同一の重複タスクでも、idが異なれば正しく区別できる(#82解決)",
+			function()
+				local line1 = "- [ ] Task A due:2025-01-10 created:2025-01-01 id:aaa111"
+				local line2 = "- [ ] Task A due:2025-01-20 created:2025-01-01 id:bbb222"
+				local items = { make_item(line1), make_item(line2) }
+
+				local cursor_task = task_mod.parse(line2)
+				-- original_lineをわざと不一致にして、Primary(id)だけが頼りになる状況を作る
+				cursor_task.original_line = "改変されたテキスト"
+
+				local idx = editor_mod._find_task_idx(items, cursor_task)
+				assert.equals(2, idx)
+			end
+		)
+
+		it("idが一致しなければPrimaryは発動せずSecondary/Fallbackに進む", function()
+			local items = {
+				make_item("- [ ] Task A due:2025-01-10 id:aaa111"),
+			}
+			local cursor_task = task_mod.parse("- [ ] Task A due:2025-01-10 id:zzz999")
+			local idx = editor_mod._find_task_idx(items, cursor_task)
+			assert.equals(1, idx)
+		end)
+	end)
+
+	-- ----------------------------------------------------------------
 	-- フォールバック: original_line が一致しない場合
 	-- ----------------------------------------------------------------
 	describe("フォールバック動作", function()
