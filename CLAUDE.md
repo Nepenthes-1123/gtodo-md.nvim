@@ -54,7 +54,7 @@ CI（`.github/workflows/ci.yml`）は luacheck と stylua の `--check` を実�
 - `api.lua` — statusline/dashboard 連携向けの小さく安定した公開インターフェース（例: `get_statusline_string`）。
 - `highlight.lua` — gtodo バッファに対する構文ハイライトと virtual text（相対的な due日付表示）。行末の `id:` タグは人間が読む必要のない内部識別子のため `conceal` で隠す（`M.setup()` で `concealcursor` を空にしているため、カーソルがその行にある間は自動的に見える状態に戻り通常通り編集できる — バッファの中身自体は一切変更しない、あくまで表示上の機能）。`conceallevel`/`concealcursor` はウィンドウローカルオプションのため `BufWinEnter` で `data_dir` 配下のバッファを表示するウィンドウに設定している。
 - `timer.lua` — バックグラウンドタイマー（Waiting タスクの警告、日次ロールオーバーチェック）。`should_skip_timer()` はノーマルモードかどうかのみを見る（未保存バッファの有無はもう見ない — 下記参照）。
-- `utils.lua` — 共有ヘルパー。due日付文字列のパース/正規化、`is_gtodo_file`（バッファが `data_dir` に属するかどうかのパスベースの判定）などを含む。
+- `utils.lua` — 共有ヘルパー。due日付文字列のパース/正規化、`is_gtodo_file`（バッファが `data_dir` に属するかどうかのパスベースの判定）などを含む。`parse_due_date` の相対日付 `+Nm`/`+Ny` は固定日数(30日/365日)ではなく暦算(`add_months`)で「翌月/翌年の同日」を計算する(#88)。対象月に存在しない日(例: 1/31 + 1ヶ月、閏日 + 1年)はその月の末日へクランプし、次の月へ繰り越さない。`+Nd`/`+Nw` は従来通り固定日数のまま。
 
 ### 編集前に把握しておくべきデータモデルと不変条件
 
