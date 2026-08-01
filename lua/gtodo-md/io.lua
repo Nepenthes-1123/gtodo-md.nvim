@@ -241,7 +241,18 @@ local function items_to_lines(items, lines, seen_ids)
 					table.insert(lines, text)
 				end
 			else
+				-- 見出し行(### 等)は前後に空行を入れる。markdownlint 等の
+				-- 一般的な整形規約(見出しは空行で囲む)に沿わせるための処理で、
+				-- サブセクションを構造化データとして特別扱いしているわけではない
+				-- (## セクション見出し自体は data.header 側で別途処理される)。
+				local is_heading = text:match("^#+%s") ~= nil
+				if is_heading and #lines > 0 and lines[#lines] ~= "" then
+					table.insert(lines, "")
+				end
 				table.insert(lines, text)
+				if is_heading then
+					table.insert(lines, "")
+				end
 			end
 		end
 	end
