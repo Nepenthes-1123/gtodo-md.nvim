@@ -279,9 +279,9 @@ end
 local function collapse_blank_runs(lines)
 	local result = {}
 	for _, line in ipairs(lines) do
-		if vim.trim(line) == "" and #result > 0 and vim.trim(result[#result]) == "" then
-			-- 直前が既に空行なら追加しない(圧縮)
-		else
+		-- 直前が既に空行なら追加しない(圧縮)
+		local is_redundant_blank = vim.trim(line) == "" and #result > 0 and vim.trim(result[#result]) == ""
+		if not is_redundant_blank then
 			table.insert(result, line)
 		end
 	end
