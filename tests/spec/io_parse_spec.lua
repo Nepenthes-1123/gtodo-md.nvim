@@ -179,20 +179,14 @@ describe("io.parse_markdown", function()
 			local data = make_data_with_subsections()
 			local sorted = logic_mod.sort_section_tasks(data.sections["Today"])
 
-			local first_h3, second_h3
+			local h3_names = {}
 			for _, item in ipairs(sorted) do
 				if item.type == "text" and item.line:match("^###") then
-					local h3_name = item.line:match("^###%s+(.-)%s*$")
-					if not first_h3 then
-						first_h3 = h3_name
-					elseif not second_h3 then
-						second_h3 = h3_name
-						break
-					end
+					table.insert(h3_names, item.line:match("^###%s+(.-)%s*$"))
 				end
 			end
-			assert.equals("仕事", first_h3, "「仕事」が先に現れるべき")
-			assert.equals("プライベート", second_h3, "「プライベート」が後に現れるべき")
+			assert.equals("仕事", h3_names[1], "「仕事」が先に現れるべき")
+			assert.equals("プライベート", h3_names[2], "「プライベート」が後に現れるべき")
 		end)
 
 		it("トップレベルタスクと ### ブロック混在時も「仕事」配下は 2 件", function()

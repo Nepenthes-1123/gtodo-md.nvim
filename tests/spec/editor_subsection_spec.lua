@@ -10,7 +10,6 @@
 -- テキスト行と同じフラットな items 配列の一員にしたことで、この問題は
 -- 一箇所の実装ミスではなく構造的に解消される。
 
-local task_mod = require("gtodo-md.task")
 local editor_mod = require("gtodo-md.editor")
 local io_mod = require("gtodo-md.io")
 local config = require("gtodo-md.config")
