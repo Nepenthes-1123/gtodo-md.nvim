@@ -107,18 +107,21 @@ describe("editor._find_task_idx (P1-4: 重複タスクの正しい同定)", func
 			assert.equals(2, idx)
 		end)
 
-		it("content+createdが同一の重複タスクでも、idが異なれば正しく区別できる(#82解決)", function()
-			local line1 = "- [ ] Task A due:2025-01-10 created:2025-01-01 id:aaa111"
-			local line2 = "- [ ] Task A due:2025-01-20 created:2025-01-01 id:bbb222"
-			local items = { make_item(line1), make_item(line2) }
+		it(
+			"content+createdが同一の重複タスクでも、idが異なれば正しく区別できる(#82解決)",
+			function()
+				local line1 = "- [ ] Task A due:2025-01-10 created:2025-01-01 id:aaa111"
+				local line2 = "- [ ] Task A due:2025-01-20 created:2025-01-01 id:bbb222"
+				local items = { make_item(line1), make_item(line2) }
 
-			local cursor_task = task_mod.parse(line2)
-			-- original_lineをわざと不一致にして、Primary(id)だけが頼りになる状況を作る
-			cursor_task.original_line = "改変されたテキスト"
+				local cursor_task = task_mod.parse(line2)
+				-- original_lineをわざと不一致にして、Primary(id)だけが頼りになる状況を作る
+				cursor_task.original_line = "改変されたテキスト"
 
-			local idx = editor_mod._find_task_idx(items, cursor_task)
-			assert.equals(2, idx)
-		end)
+				local idx = editor_mod._find_task_idx(items, cursor_task)
+				assert.equals(2, idx)
+			end
+		)
 
 		it("idが一致しなければPrimaryは発動せずSecondary/Fallbackに進む", function()
 			local items = {
