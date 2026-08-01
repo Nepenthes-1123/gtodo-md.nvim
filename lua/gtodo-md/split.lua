@@ -250,6 +250,15 @@ function M.split_current_task()
 				end
 
 				-- Deep fallback: scan the ENTIRE buffer if still not found
+				--
+				-- #85: この行テキスト完全一致による探索は、同一テキストの行が複数存在すると
+				-- Extmarkの旧位置に最も近いものを誤って選んでしまう可能性があった。
+				-- task.lua の serialize が全タスクに一意な id: タグを付与するようになったため、
+				-- 保存済みのタスク行は id: を含めて完全一致する限りIDも一致することになり、
+				-- 「異なるタスクなのに行テキストが偶然衝突する」ケースは実質的に排除される。
+				-- そのため、ここでの行テキスト一致自体をID比較に置き換える必要はない。
+				-- 残るのは、IDがまだ付与されていない(保存サイクルを経ていない)タスク同士が
+				-- 偶然同一テキストになるケースのみで、これは以前から変わらない既知の限界。
 				if not found then
 					local all_lines = vim.api.nvim_buf_get_lines(source_buf, 0, -1, false)
 					local best_match_row = nil
