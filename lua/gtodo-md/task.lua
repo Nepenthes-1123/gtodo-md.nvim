@@ -32,7 +32,11 @@ function M.parse(line)
 	local text = rest
 
 	local patterns = {
-		{ key = "id", pat = "\\<id:[0-9a-f]\\+\\s*$" },
+		-- 値の文字種は自動生成される16進数を想定しているが、パース自体は
+		-- (手編集等で非16進の値が入っていても)非空白文字列であれば受け付ける。
+		-- ここを16進限定にすると、値が不正な場合に id: だけでなく後続の
+		-- 全タグの抽出まで連鎖的に失敗する(各パターンが行末 $ に固定されているため)。
+		{ key = "id", pat = "\\<id:\\S\\+\\s*$" },
 		{ key = "completed_at", pat = "\\<completed_at:\\d\\{4}-\\d\\{2}-\\d\\{2}\\s*$" },
 		{ key = "done", pat = "\\<done:\\d\\{4}-\\d\\{2}-\\d\\{2}\\s*$" },
 		{ key = "cancelled", pat = "\\<cancelled:\\d\\{4}-\\d\\{2}-\\d\\{2}\\s*$" },
