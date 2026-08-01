@@ -46,13 +46,13 @@ CI（`.github/workflows/ci.yml`）は luacheck と stylua の `--check` を実�
   - `completion.lua` — 完了タスクを todo.md から done.md へ移動する処理。
   - `history.lua` — `done.md`/`cancelled.md` の `## YYYY-MM` 見出し配下へのエントリ追記。`io_mod.read_lines` 経由でバッファの未保存内容を考慮して読む。
 - `lock.lua` — 自動処理（due チェック・ソート・日次ロールオーバー）全般で共有する排他ロック（`data_dir/.gtodo.lock`、O_EXCL相当のアトミックなファイル作成）。`with_write_lock(data_dir, fn)` は取得できた場合のみ `fn` を実行し、取得できなければ待機・リトライせず `false` を返す（呼び出し元はその回を諦めて次のトリガーに委ねる）。キーマップ経由のユーザー操作（editor.lua）はこの対象外。
-- `daily.lua` — 日付変更（ロールオーバー）の検知とオーケストレーション（完了タスクの履歴への繰り込み、due到達タスクの昇格）を行う。日付ゲート（`last_opened` の永続化）により1日1回しか実行されない。ロック自体は `lock.lua` を利用する。また、ディスク上のファイルが開いているバッファの外側で変更された際に使う、バッファの autoread/checktime ヘルパー `reload_managed_bufs()` もここにある。
+- `daily.lua` — 日付変更（ロールオーバー）の検知とオーケストレーション（完了タスクの履歴への繰り込み、due到達タスクの昇格）を行う。日付ゲート（`last_opened` の永続化）により1日1回しか実行されない。ロック自体は `lock.lua` を利用する。また、ディスク上のファイルが開いているバッファの外側で変更された際に使う、バッファの autoread/checktime ヘルパー `reload_managed_bufs()` もここにある。mtimeキャッシュは**用途別に2つ独立**している: `get_cache()`/`update_cache()` で公開され `init.lua` の `handle_buf_enter` が「自前のdueチェック・ソートを再実行すべきか」を判定するための `last_processed_mtimes` と、`reload_if_externally_changed`(他インスタンスによる外部変更検知)専用の非公開な `external_change_mtimes`。同じキャッシュを共有すると、一方の判定が先に変化を消費してしまいもう一方が二度と検知できなくなる不具合があったため分離した(ロールオーバー成功直後のみ両方を更新する)。
 - `editor.lua` — バッファローカルなキーマップから呼ばれる、カーソル位置に対する操作群（完了トグル、セクション間のタスク移動、キャンセル、`wait:` タグの付与）。ソートによって行が並び替わるため、編集を跨いだタスクの同一性判定は `M._find_task_idx` で行っており、`id` 完全一致(Primary) → `original_line` 完全一致(Secondary) → `content` + `created` 一致(Fallback) の順に照合する。IDがまだ発行されていない(保存サイクルを経ていない)タスクはSecondary/Fallbackで解決される。
 - `split.lua` — タスクをサブタスクへ分割する処理、またはプロジェクトファイルへ昇格させる処理。Extmarkが破壊された場合の最終手段(Deep Fallback)は行テキストの完全一致+最近傍距離で親タスク行を探すが、タスクIDがserialize時に行へ組み込まれるようになったため、保存済みタスク同士が偶然テキスト衝突するケースは実質的に排除されている。
 - `ui/` — インタラクティブ/ビジュアルな UI 一式。`ui/init.lua` で re-export されている: `float.lua`（todo/inbox/done/cancelled のフローティングウィンドウビューア）、`queue.lua`（due日付でグルーピングした Queue ビュー。ファイルをバッファ化する際、未ロード分は `eventignore` で `BufRead` 系autocmdの誤発火を抑制する）、`search.lua`（タグ/コンテキスト検索のディスパッチ）、`project.lua`（プロジェクトファイルへのジャンプ + 進捗の virtual text 描画）、`prompt.lua`（タスクの追加/編集入力 UI）。
 - `integrations/` — 外部プラグイン向けの任意の連携: `lualine.lua`、`dashboard.lua`（snacks/alpha 用ウィジェット）、`picker.lua`（`config.picker` で選択される snacks.picker/telescope/fzf-lua の検索+トグルバックエンド）。
 - `api.lua` — statusline/dashboard 連携向けの小さく安定した公開インターフェース（例: `get_statusline_string`）。
-- `highlight.lua` — gtodo バッファに対する構文ハイライトと virtual text（相対的な due日付表示）。
+- `highlight.lua` — gtodo バッファに対する構文ハイライトと virtual text（相対的な due日付表示）。行末の `id:` タグは人間が読む必要のない内部識別子のため `conceal` で隠す（`M.setup()` で `concealcursor` を空にしているため、カーソルがその行にある間は自動的に見える状態に戻り通常通り編集できる — バッファの中身自体は一切変更しない、あくまで表示上の機能）。`conceallevel`/`concealcursor` はウィンドウローカルオプションのため `BufWinEnter` で `data_dir` 配下のバッファを表示するウィンドウに設定している。
 - `timer.lua` — バックグラウンドタイマー（Waiting タスクの警告、日次ロールオーバーチェック）。`should_skip_timer()` はノーマルモードかどうかのみを見る（未保存バッファの有無はもう見ない — 下記参照）。
 - `utils.lua` — 共有ヘルパー。due日付文字列のパース/正規化、`is_gtodo_file`（バッファが `data_dir` に属するかどうかのパスベースの判定）などを含む。
 
