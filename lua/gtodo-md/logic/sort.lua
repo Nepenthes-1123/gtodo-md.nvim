@@ -1,10 +1,12 @@
 local M = {}
 local io_mod = require("gtodo-md.io")
 
--- 1件のタスクグループ（非タスク行を跨がない連続区間）をソートする比較関数
-local function compare_tasks(a, b)
-	local t_a = a.task
-	local t_b = b.task
+-- 1件のタスクグループ（非タスク行を跨がない連続区間）をソートする比較関数。
+-- a/b は sort_items 内部だけで使うラッパー { item = <元のitem>, original_index = i }
+-- であり、呼び出し元から渡された item そのものではない(#96)。
+local function compare_wrapped(a, b)
+	local t_a = a.item.task
+	local t_b = b.item.task
 	-- 1. [x] 付きは最末尾に固定
 	local done_a = (t_a.status == "x")
 	local done_b = (t_b.status == "x")
@@ -46,6 +48,12 @@ end
 -- これを一般化して防ぐため、非タスク行を「並び替えの境界」として扱い、
 -- 境界で区切られた連続するタスクの区間(run)ごとに独立してソートする。
 -- テキスト行自体は元の位置にそのまま残る。
+--
+-- #96: 安定ソートのタイブレークに使う original_index は、以前 item に直接
+-- 書き込んでいたため、呼び出し元が保持し続けるオブジェクトを汚染していた
+-- (呼び出し元が同じitemを別の並びで再度渡した場合、前回の位置が残ってしまう
+-- 可能性があった)。sort_items 内部だけで使い捨てるラッパーに包むことで、
+-- 引数の item を一切書き換えないようにする。
 local function sort_items(items)
 	local result = {}
 	local run = {}
@@ -54,12 +62,13 @@ local function sort_items(items)
 		if #run == 0 then
 			return
 		end
+		local wrapped = {}
 		for i, item in ipairs(run) do
-			item.original_index = i
+			wrapped[i] = { item = item, original_index = i }
 		end
-		table.sort(run, compare_tasks)
-		for _, item in ipairs(run) do
-			table.insert(result, { type = "task", task = item.task })
+		table.sort(wrapped, compare_wrapped)
+		for _, w in ipairs(wrapped) do
+			table.insert(result, { type = "task", task = w.item.task })
 		end
 		run = {}
 	end

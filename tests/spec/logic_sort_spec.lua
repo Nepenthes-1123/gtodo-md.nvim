@@ -45,6 +45,22 @@ describe("logic.sort_section_tasks general sorting rules", function()
 		assert.are.same("タスクB", sorted[1].task.content)
 		assert.are.same("タスクA", sorted[2].task.content)
 	end)
+
+	-- #96: 安定ソートのタイブレークに使う original_index を、以前は呼び出し元の
+	-- item オブジェクトへ直接書き込んでいた。これは「ロジック層の関数は入力を
+	-- 破壊しない」という方針に反しており、呼び出し元が同じitemを保持し続ける
+	-- 限り内部実装の詳細(ソート時の一時的な位置)が漏れ出てしまう。
+	it(
+		"sort_section_tasksは引数のitemに一切書き込まない(original_indexを汚染しない, #96)",
+		function()
+			local items = make_items("- [ ] タスクB due:2025-01-01", "- [ ] タスクA due:2025-01-01")
+			logic_mod.sort_section_tasks(items)
+
+			for _, item in ipairs(items) do
+				assert.is_nil(item.original_index, "sort_section_tasksが引数のitemを直接書き換えている")
+			end
+		end
+	)
 end)
 
 -- サブセクション廃止(#86, #90 の根本対応)に伴う一般化テスト。
