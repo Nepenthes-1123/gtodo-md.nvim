@@ -3,13 +3,29 @@ local config = require("gtodo-md.config")
 local logic_mod = require("gtodo-md.logic")
 local lock_mod = require("gtodo-md.lock")
 
--- 自動処理のキャッシュ用変数
+-- handle_buf_enter が「自前のdueチェック・ソートを再実行すべきか」を判定するための
+-- キャッシュ。init.lua から get_cache()/update_cache() 経由でのみ読み書きされる。
 local last_processed_mtimes = {
 	inbox = 0,
 	todo = 0,
 	done = 0,
 }
 local last_processed_date = ""
+
+-- 他インスタンスによる外部変更検知(reload_if_externally_changed)専用のキャッシュ。
+--
+-- 以前は last_processed_mtimes を上の用途と共有していたが、それぞれ更新タイミングが
+-- 異なる(前者はcheck_daily_rolloverのたびに、後者はhandle_buf_enterが実際に処理を
+-- 終えたときのみ)ため、一方が変化を検知して更新すると、もう一方がその変化を
+-- 二度と検知できなくなる不具合があった。具体的には、check_daily_rollover が
+-- handle_buf_enter より先に走ってmtime差分を消費してしまうため、
+-- 「保存直後にバッファへ入り直しても自前のdueチェック・ソートが実行されない」
+-- という形で表面化していた。用途ごとに独立したキャッシュを持つことで解消する。
+local external_change_mtimes = {
+	inbox = 0,
+	todo = 0,
+	done = 0,
+}
 
 -- キャッシュ取得用アクセサ
 function M.get_cache()
@@ -57,9 +73,9 @@ local function reload_if_externally_changed()
 	local changed = false
 	for key, path in pairs(paths) do
 		local mtime = vim.fn.getftime(path)
-		if mtime ~= last_processed_mtimes[key] then
+		if mtime ~= external_change_mtimes[key] then
 			changed = true
-			last_processed_mtimes[key] = mtime
+			external_change_mtimes[key] = mtime
 		end
 	end
 
@@ -113,10 +129,18 @@ function M.check_daily_rollover()
 			return
 		end
 
-		-- ロールオーバー完了後の mtime をキャッシュ（次回以降の外部変更検知の基準値）
-		last_processed_mtimes.inbox = vim.fn.getftime(inbox_path)
-		last_processed_mtimes.todo = vim.fn.getftime(todo_path)
-		last_processed_mtimes.done = vim.fn.getftime(done_path)
+		-- ロールオーバー完了後の mtime をキャッシュする。
+		-- ロールオーバー自体が dueチェック・ソートを実行済みのため、
+		-- handle_buf_enter用・外部変更検知用の両方のキャッシュを更新してよい。
+		local new_inbox_mtime = vim.fn.getftime(inbox_path)
+		local new_todo_mtime = vim.fn.getftime(todo_path)
+		local new_done_mtime = vim.fn.getftime(done_path)
+		last_processed_mtimes.inbox = new_inbox_mtime
+		last_processed_mtimes.todo = new_todo_mtime
+		last_processed_mtimes.done = new_done_mtime
+		external_change_mtimes.inbox = new_inbox_mtime
+		external_change_mtimes.todo = new_todo_mtime
+		external_change_mtimes.done = new_done_mtime
 		M.reload_managed_bufs()
 		last_processed_date = today
 	else
