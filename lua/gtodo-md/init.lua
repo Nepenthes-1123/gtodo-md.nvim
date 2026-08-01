@@ -593,9 +593,9 @@ function M.add_or_edit_task()
 
 			local todo_data = io_mod.read_todo_file(todo_path)
 			if not todo_data.sections[target_sec] then
-				todo_data.sections[target_sec] = { items = {}, subsections = {} }
+				todo_data.sections[target_sec] = {}
 			end
-			table.insert(io_mod.get_section_items(todo_data.sections[target_sec]), { type = "task", task = new_task })
+			table.insert(todo_data.sections[target_sec], { type = "task", task = new_task })
 			io_mod.write_todo_file(todo_path, todo_data)
 			lock_mod.with_write_lock(data_dir, function()
 				logic_mod.sort_todo_file(todo_path)
@@ -609,10 +609,10 @@ function M.add_or_edit_task()
 			-- inbox.md (またはその他) で追加された場合は inbox に留める
 			local inbox_data = io_mod.read_todo_file(inbox_path)
 			if not inbox_data.sections["default"] then
-				inbox_data.sections["default"] = { items = {}, subsections = {} }
+				inbox_data.sections["default"] = {}
 			end
 
-			local sec_items = io_mod.get_section_items(inbox_data.sections["default"])
+			local sec_items = inbox_data.sections["default"]
 			while
 				#sec_items > 0
 				and sec_items[#sec_items].type == "text"

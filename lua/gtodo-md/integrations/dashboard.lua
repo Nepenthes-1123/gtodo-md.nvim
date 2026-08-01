@@ -20,7 +20,7 @@ function M.get_tasks_lines(limit)
 	local today_tasks = {}
 
 	if data.sections["Today"] then
-		for _, item in ipairs(io_mod.get_section_items(data.sections["Today"])) do
+		for _, item in ipairs(data.sections["Today"]) do
 			if item.type == "task" and item.task.status == " " then
 				table.insert(today_tasks, item.task)
 				if #today_tasks >= limit then
