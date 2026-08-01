@@ -85,6 +85,46 @@ describe("io.write_lines", function()
 		vim.api.nvim_del_augroup_by_id(group)
 	end)
 
+	it(
+		"write_lines後、Vim内部のmtime追跡が同期されるため後続の変更でW12相当の誤検知が起きない",
+		function()
+			vim.fn.writefile({ "# Todo", "" }, path)
+			vim.cmd("edit " .. vim.fn.fnameescape(path))
+			local buf = vim.api.nvim_get_current_buf()
+
+			io_mod.write_lines(path, { "# Todo", "", "- [ ] タスク" })
+
+			-- write_lines 後、さらにバッファを編集してdirtyにする
+			-- (W12/FileChangedShellはバッファがdirtyな時にのみ問題になる)
+			vim.api.nvim_buf_set_lines(
+				buf,
+				0,
+				-1,
+				false,
+				{ "# Todo", "", "- [ ] タスク", "- [ ] 別の未保存編集" }
+			)
+			assert.is_true(vim.bo[buf].modified)
+
+			local fcs_fired = false
+			local group = vim.api.nvim_create_augroup("TestFileChangedShell", { clear = true })
+			vim.api.nvim_create_autocmd("FileChangedShell", {
+				group = group,
+				buffer = buf,
+				callback = function()
+					fcs_fired = true
+				end,
+			})
+
+			vim.cmd("silent! checktime " .. buf)
+
+			assert.is_false(
+				fcs_fired,
+				"write_lines自身の書き込みが外部変更と誤認され、FileChangedShellが発火した(W12相当)"
+			)
+			vim.api.nvim_del_augroup_by_id(group)
+		end
+	)
+
 	it("バッファの fileformat が dos の場合、CRLFで保存される", function()
 		vim.fn.writefile({ "# Todo", "" }, path)
 		vim.cmd("edit " .. vim.fn.fnameescape(path))
