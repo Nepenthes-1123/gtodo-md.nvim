@@ -6,6 +6,7 @@ local logic_mod = require("gtodo-md.logic")
 local editor_mod = require("gtodo-md.editor")
 local timer_mod = require("gtodo-md.timer")
 local utils_mod = require("gtodo-md.utils")
+local lock_mod = require("gtodo-md.lock")
 
 function M.setup(opts)
 	config.setup(opts)
@@ -54,39 +55,23 @@ function M.handle_buf_enter(bufnr)
 
 	local daily_mod = require("gtodo-md.daily")
 
-	-- 全 gtodo バッファの中に未保存編集中のものが1つでも存在するかチェック
-	local has_modified_gtodo = false
-	for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-		if vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_is_loaded(buf) and vim.bo[buf].modified then
-			local bname = vim.api.nvim_buf_get_name(buf)
-			if utils_mod.is_gtodo_file(bname) then
-				has_modified_gtodo = true
-				break
-			end
-		end
-	end
-
-	-- 未保存バッファが存在する場合は、ディスク更新によるデータ上書き消失を避けるため
-	-- check_daily_rollover も含めたディスク自動更新をすべてスキップ
-	if has_modified_gtodo then
-		if config.get("use_default_keymaps") then
-			M.setup_buffer_keymaps(bufnr)
-		end
-		return
-	end
-
-	-- 1. 安全な状態（未保存なし）でのみ大掃除・日付変更チェックを実行
+	-- 1. 日付変更チェック
 	daily_mod.check_daily_rollover()
 
 	local current_inbox_mtime = vim.fn.getftime(inbox_path)
 	local current_todo_mtime = vim.fn.getftime(todo_path)
 
 	-- スキップ判定
+	-- ディスクのmtimeに変化がなくても、このバッファ自体が未保存(dirty)なら
+	-- スキップしない。dirtyな内容はディスクに一度も反映されていない可能性が
+	-- あり、mtime比較だけでは検知できないため(R1-2)。
 	local skip_process = true
 	local cached_mtimes = daily_mod.get_cache()
 	if current_inbox_mtime ~= cached_mtimes.inbox then
 		skip_process = false
 	elseif current_todo_mtime ~= cached_mtimes.todo then
+		skip_process = false
+	elseif vim.bo[bufnr].modified then
 		skip_process = false
 	end
 
@@ -98,13 +83,15 @@ function M.handle_buf_enter(bufnr)
 		return
 	end
 
-	-- 2. dueチェック・自動移動
-	logic_mod.check_dues(inbox_path, todo_path)
-
-	-- 3. 自動ソート（todo.mdのみ）
-	if filename == "todo.md" then
-		logic_mod.sort_todo_file(todo_path)
-	end
+	-- 2. dueチェック・自動移動・自動ソート（todo.mdのみ）を排他ロック配下で実行
+	-- バッファが未保存(dirty)でも常に実行・保存する。read_lines がライブバッファの
+	-- 内容(未保存分を含む)を読み取るため、ユーザーの未保存編集は失われない。
+	lock_mod.with_write_lock(data_dir, function()
+		logic_mod.check_dues(inbox_path, todo_path)
+		if filename == "todo.md" then
+			logic_mod.sort_todo_file(todo_path)
+		end
+	end)
 
 	-- バッファローカルキーマップを登録
 	if config.get("use_default_keymaps") then
@@ -560,18 +547,24 @@ function M.add_or_edit_task()
 					vim.cmd("silent! write")
 				end)
 				if filename == "todo.md" then
-					local changed = logic_mod.check_dues(inbox_path, todo_path)
-					logic_mod.sort_todo_file(todo_path)
+					local changed = false
+					lock_mod.with_write_lock(data_dir, function()
+						changed = logic_mod.check_dues(inbox_path, todo_path)
+						logic_mod.sort_todo_file(todo_path)
+					end)
 					if changed and not vim.bo[target_buf].modified then
 						require("gtodo-md.daily").reload_managed_bufs()
 					end
 				else
-					local changed = logic_mod.check_dues(inbox_path, todo_path)
-					if changed then
-						logic_mod.sort_todo_file(todo_path)
-						if not vim.bo[target_buf].modified then
-							require("gtodo-md.daily").reload_managed_bufs()
+					local changed = false
+					lock_mod.with_write_lock(data_dir, function()
+						changed = logic_mod.check_dues(inbox_path, todo_path)
+						if changed then
+							logic_mod.sort_todo_file(todo_path)
 						end
+					end)
+					if changed and not vim.bo[target_buf].modified then
+						require("gtodo-md.daily").reload_managed_bufs()
 					end
 				end
 			end)
@@ -604,7 +597,9 @@ function M.add_or_edit_task()
 			end
 			table.insert(io_mod.get_section_items(todo_data.sections[target_sec]), { type = "task", task = new_task })
 			io_mod.write_todo_file(todo_path, todo_data)
-			logic_mod.sort_todo_file(todo_path)
+			lock_mod.with_write_lock(data_dir, function()
+				logic_mod.sort_todo_file(todo_path)
+			end)
 
 			-- reload open buffers if not modified
 			if not timer_mod.should_skip_timer() then
@@ -629,10 +624,12 @@ function M.add_or_edit_task()
 			table.insert(sec_items, { type = "task", task = new_task })
 			io_mod.write_todo_file(inbox_path, inbox_data)
 
-			local changed = logic_mod.check_dues(inbox_path, todo_path)
-			if changed then
-				logic_mod.sort_todo_file(todo_path)
-			end
+			lock_mod.with_write_lock(data_dir, function()
+				local changed = logic_mod.check_dues(inbox_path, todo_path)
+				if changed then
+					logic_mod.sort_todo_file(todo_path)
+				end
+			end)
 
 			-- reload open buffers if not modified
 			if not timer_mod.should_skip_timer() then
@@ -655,8 +652,10 @@ function M.sort_and_check_dues()
 	local data_dir = config.get("data_dir")
 	local inbox_path = data_dir .. "/inbox.md"
 	local todo_path = data_dir .. "/todo.md"
-	logic_mod.check_dues(inbox_path, todo_path)
-	logic_mod.sort_todo_file(todo_path)
+	lock_mod.with_write_lock(data_dir, function()
+		logic_mod.check_dues(inbox_path, todo_path)
+		logic_mod.sort_todo_file(todo_path)
+	end)
 end
 
 -- グローバルキーマップの設定
