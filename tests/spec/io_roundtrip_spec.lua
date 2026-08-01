@@ -12,17 +12,18 @@ end
 
 describe("io.lua parse_markdown and write_todo_file roundtrip", function()
 	it("parse_markdown と write_todo_file で内容が完全に一致する", function()
-		-- ### 見出しは他のテキスト行と同様、周囲に空行を自動挿入しない
-		-- (サブセクションを特別扱いしないフラットなモデルのため)
 		local original_lines = {
 			"# Todo",
 			"",
 			"## Today",
 			"",
 			"### 仕事",
+			"",
 			"- [ ] (A) タスクA due:2025-01-01",
 			"- [ ] タスクB @office",
+			"",
 			"### プライベート",
+			"",
 			"- [x] 完了タスク +home",
 			"",
 			"## Next",

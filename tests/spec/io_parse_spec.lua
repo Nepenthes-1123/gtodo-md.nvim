@@ -94,6 +94,41 @@ describe("io.parse_markdown", function()
 			end
 			assert.is_true(found_h3, "### 行が type=text として保存されるはず")
 		end)
+
+		-- 手動でタスクを追加した際、### 見出しの直後に空行を入れずに
+		-- 保存してしまうケースがある(markdownlint等は見出しの前後に空行を
+		-- 要求することが多い)。write_todo_file は見出し行(#で始まる行)の
+		-- 前後に空行を補うことで、サブセクションを特別扱いしなくても
+		-- 一般的な整形規約に沿った出力を維持する。
+		it(
+			"見出し直後に空行が無い入力でも、書き出し時に見出しの前後へ空行が補われる",
+			function()
+				local lines = {
+					"# Todo",
+					"",
+					"## Today",
+					"",
+					"### 仕事",
+					"- [ ] 仕事タスクA",
+				}
+				local data = io_mod.parse_markdown(lines)
+
+				local tmpfile = vim.fn.tempname() .. ".md"
+				io_mod.write_todo_file(tmpfile, data)
+				local written = vim.fn.readfile(tmpfile)
+				vim.fn.delete(tmpfile)
+
+				local heading_idx
+				for i, l in ipairs(written) do
+					if l == "### 仕事" then
+						heading_idx = i
+					end
+				end
+				assert.is_not_nil(heading_idx, "見出し行が見当たらない: " .. vim.inspect(written))
+				assert.are.same("", written[heading_idx - 1], "見出しの直前に空行が無い")
+				assert.are.same("", written[heading_idx + 1], "見出しの直後に空行が無い")
+			end
+		)
 	end)
 
 	-- ------------------------------------------------------------------
