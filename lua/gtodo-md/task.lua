@@ -1,4 +1,17 @@
 local M = {}
+local uv = vim.uv or vim.loop
+
+-- タスクの一意なID(6桁16進数)を発行する。
+-- vim.loop.hrtime()(プロセス起動からのナノ秒単位の単調増加クロック)と
+-- プロセスID を組み合わせることで、math.random の明示的なシード管理を
+-- 必要とせずに複数インスタンス間でも衝突しにくいIDを得る。
+-- 万一衝突しても io.lua の write_todo_file 側で検知・再発行されるため、
+-- ここでは暗号学的な一意性までは求めない。
+function M._generate_id()
+	local hr = uv.hrtime()
+	local pid = vim.fn.getpid()
+	return string.format("%06x", (hr + pid) % 0x1000000)
+end
 
 -- タスク行をパースしてテーブルにする
 -- タスクでない行は nil を返す
@@ -19,6 +32,7 @@ function M.parse(line)
 	local text = rest
 
 	local patterns = {
+		{ key = "id", pat = "\\<id:[0-9a-f]\\+\\s*$" },
 		{ key = "completed_at", pat = "\\<completed_at:\\d\\{4}-\\d\\{2}-\\d\\{2}\\s*$" },
 		{ key = "done", pat = "\\<done:\\d\\{4}-\\d\\{2}-\\d\\{2}\\s*$" },
 		{ key = "cancelled", pat = "\\<cancelled:\\d\\{4}-\\d\\{2}-\\d\\{2}\\s*$" },
@@ -132,6 +146,13 @@ function M.serialize(task)
 	if task.from and task.from ~= "" then
 		table.insert(parts, "from:" .. task.from)
 	end
+
+	-- 一意なIDを末尾に付与する。未発行の場合はここで新規発行し、
+	-- 渡された task テーブルにも書き戻す(以降の呼び出しで再発行されないように)。
+	if not task.id or task.id == "" then
+		task.id = M._generate_id()
+	end
+	table.insert(parts, "id:" .. task.id)
 
 	return table.concat(parts, " ")
 end
