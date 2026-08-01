@@ -60,16 +60,25 @@ function M.handle_buf_enter(bufnr)
 
 	local current_inbox_mtime = vim.fn.getftime(inbox_path)
 	local current_todo_mtime = vim.fn.getftime(todo_path)
+	-- #89: mtimeは秒精度のため、1秒以内の連続変更を見逃す可能性がある。
+	-- ファイルサイズも補助的に比較することで、その一部を追加で検知する
+	-- (同一秒内でサイズも変わらない変更は低確率として引き続き許容する)。
+	local current_inbox_size = vim.fn.getfsize(inbox_path)
+	local current_todo_size = vim.fn.getfsize(todo_path)
 
 	-- スキップ判定
 	-- ディスクのmtimeに変化がなくても、このバッファ自体が未保存(dirty)なら
 	-- スキップしない。dirtyな内容はディスクに一度も反映されていない可能性が
 	-- あり、mtime比較だけでは検知できないため(R1-2)。
 	local skip_process = true
-	local cached_mtimes = daily_mod.get_cache()
+	local cached_mtimes, _, cached_sizes = daily_mod.get_cache()
 	if current_inbox_mtime ~= cached_mtimes.inbox then
 		skip_process = false
 	elseif current_todo_mtime ~= cached_mtimes.todo then
+		skip_process = false
+	elseif current_inbox_size ~= cached_sizes.inbox then
+		skip_process = false
+	elseif current_todo_size ~= cached_sizes.todo then
 		skip_process = false
 	elseif vim.bo[bufnr].modified then
 		skip_process = false
@@ -106,7 +115,14 @@ function M.handle_buf_enter(bufnr)
 
 	-- キャッシュを最新化
 	local done_path = data_dir .. "/done.md"
-	daily_mod.update_cache(vim.fn.getftime(inbox_path), vim.fn.getftime(todo_path), vim.fn.getftime(done_path))
+	daily_mod.update_cache(
+		vim.fn.getftime(inbox_path),
+		vim.fn.getftime(todo_path),
+		vim.fn.getftime(done_path),
+		vim.fn.getfsize(inbox_path),
+		vim.fn.getfsize(todo_path),
+		vim.fn.getfsize(done_path)
+	)
 end
 
 function M.setup_autocmds()
