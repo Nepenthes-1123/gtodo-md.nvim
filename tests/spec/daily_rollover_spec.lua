@@ -1,5 +1,16 @@
 -- daily.check_daily_rollover が lock.lua 経由の共有ロックで正しく動作することを確認する。
 
+-- serialize が末尾に id:XXXXXX タグをランダム発行して付与するため、
+-- 行の完全一致ではなく前方一致(id:タグを除く)で存在確認する。
+local function contains_line_prefix(lines, prefix)
+	for _, line in ipairs(lines) do
+		if line == prefix or line:match("^" .. vim.pesc(prefix) .. " id:%x+$") then
+			return true
+		end
+	end
+	return false
+end
+
 describe("daily.check_daily_rollover (共有ロック経由)", function()
 	local data_dir
 	local daily_mod
@@ -46,10 +57,10 @@ describe("daily.check_daily_rollover (共有ロック経由)", function()
 			local today = os.date("%Y-%m-%d")
 			local done_lines = vim.fn.readfile(data_dir .. "/done.md")
 			assert.is_true(
-				vim.tbl_contains(done_lines, "- [x] 完了済みinboxタスク done:" .. today .. " from:inbox")
+				contains_line_prefix(done_lines, "- [x] 完了済みinboxタスク done:" .. today .. " from:inbox")
 			)
 			assert.is_true(
-				vim.tbl_contains(done_lines, "- [x] 完了済みtodoタスク done:" .. today .. " from:today")
+				contains_line_prefix(done_lines, "- [x] 完了済みtodoタスク done:" .. today .. " from:today")
 			)
 
 			local inbox_lines = vim.fn.readfile(data_dir .. "/inbox.md")

@@ -164,8 +164,17 @@ describe("autoread and timer skip for project files", function()
 		-- dirtyでも常に処理・保存されるため、未保存状態は解消される
 		assert.is_false(vim.bo[buf].modified)
 		-- 手動で追加した未保存分の内容は失われていない
+		-- (sort_todo_file がファイル全体を書き戻す際、serializeが末尾に
+		-- id:XXXXXX タグを新規発行するため前方一致で確認する)
 		local after_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-		assert.is_true(vim.tbl_contains(after_lines, "- [ ] 手動で追加した未保存タスク"))
+		local found = false
+		for _, line in ipairs(after_lines) do
+			if line:match("^%- %[ %] 手動で追加した未保存タスク%s*") then
+				found = true
+				break
+			end
+		end
+		assert.is_true(found, "手動タスクの行が見当たらない: " .. vim.inspect(after_lines))
 
 		vim.api.nvim_buf_delete(buf, { force = true })
 		vim.fn.delete(data_dir, "rf")

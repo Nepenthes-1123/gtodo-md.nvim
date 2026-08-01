@@ -1,5 +1,15 @@
 local io_mod = require("gtodo-md.io")
 
+-- write_todo_file はタスク行に id:XXXXXX タグをランダム発行して付与するため、
+-- 厳密一致比較ではこれを除いた行で比較する。
+local function strip_ids(lines)
+	local result = {}
+	for i, line in ipairs(lines) do
+		result[i] = (line:gsub("%s+id:%x+%s*$", ""))
+	end
+	return result
+end
+
 describe("io.lua parse_markdown and write_todo_file roundtrip", function()
 	it("parse_markdown と write_todo_file で内容が完全に一致する", function()
 		local original_lines = {
@@ -39,6 +49,6 @@ describe("io.lua parse_markdown and write_todo_file roundtrip", function()
 			table.remove(written_lines)
 		end
 
-		assert.are.same(original_lines, written_lines)
+		assert.are.same(original_lines, strip_ids(written_lines))
 	end)
 end)
