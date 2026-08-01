@@ -272,6 +272,22 @@ local function items_to_lines(items, lines, seen_ids)
 	end
 end
 
+-- 連続する空行を1行に圧縮する(markdownlint MD012対策)。
+-- data.header はユーザーが書いた行をそのまま echo するだけで空行を
+-- フィルタしないため(セクション内の items とは異なり)、手編集等で
+-- 見出し前に空行が連続していると、そのままファイルに残り続けていた。
+local function collapse_blank_runs(lines)
+	local result = {}
+	for _, line in ipairs(lines) do
+		if vim.trim(line) == "" and #result > 0 and vim.trim(result[#result]) == "" then
+			-- 直前が既に空行なら追加しない(圧縮)
+		else
+			table.insert(result, line)
+		end
+	end
+	return result
+end
+
 -- パースしたデータを書き戻す
 function M.write_todo_file(filepath, data)
 	local lines = {}
@@ -300,6 +316,8 @@ function M.write_todo_file(filepath, data)
 
 		items_to_lines(data.sections[sec] or {}, lines, seen_ids)
 	end
+
+	lines = collapse_blank_runs(lines)
 
 	while #lines > 0 and lines[#lines] == "" do
 		table.remove(lines)
