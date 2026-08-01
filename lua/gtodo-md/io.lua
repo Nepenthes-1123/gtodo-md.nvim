@@ -170,6 +170,20 @@ function M.read_todo_file(filepath)
 	return M.parse_markdown(lines)
 end
 
+-- #94: 見出しがデフォルト名(Today等)で、かつそのキーに対して別名が
+-- カスタム設定されている場合、その場でカスタム名へ正規化する。これにより
+-- due.lua等の既存の config.sections.* 参照箇所は一切変更せずに動作し続け、
+-- 既存ファイルの見出しをユーザーに手動でリネームさせる必要もない
+-- (次回保存時に write_todo_file が新しい名前で書き戻す)。
+local function normalize_section_name(name)
+	for key, default_name in pairs(config.default_sections) do
+		if name == default_name then
+			return config.sections[key]
+		end
+	end
+	return name
+end
+
 function M.parse_markdown(lines)
 	local data = {
 		header = {},
@@ -188,7 +202,7 @@ function M.parse_markdown(lines)
 		local task = task_mod.parse(line)
 
 		if sec_name then
-			sec_name = vim.trim(sec_name)
+			sec_name = normalize_section_name(vim.trim(sec_name))
 			current_section = sec_name
 			if not data.sections[current_section] then
 				data.sections[current_section] = {}

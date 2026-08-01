@@ -19,8 +19,8 @@ function M.get_tasks_lines(limit)
 	local data = io_mod.read_todo_file(todo_path)
 	local today_tasks = {}
 
-	if data.sections["Today"] then
-		for _, item in ipairs(data.sections["Today"]) do
+	if data.sections[config.sections.TODAY] then
+		for _, item in ipairs(data.sections[config.sections.TODAY]) do
 			if item.type == "task" and item.task.status == " " then
 				table.insert(today_tasks, item.task)
 				if #today_tasks >= limit then

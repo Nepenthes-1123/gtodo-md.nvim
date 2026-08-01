@@ -16,20 +16,40 @@ M.defaults = {
 
 M.options = {}
 
-M.sections = {
+-- デフォルトのセクション名。#94: setup({sections=...})でカスタム名を設定
+-- できるが、この名前は常にエイリアスとして受理され続ける(io.luaのパース時に
+-- 正規化、init.luaのBufWritePreバリデーションで許容)。既存のtodo.mdの
+-- 見出しをユーザーに手動でリネームさせないための設計。
+M.default_sections = {
 	TODAY = "Today",
 	NEXT = "Next",
 	WAITING = "Waiting",
 	SOMEDAY = "Someday",
 }
 
+M.sections = vim.tbl_extend("force", {}, M.default_sections)
+
 function M.setup(opts)
-	M.options = vim.tbl_deep_extend("force", M.defaults, opts or {})
+	opts = opts or {}
+	M.options = vim.tbl_deep_extend("force", M.defaults, opts)
+	M.sections = vim.tbl_deep_extend("force", M.default_sections, opts.sections or {})
 	-- ディレクトリが存在しない場合は作成
 	local projects_dir = M.options.data_dir .. "/projects"
 	if vim.fn.isdirectory(projects_dir) == 0 then
 		vim.fn.mkdir(projects_dir, "p")
 	end
+end
+
+-- key(TODAY/NEXT/WAITING/SOMEDAY)に対応する、見出しとして現在有効な
+-- 名称候補を返す。カスタム名を設定している場合は [カスタム名, デフォルト名]
+-- の順(カスタム名が優先)、設定していない場合はデフォルト名のみを返す。
+function M.section_aliases(key)
+	local custom = M.sections[key]
+	local default = M.default_sections[key]
+	if custom ~= default then
+		return { custom, default }
+	end
+	return { custom }
 end
 
 -- オプション値を取得する。未設定の場合はデフォルト値を返す

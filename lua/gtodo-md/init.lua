@@ -139,29 +139,34 @@ function M.setup_autocmds()
 		pattern = { "todo.md" },
 		callback = function(args)
 			local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
-			local required =
-				{ config.sections.TODAY, config.sections.NEXT, config.sections.WAITING, config.sections.SOMEDAY }
-			local found = {
-				Today = false,
-				Next = false,
-				Waiting = false,
-				Someday = false,
-			}
+			-- #94: config.sections.* はsetup()でカスタム名に変更できるが、
+			-- デフォルト名(Today等)も常にエイリアスとして受理する(既存ファイルの
+			-- 見出しをユーザーに手動でリネームさせないため)。config.section_aliases
+			-- がキーごとの有効な名称候補(カスタム名+デフォルト名)を返す。
+			local section_keys = { "TODAY", "NEXT", "WAITING", "SOMEDAY" }
+			local found = {}
+			for _, key in ipairs(section_keys) do
+				found[key] = false
+			end
 
 			for _, line in ipairs(lines) do
 				local sec = line:match("^##%s+(.*)$")
 				if sec then
 					sec = vim.trim(sec)
-					if found[sec] ~= nil then
-						found[sec] = true
+					for _, key in ipairs(section_keys) do
+						for _, alias in ipairs(config.section_aliases(key)) do
+							if sec == alias then
+								found[key] = true
+							end
+						end
 					end
 				end
 			end
 
 			local missing = {}
-			for _, sec in ipairs(required) do
-				if not found[sec] then
-					table.insert(missing, "## " .. sec)
+			for _, key in ipairs(section_keys) do
+				if not found[key] then
+					table.insert(missing, "## " .. config.sections[key])
 				end
 			end
 

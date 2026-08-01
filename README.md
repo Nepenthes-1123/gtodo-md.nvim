@@ -53,11 +53,20 @@ require("gtodo-md").setup({
   waiting_warning_interval = 3600, -- Interval to check Waiting tasks warnings (seconds)
   enable_project_progress = true, -- Display progress bars at the bottom of project files
   auto_move_inbox_to_today = true, -- Automatically move tasks with due dates of today/overdue from Inbox to Today on creation or edit
+  sections = { -- Customize todo.md section names (partial overrides are fine)
+    TODAY = "Today",
+    NEXT = "Next",
+    WAITING = "Waiting",
+    SOMEDAY = "Someday",
+  },
 })
 ```
 
 > [!NOTE]
 > Even if you save files like `todo.md` as another file (`:w backup.md`), the plugin's keybindings, due-date checks, and automated tasks will always target the original files located in `data_dir`.
+
+> [!NOTE]
+> If you customize `sections` after already using the plugin, existing `## Today`/`## Next`/`## Waiting`/`## Someday` headings in your `todo.md` keep working — no manual renaming needed. They're automatically recognized and rewritten to your custom names the next time the file is saved.
 
 ### 2. lazy.nvim
 ```lua
