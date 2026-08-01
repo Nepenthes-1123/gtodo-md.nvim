@@ -10,6 +10,16 @@ local last_processed_mtimes = {
 	todo = 0,
 	done = 0,
 }
+
+-- #89: mtime(秒精度)だけでは1秒以内の連続変更を見逃すため、ファイルサイズを
+-- 補助的な変更検知として併用する。完全な解決(内容ハッシュ化等)は毎回ファイル
+-- 全読みのコストが見合わないため見送り、「同一秒内でサイズも同じ変更」という
+-- 更に狭いケースは due.lua の R5-3 と同様、低確率として許容する。
+local last_processed_sizes = {
+	inbox = 0,
+	todo = 0,
+	done = 0,
+}
 local last_processed_date = ""
 
 -- 他インスタンスによる外部変更検知(reload_if_externally_changed)専用のキャッシュ。
@@ -27,16 +37,24 @@ local external_change_mtimes = {
 	done = 0,
 }
 
--- キャッシュ取得用アクセサ
+-- キャッシュ取得用アクセサ。
+-- #98: テーブルの参照をそのまま返すと、呼び出し側が誤って書き換えた場合に
+-- 内部キャッシュが汚染されてしまうため、シャローコピーを返す。
 function M.get_cache()
-	return last_processed_mtimes, last_processed_date
+	return vim.tbl_extend("force", {}, last_processed_mtimes),
+		last_processed_date,
+		vim.tbl_extend("force", {}, last_processed_sizes)
 end
 
 -- キャッシュ更新用アクセサ
-function M.update_cache(inbox_mtime, todo_mtime, done_mtime)
+function M.update_cache(inbox_mtime, todo_mtime, done_mtime, inbox_size, todo_size, done_size)
+	local data_dir = config.get("data_dir")
 	last_processed_mtimes.inbox = inbox_mtime
 	last_processed_mtimes.todo = todo_mtime
-	last_processed_mtimes.done = done_mtime or vim.fn.getftime(config.get("data_dir") .. "/done.md")
+	last_processed_mtimes.done = done_mtime or vim.fn.getftime(data_dir .. "/done.md")
+	last_processed_sizes.inbox = inbox_size or vim.fn.getfsize(data_dir .. "/inbox.md")
+	last_processed_sizes.todo = todo_size or vim.fn.getfsize(data_dir .. "/todo.md")
+	last_processed_sizes.done = done_size or vim.fn.getfsize(data_dir .. "/done.md")
 	last_processed_date = os.date("%Y-%m-%d")
 end
 
@@ -129,7 +147,7 @@ function M.check_daily_rollover()
 			return
 		end
 
-		-- ロールオーバー完了後の mtime をキャッシュする。
+		-- ロールオーバー完了後の mtime/サイズをキャッシュする。
 		-- ロールオーバー自体が dueチェック・ソートを実行済みのため、
 		-- handle_buf_enter用・外部変更検知用の両方のキャッシュを更新してよい。
 		local new_inbox_mtime = vim.fn.getftime(inbox_path)
@@ -138,6 +156,9 @@ function M.check_daily_rollover()
 		last_processed_mtimes.inbox = new_inbox_mtime
 		last_processed_mtimes.todo = new_todo_mtime
 		last_processed_mtimes.done = new_done_mtime
+		last_processed_sizes.inbox = vim.fn.getfsize(inbox_path)
+		last_processed_sizes.todo = vim.fn.getfsize(todo_path)
+		last_processed_sizes.done = vim.fn.getfsize(done_path)
 		external_change_mtimes.inbox = new_inbox_mtime
 		external_change_mtimes.todo = new_todo_mtime
 		external_change_mtimes.done = new_done_mtime
