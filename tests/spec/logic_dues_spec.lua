@@ -45,8 +45,8 @@ describe("logic.check_dues boundary conditions", function()
 		logic_mod.check_dues(inbox_path, todo_path)
 
 		local updated_todo = io_mod.read_todo_file(todo_path)
-		local today_items = io_mod.get_section_items(updated_todo.sections["Today"] or {})
-		local next_items = io_mod.get_section_items(updated_todo.sections["Next"] or {})
+		local today_items = updated_todo.sections["Today"] or {}
+		local next_items = updated_todo.sections["Next"] or {}
 
 		assert.are.same(1, #today_items)
 		assert.are.same("タスクA", today_items[1].task.content)
@@ -68,7 +68,7 @@ describe("logic.check_dues boundary conditions", function()
 		logic_mod.check_dues(inbox_path, todo_path)
 
 		local updated_todo = io_mod.read_todo_file(todo_path)
-		local today_items = io_mod.get_section_items(updated_todo.sections["Today"] or {})
+		local today_items = updated_todo.sections["Today"] or {}
 
 		assert.are.same(1, #today_items)
 		assert.are.same("タスクA", today_items[1].task.content)
@@ -89,8 +89,8 @@ describe("logic.check_dues boundary conditions", function()
 		local updated_inbox = io_mod.read_todo_file(inbox_path)
 		local updated_todo = io_mod.read_todo_file(todo_path)
 
-		local inbox_items = io_mod.get_section_items(updated_inbox.sections["default"] or {})
-		local today_items = io_mod.get_section_items(updated_todo.sections["Today"] or {})
+		local inbox_items = updated_inbox.sections["default"] or {}
+		local today_items = updated_todo.sections["Today"] or {}
 
 		assert.are.same(1, #inbox_items)
 		assert.are.same("タスクB", inbox_items[1].task.content)
@@ -113,11 +113,41 @@ describe("logic.check_dues boundary conditions", function()
 		logic_mod.check_dues(inbox_path, todo_path)
 
 		local updated_todo = io_mod.read_todo_file(todo_path)
-		local today_items = io_mod.get_section_items(updated_todo.sections["Today"] or {})
-		local next_items = io_mod.get_section_items(updated_todo.sections["Next"] or {})
+		local today_items = updated_todo.sections["Today"] or {}
+		local next_items = updated_todo.sections["Next"] or {}
 
 		assert.are.same(0, #today_items)
 		assert.are.same(1, #next_items)
 		assert.are.same("タスクA", next_items[1].task.content)
+	end)
+
+	-- #86/#90 根本原因の回帰テスト: 旧実装は get_section_items 経由で
+	-- トップレベルのタスクしか見ておらず、### 見出し配下のdue到達タスクは
+	-- 昇格対象として一切スキャンされなかった。
+	it("### 見出し配下にあるdue=todayのタスクもTodayに移動する", function()
+		local todo_lines = {
+			"# Todo",
+			"",
+			"## Next",
+			"",
+			"### 仕事",
+			"- [ ] 仕事タスクA due:" .. today,
+			"- [ ] 仕事タスクB due:" .. tomorrow,
+		}
+		io_mod.write_lines(todo_path, todo_lines)
+		io_mod.write_lines(inbox_path, { "# Inbox", "" })
+
+		logic_mod.check_dues(inbox_path, todo_path)
+
+		local updated_todo = io_mod.read_todo_file(todo_path)
+		local today_items = updated_todo.sections["Today"] or {}
+
+		local moved = false
+		for _, item in ipairs(today_items) do
+			if item.type == "task" and item.task.content == "仕事タスクA" then
+				moved = true
+			end
+		end
+		assert.is_true(moved, "### 見出し配下の仕事タスクAがTodayへ移動していない")
 	end)
 end)

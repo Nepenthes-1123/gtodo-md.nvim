@@ -116,7 +116,7 @@ describe("task.priority (P2-1: 優先度マーカーの誤検出防止)", functi
 					table.insert(items, { type = "task", task = t })
 				end
 			end
-			return { items = items, subsections = {} }
+			return items
 		end
 
 		it("(A) タスクが優先度なしタスクより先に並ぶ", function()
@@ -125,10 +125,9 @@ describe("task.priority (P2-1: 優先度マーカーの誤検出防止)", functi
 				"- [ ] (A) 優先タスク due:2025-01-10",
 			})
 			local sorted = logic_mod.sort_section_tasks(sec)
-			local items = sorted.items
 			-- due あり → due なし の順のため、
 			-- (A) 優先タスク due:2025-01-10 が先頭になるはず
-			assert.equals("2025-01-10", items[1].task.due)
+			assert.equals("2025-01-10", sorted[1].task.due)
 		end)
 
 		it("(A) > (B) の優先度順でソートされる（due が同じ場合）", function()
@@ -137,16 +136,15 @@ describe("task.priority (P2-1: 優先度マーカーの誤検出防止)", functi
 				"- [ ] (A) A優先タスク due:2025-01-10",
 			})
 			local sorted = logic_mod.sort_section_tasks(sec)
-			local items = sorted.items
 			-- (A) が先、(B) が後
 			-- 修正前: content:match で "A"/"B" を判定し正しく並ぶ
 			-- 修正後: task.priority で "A"/"B" を判定（content には prefix なし）
 			-- どちらも期待値は同じ
 			local priority_first
-			if items[1].task.priority then
-				priority_first = items[1].task.priority -- 修正後
+			if sorted[1].task.priority then
+				priority_first = sorted[1].task.priority -- 修正後
 			else
-				priority_first = items[1].task.content:match("^%(([A-Z])%)") or "Z" -- 修正前フォールバック
+				priority_first = sorted[1].task.content:match("^%(([A-Z])%)") or "Z" -- 修正前フォールバック
 			end
 			assert.equals("A", priority_first)
 		end)
@@ -157,10 +155,9 @@ describe("task.priority (P2-1: 優先度マーカーの誤検出防止)", functi
 				"- [ ] 通常タスク due:2025-01-10",
 			})
 			local sorted = logic_mod.sort_section_tasks(sec)
-			local items = sorted.items
 			-- 両者 due が同じで priority なし → stable sort で元の順序
-			assert.equals("(WIP) 作業メモ", items[1].task.content)
-			assert.equals("通常タスク", items[2].task.content)
+			assert.equals("(WIP) 作業メモ", sorted[1].task.content)
+			assert.equals("通常タスク", sorted[2].task.content)
 		end)
 	end)
 

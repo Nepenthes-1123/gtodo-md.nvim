@@ -13,8 +13,7 @@ function M.move_completed_tasks(inbox_path, todo_path, done_path)
 	local inbox_data = io_mod.read_todo_file(inbox_path)
 	local inbox_changed = false
 	if inbox_data.sections["default"] then
-		local sec = inbox_data.sections["default"]
-		local sec_items = io_mod.get_section_items(sec)
+		local sec_items = inbox_data.sections["default"]
 		local remaining = {}
 		for _, item in ipairs(sec_items) do
 			if item.type == "task" and item.task.status == "x" then
@@ -24,11 +23,7 @@ function M.move_completed_tasks(inbox_path, todo_path, done_path)
 				table.insert(remaining, item)
 			end
 		end
-		if type(sec) == "table" and sec.items ~= nil then
-			sec.items = remaining
-		else
-			inbox_data.sections["default"] = remaining
-		end
+		inbox_data.sections["default"] = remaining
 	end
 	if inbox_changed then
 		io_mod.write_todo_file(inbox_path, inbox_data)
@@ -44,8 +39,7 @@ function M.move_completed_tasks(inbox_path, todo_path, done_path)
 		config.sections.SOMEDAY,
 	}) do
 		if todo_data.sections[sec] then
-			local sec_data = todo_data.sections[sec]
-			local sec_items = io_mod.get_section_items(sec_data)
+			local sec_items = todo_data.sections[sec]
 			local remaining = {}
 			for _, item in ipairs(sec_items) do
 				if item.type == "task" and item.task.status == "x" then
@@ -55,12 +49,7 @@ function M.move_completed_tasks(inbox_path, todo_path, done_path)
 					table.insert(remaining, item)
 				end
 			end
-			-- items のみ差し替え（subsections は不変）
-			if type(sec_data) == "table" and sec_data.items ~= nil then
-				sec_data.items = remaining
-			else
-				todo_data.sections[sec] = remaining
-			end
+			todo_data.sections[sec] = remaining
 		end
 	end
 	if todo_changed then

@@ -114,8 +114,7 @@ function M.render_project_tasks(bufnr)
 		local function parse_and_accumulate(filepath)
 			if vim.fn.filereadable(filepath) == 1 then
 				local data = io_mod.read_todo_file(filepath)
-				for _, section_data in pairs(data.sections) do
-					local section_items = io_mod.get_section_items(section_data)
+				for _, section_items in pairs(data.sections) do
 					for _, item in ipairs(section_items) do
 						if item.type == "task" and item.task.project then
 							local p = item.task.project

@@ -90,7 +90,7 @@ local function update_task_in_todo(task, section, action_fn)
 		return false
 	end
 
-	local sec_items = io_mod.get_section_items(todo_data.sections[section])
+	local sec_items = todo_data.sections[section]
 	local found_idx = M._find_task_idx(sec_items, task)
 
 	if not found_idx then
@@ -177,9 +177,9 @@ function M._execute_move(task, row, target_section)
 				{ config.sections.TODAY, config.sections.NEXT, config.sections.WAITING, config.sections.SOMEDAY }
 		end
 		if not todo_data.sections[target_section] then
-			todo_data.sections[target_section] = { items = {}, subsections = {} }
+			todo_data.sections[target_section] = {}
 		end
-		table.insert(io_mod.get_section_items(todo_data.sections[target_section]), { type = "task", task = task })
+		table.insert(todo_data.sections[target_section], { type = "task", task = task })
 		todo_data.sections[target_section] = logic_mod.sort_section_tasks(todo_data.sections[target_section])
 		io_mod.write_todo_file(todo_path, todo_data)
 		vim.notify(string.format("Moved task to todo.md [%s]", target_section), vim.log.levels.INFO)
@@ -196,7 +196,7 @@ function M._execute_move(task, row, target_section)
 			table.remove(sec_items, idx)
 
 			if not todo_data.sections[target_section] then
-				todo_data.sections[target_section] = { items = {}, subsections = {} }
+				todo_data.sections[target_section] = {}
 				local has_sec = false
 				for _, s in ipairs(todo_data.section_order) do
 					if s == target_section then
@@ -209,9 +209,8 @@ function M._execute_move(task, row, target_section)
 				end
 			end
 
-			table.insert(io_mod.get_section_items(todo_data.sections[target_section]), { type = "task", task = task })
-			todo_data.sections[section] =
-				logic_mod.sort_section_tasks(todo_data.sections[section] or { items = {}, subsections = {} })
+			table.insert(todo_data.sections[target_section], { type = "task", task = task })
+			todo_data.sections[section] = logic_mod.sort_section_tasks(todo_data.sections[section] or {})
 			todo_data.sections[target_section] = logic_mod.sort_section_tasks(todo_data.sections[target_section])
 			moved = true
 		end)
