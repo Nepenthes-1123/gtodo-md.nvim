@@ -90,6 +90,29 @@ describe("daily.check_daily_rollover (共有ロック経由)", function()
 		end
 	)
 
+	-- #98: get_cache() が内部キャッシュテーブルの参照をそのまま返すと、
+	-- 呼び出し元が受け取った値を書き換えた際に daily.lua 内部のキャッシュ
+	-- そのものが汚染されてしまう。シャローコピーを返すことでこれを防ぐ。
+	it("get_cacheは内部キャッシュの参照ではなくコピーを返す(#98)", function()
+		daily_mod.check_daily_rollover()
+
+		local mtimes1, _, sizes1 = daily_mod.get_cache()
+		mtimes1.todo = 999999999
+		sizes1.todo = 999999999
+
+		local mtimes2, _, sizes2 = daily_mod.get_cache()
+		assert.are_not.same(
+			999999999,
+			mtimes2.todo,
+			"get_cacheの戻り値を書き換えるとmtimeキャッシュが汚染された"
+		)
+		assert.are_not.same(
+			999999999,
+			sizes2.todo,
+			"get_cacheの戻り値を書き換えるとsizeキャッシュが汚染された"
+		)
+	end)
+
 	-- 回帰テスト: reload_if_externally_changed(他インスタンス変更検知用)が
 	-- handle_buf_enter 用のキャッシュ(get_cache/update_cache)を巻き込んで
 	-- 更新してしまうと、todo.mdが実際に変化していてもhandle_buf_enter側が

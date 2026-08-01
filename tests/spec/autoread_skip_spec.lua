@@ -269,4 +269,99 @@ describe("autoread and timer skip for project files", function()
 			vim.fn.delete(data_dir, "rf")
 		end
 	)
+
+	-- #89 回帰テスト: mtime(秒精度)だけの比較では、直前の処理と同一秒内に
+	-- 内容が変わった場合に変化を見逃してスキップしてしまう。ファイルサイズを
+	-- 補助的に比較することで、サイズが変わる変更についてはこれを検知できる。
+	it(
+		"mtimeが直前と同一秒でも、ファイルサイズが変化していれば自動処理はスキップされない",
+		function()
+			local main_mod = require("gtodo-md")
+			local config = require("gtodo-md.config")
+			local utils_mod = require("gtodo-md.utils")
+			local daily_mod = require("gtodo-md.daily")
+			local uv = vim.uv or vim.loop
+
+			local data_dir = vim.fn.tempname()
+			vim.fn.mkdir(data_dir .. "/projects", "p")
+			config.setup({ data_dir = data_dir })
+			utils_mod.write_last_opened(os.date("%Y-%m-%d"))
+
+			local todo_path = data_dir .. "/todo.md"
+			vim.fn.writefile({ "# Inbox", "" }, data_dir .. "/inbox.md")
+			vim.fn.writefile({
+				"# Todo",
+				"",
+				"## Today",
+				"",
+				"- [ ] 既存タスク",
+				"",
+				"## Next",
+				"",
+				"## Waiting",
+				"",
+				"## Someday",
+				"",
+			}, todo_path)
+
+			-- 起動時相当の呼び出しと1回目のBufEnterで、mtime/sizeキャッシュを
+			-- 初期化しておく
+			daily_mod.check_daily_rollover()
+			local warmup_buf = vim.api.nvim_create_buf(true, false)
+			vim.api.nvim_buf_set_name(warmup_buf, todo_path)
+			vim.api.nvim_buf_call(warmup_buf, function()
+				vim.cmd("edit!")
+			end)
+			main_mod.handle_buf_enter(warmup_buf)
+			vim.api.nvim_buf_delete(warmup_buf, { force = true })
+
+			local cached_mtimes = daily_mod.get_cache()
+			local pinned_mtime = cached_mtimes.todo
+
+			-- 内容を変更(サイズが変わる)しつつ、mtimeはキャッシュ済みの値と
+			-- 完全に同じ秒へ固定する(同一秒内の連続変更を模倣)
+			vim.fn.writefile({
+				"# Todo",
+				"",
+				"## Today",
+				"",
+				"- [ ] 既存タスク",
+				"- [ ] 同一秒内に追加したタスク",
+				"",
+				"## Next",
+				"",
+				"## Waiting",
+				"",
+				"## Someday",
+				"",
+			}, todo_path)
+			uv.fs_utime(todo_path, pinned_mtime, pinned_mtime)
+
+			local buf = vim.api.nvim_create_buf(true, false)
+			vim.api.nvim_buf_set_name(buf, todo_path)
+			vim.api.nvim_buf_call(buf, function()
+				vim.cmd("edit!")
+			end)
+
+			main_mod.handle_buf_enter(buf)
+
+			-- dueチェック・ソートが実際に走っていれば、追加したタスクにIDが付与される
+			local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+			local found = false
+			for _, line in ipairs(lines) do
+				if line:match("^%- %[ %] 同一秒内に追加したタスク id:%x+$") then
+					found = true
+					break
+				end
+			end
+			assert.is_true(
+				found,
+				"サイズが変化しているのに自動処理がスキップされた(mtimeのみの比較に戻っている): "
+					.. vim.inspect(lines)
+			)
+
+			vim.api.nvim_buf_delete(buf, { force = true })
+			vim.fn.delete(data_dir, "rf")
+		end
+	)
 end)
