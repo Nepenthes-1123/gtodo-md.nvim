@@ -34,6 +34,25 @@ function M.setup()
       autocmd Syntax markdown,gtodo syntax match GTodoWait /\(^\|\s\+\)wait:[^[:space:]　。、.,()（）]\+/ containedin=ALL
     augroup END
   ]])
+
+	-- id: タグをconcealで隠すため、gtodo管理下のバッファを表示するウィンドウに
+	-- conceallevel/concealcursor を設定する。concealcursor を空にすることで、
+	-- カーソルがその行にある間は自動的に見える状態へ戻り、通常通り編集できる。
+	-- BufWinEnter を使うことで、既存バッファを新しいウィンドウ(:sp等)で
+	-- 開いた場合にも確実に設定される。
+	local conceal_group = vim.api.nvim_create_augroup("GTodoConceal", { clear = true })
+	vim.api.nvim_create_autocmd("BufWinEnter", {
+		group = conceal_group,
+		pattern = "*.md",
+		callback = function(args)
+			local bufname = vim.api.nvim_buf_get_name(args.buf)
+			local data_dir = require("gtodo-md.config").get("data_dir")
+			if data_dir and data_dir ~= "" and bufname:find(data_dir, 1, true) then
+				vim.wo.conceallevel = 2
+				vim.wo.concealcursor = ""
+			end
+		end,
+	})
 end
 
 function M.update_highlights(bufnr)
@@ -147,6 +166,18 @@ function M.update_highlights(bufnr)
 								hl_mode = "combine",
 							})
 						end
+					end
+
+					-- 5. Task ID (id:xxxxxx): 内部識別用で人間が読む必要は無いため conceal で隠す。
+					-- M.setup() で concealcursor を空にしているため、カーソルがその行にある間は
+					-- 自動的に見える状態に戻り、通常通り編集できる(バッファの中身は変更しない)。
+					local id_s, id_full = line:match("()(%s+id:%S+)%s*$")
+					if id_s then
+						vim.api.nvim_buf_set_extmark(bufnr, ns, i - 1, id_s - 1, {
+							end_col = id_s - 1 + #id_full,
+							conceal = "",
+							ephemeral = false,
+						})
 					end
 				end
 			end
