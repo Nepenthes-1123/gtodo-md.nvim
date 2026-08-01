@@ -132,6 +132,16 @@ function M.write_lines(path, lines)
 			vim.bo[buf].modified = false
 		end
 		write_lines_to_disk(path, lines, vim.bo[buf].fileformat == "dos")
+
+		-- :write を使わずディスクへ直接書き込んだため、Vimが内部で持つ
+		-- 「最後に確認したファイルの更新時刻」がこの書き込みを認識しないまま
+		-- 古い値で残ってしまう。これを放置すると、後で別の編集が加わった際に
+		-- Vimが(実際にはこのプラグイン自身が書いた)今回の変更を「外部での
+		-- 変更」と誤認し、W12/W13警告を誤って出してしまう。バッファは既に
+		-- クリーンな状態のため、この checktime は内容の再読み込みを伴わず
+		-- サイレントに完了する(バッファ番号を明示指定するためカレントバッファの
+		-- 切り替えも発生しない)。
+		pcall(vim.cmd, "silent! checktime " .. buf)
 	else
 		local is_crlf = false
 		if vim.fn.filereadable(path) == 1 then
