@@ -54,4 +54,12 @@ describe("ui.queue._load_buf_quietly", function()
 		assert.are.same(existing_buf, buf)
 		assert.are.same(prev_ei, vim.o.eventignore)
 	end)
+
+	-- CIでswapファイル用ディレクトリ作成が競合し、E303で稀に失敗する事象への対処。
+	-- Queueでの読み込みは表示用の一時的なものであり編集を伴わないため、
+	-- swapfileによるクラッシュ復旧保護は不要と判断して無効化した。
+	it("読み込んだバッファはswapfileが無効化される", function()
+		local buf = queue_mod._load_buf_quietly(path)
+		assert.is_false(vim.bo[buf].swapfile)
+	end)
 end)
