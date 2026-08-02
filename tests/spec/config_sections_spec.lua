@@ -178,6 +178,119 @@ describe("config.sections のカスタム化 (#94)", function()
 		end)
 	end)
 
+	-- カスタム名を変更・削除した直後、ファイル側の見出しがまだ前回の名前の
+	-- ままでも保存がブロックされないこと(前回の名前を1世代分だけ覚える)。
+	describe("セクション名を変更・削除した直後の互換性", function()
+		-- #94 とは無関係なVim側の安全確認(:editを経由していない新規バッファ
+		-- から既存パスへ書き込む際のE13: File exists)を避けるため write! を
+		-- 使う。BufWritePreのバリデーション自体は ! の有無に関わらず通常通り
+		-- 発火する。
+		local function try_write(lines)
+			local todo_path = data_dir .. "/todo.md"
+			local buf = vim.api.nvim_create_buf(true, false)
+			vim.api.nvim_buf_set_name(buf, todo_path)
+			vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+
+			local ok, err = pcall(function()
+				vim.api.nvim_buf_call(buf, function()
+					vim.cmd("write!")
+				end)
+			end)
+
+			vim.api.nvim_buf_delete(buf, { force = true })
+			return ok, err
+		end
+
+		before_each(function()
+			require("gtodo-md").setup_autocmds()
+		end)
+
+		it(
+			"カスタム名で保存した後、設定を削除してデフォルトへ戻しても前回の見出しのまま保存できる",
+			function()
+				config.setup({ data_dir = data_dir, sections = { TODAY = "今日" } })
+				local ok1 = try_write({
+					"# Todo",
+					"",
+					"## 今日",
+					"",
+					"## Next",
+					"",
+					"## Waiting",
+					"",
+					"## Someday",
+					"",
+				})
+				assert.is_true(ok1)
+
+				-- sections 設定を削除(デフォルトへ戻す)。ファイルの見出しは
+				-- まだ "## 今日" のまま(手動リネームしていない)。
+				config.setup({ data_dir = data_dir })
+
+				local ok2 = try_write({
+					"# Todo",
+					"",
+					"## 今日",
+					"",
+					"## Next",
+					"",
+					"## Waiting",
+					"",
+					"## Someday",
+					"",
+				})
+				assert.is_true(
+					ok2,
+					"設定を削除した直後、前回のカスタム名の見出しのままでは保存できなかった(#94)"
+				)
+			end
+		)
+
+		it(
+			"設定を戻した後にsort_todo_fileが走ると、見出しが新しい名前へ自動的に書き換わる",
+			function()
+				config.setup({ data_dir = data_dir, sections = { TODAY = "今日" } })
+				local todo_path = data_dir .. "/todo.md"
+				io_mod.write_lines(todo_path, {
+					"# Todo",
+					"",
+					"## 今日",
+					"",
+					"- [ ] タスクA",
+					"",
+					"## Next",
+					"",
+					"## Waiting",
+					"",
+					"## Someday",
+					"",
+				})
+
+				config.setup({ data_dir = data_dir })
+				require("gtodo-md.logic").sort_todo_file(todo_path)
+
+				local written = vim.fn.readfile(todo_path)
+				local found_new, found_old = false, false
+				for _, l in ipairs(written) do
+					if l == "## Today" then
+						found_new = true
+					end
+					if l == "## 今日" then
+						found_old = true
+					end
+				end
+				assert.is_true(
+					found_new,
+					"書き戻し後にデフォルト名の見出しが無い: " .. vim.inspect(written)
+				)
+				assert.is_false(
+					found_old,
+					"書き戻し後も前回のカスタム名の見出しが残っている: " .. vim.inspect(written)
+				)
+			end
+		)
+	end)
+
 	it(
 		"dashboard.get_tasks_linesは、TODAYがカスタム名でも該当セクションのタスクを一覧に含める",
 		function()
