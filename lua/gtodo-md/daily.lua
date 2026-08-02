@@ -102,13 +102,15 @@ local function reload_if_externally_changed()
 	end
 end
 
--- 日付変更チェックと自動タスク整理
+-- 日付変更チェックと自動タスク整理。
+-- 戻り値: ロールオーバーを実際に実行し完了した場合のみ true、それ以外は false。
+-- (呼び出し元が「繰り越しが起きた」ことを検知して statusline を再描画する等に使う)
 function M.check_daily_rollover()
 	local today = os.date("%Y-%m-%d")
 	if last_processed_date ~= "" and today == last_processed_date then
 		-- 日付変更なしでも、別インスタンスによる外部変更を検知してリロード
 		reload_if_externally_changed()
-		return
+		return false
 	end
 
 	local last_opened = require("gtodo-md.utils").read_last_opened()
@@ -139,12 +141,12 @@ function M.check_daily_rollover()
 			-- last_processed_date は更新せず、現時点での外部変更チェックを実行して終了する。
 			-- 別インスタンスの完了後に次回の呼び出しで last_opened == today 側に分岐して処理される。
 			reload_if_externally_changed()
-			return
+			return false
 		end
 
 		if not rollover_ok then
 			-- エラーは lock_mod 側で通知済み。状態は進めずリトライを許可する。
-			return
+			return false
 		end
 
 		-- ロールオーバー完了後の mtime/サイズをキャッシュする。
@@ -164,10 +166,12 @@ function M.check_daily_rollover()
 		external_change_mtimes.done = new_done_mtime
 		M.reload_managed_bufs()
 		last_processed_date = today
+		return true
 	else
 		-- 別インスタンスが先にロールオーバーを実施した可能性があるためチェック
 		reload_if_externally_changed()
 		last_processed_date = today
+		return false
 	end
 end
 
