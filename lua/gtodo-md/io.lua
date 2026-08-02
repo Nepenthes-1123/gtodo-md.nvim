@@ -170,15 +170,17 @@ function M.read_todo_file(filepath)
 	return M.parse_markdown(lines)
 end
 
--- #94: 見出しがデフォルト名(Today等)で、かつそのキーに対して別名が
--- カスタム設定されている場合、その場でカスタム名へ正規化する。これにより
+-- #94: 見出しが config.section_aliases(key) に含まれる名前(デフォルト名/
+-- 前回の設定名)であれば、その場で現在のカスタム名へ正規化する。これにより
 -- due.lua等の既存の config.sections.* 参照箇所は一切変更せずに動作し続け、
 -- 既存ファイルの見出しをユーザーに手動でリネームさせる必要もない
 -- (次回保存時に write_todo_file が新しい名前で書き戻す)。
 local function normalize_section_name(name)
-	for key, default_name in pairs(config.default_sections) do
-		if name == default_name then
-			return config.sections[key]
+	for key, _ in pairs(config.default_sections) do
+		for _, alias in ipairs(config.section_aliases(key)) do
+			if name == alias then
+				return config.sections[key]
+			end
 		end
 	end
 	return name
