@@ -8,14 +8,15 @@ local cache = {
 }
 
 -- 高速にタスク数をカウントするAPI (Lualine等用)
+--
+-- この関数は副作用を持たない(ファイル書き込み・ロック取得・バッファリロードを行わない)。
+-- statusline の再描画のたびに呼ばれるため、日次ロールオーバーの実行は
+-- timer.lua の60秒タイマーおよび autocmd(FocusGained/BufEnter)側の責務とする。
 function M.get_stats()
 	local data_dir = config.get("data_dir")
 	if not data_dir then
 		return cache.stats
 	end
-
-	-- API呼び出し時に最新日付かチェックし、必要なら裏で大掃除する
-	require("gtodo-md.daily").check_daily_rollover()
 
 	local todo_path = data_dir .. "/todo.md"
 	local inbox_path = data_dir .. "/inbox.md"
