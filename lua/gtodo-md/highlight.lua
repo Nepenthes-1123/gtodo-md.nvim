@@ -15,6 +15,43 @@ local hl_groups = {
 	priority_c = "GTodoPriorityC", -- (C)
 }
 
+-- setup() 時点で既に存在するバッファ/ウィンドウへ、conceal 設定とハイライトを
+-- 遡って適用する(バックフィル)。
+-- autocmd は「これから発火するイベント」にしか効かないため、lazy.nvim の
+-- ft/cmd/keys/event 等で setup() がバッファ表示より後に走る構成では、
+-- BufWinEnter(conceallevel/concealcursor)も autocmds.lua の BufReadPost(attach)も
+-- 既に発火し終えており、開いたままのバッファ/ウィンドウには何も適用されない。
+local function backfill_existing()
+	local data_dir = require("gtodo-md.config").get("data_dir")
+	if not data_dir or data_dir == "" then
+		return
+	end
+
+	-- 対象判定は BufWinEnter/BufReadPost のコールバックと同一のロジックを使う
+	-- (pattern = "*.md" によるファイル名の絞り込みを含む)
+	local is_target = {}
+	for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+		if vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_buf_is_loaded(bufnr) then
+			local bufname = vim.api.nvim_buf_get_name(bufnr)
+			if bufname:match("%.md$") and bufname:find(data_dir, 1, true) then
+				is_target[bufnr] = true
+				-- attach は augroup(clear = true) を使うため冪等。
+				-- 既に attach 済みのバッファに再度呼んでも二重登録にはならない。
+				M.attach(bufnr)
+			end
+		end
+	end
+
+	-- conceallevel/concealcursor はウィンドウローカルのため、カレントウィンドウを
+	-- 指す vim.wo ではなく対象ウィンドウを明示して設定する
+	for _, win in ipairs(vim.api.nvim_list_wins()) do
+		if vim.api.nvim_win_is_valid(win) and is_target[vim.api.nvim_win_get_buf(win)] then
+			vim.api.nvim_set_option_value("conceallevel", 2, { win = win })
+			vim.api.nvim_set_option_value("concealcursor", "", { win = win })
+		end
+	end
+end
+
 function M.setup()
 	-- デフォルトのハイライトグループを定義 (ユーザーが上書き可能)
 	vim.api.nvim_set_hl(0, "GTodoProject", { link = "Type", default = true })
@@ -53,6 +90,10 @@ function M.setup()
 			end
 		end,
 	})
+
+	-- 上記 autocmd は setup() 以降に開かれるバッファ/ウィンドウにしか効かないため、
+	-- 既に存在するものへ遡って適用する
+	backfill_existing()
 end
 
 function M.update_highlights(bufnr)
