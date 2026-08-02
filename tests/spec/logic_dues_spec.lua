@@ -121,6 +121,31 @@ describe("logic.check_dues boundary conditions", function()
 		assert.are.same("タスクA", next_items[1].task.content)
 	end)
 
+	-- #87: 未来期日のInboxタスクをWaitingへ自動移動する機能は、宣言だけあって
+	-- どこにも値が追加されない未実装のデッドコードだった。「未来期日に変更した
+	-- タスクをどこに移動させるかはユーザー自身が操作すべき」との判断で削除し、
+	-- 現状維持(Inboxに残り続ける)とした。この現状維持の挙動を回帰確認する。
+	it("未来期日のInboxタスクはWaitingへ自動移動されず、Inboxに残り続ける", function()
+		local inbox_lines = {
+			"# Inbox",
+			"",
+			"- [ ] 未来のタスク due:" .. tomorrow,
+		}
+		io_mod.write_lines(inbox_path, inbox_lines)
+		io_mod.write_lines(todo_path, { "# Todo", "" })
+
+		logic_mod.check_dues(inbox_path, todo_path)
+
+		local updated_inbox = io_mod.read_todo_file(inbox_path)
+		local inbox_items = updated_inbox.sections["default"] or {}
+		assert.are.same(1, #inbox_items, "未来期日のタスクがInboxから消えている")
+		assert.are.same("未来のタスク", inbox_items[1].task.content)
+
+		local updated_todo = io_mod.read_todo_file(todo_path)
+		local waiting_items = updated_todo.sections["Waiting"] or {}
+		assert.are.same(0, #waiting_items, "未実装のはずのWaitingへの自動移動が発生している")
+	end)
+
 	-- #86/#90 根本原因の回帰テスト: 旧実装は get_section_items 経由で
 	-- トップレベルのタスクしか見ておらず、### 見出し配下のdue到達タスクは
 	-- 昇格対象として一切スキャンされなかった。

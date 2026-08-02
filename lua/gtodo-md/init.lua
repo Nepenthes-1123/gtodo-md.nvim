@@ -138,6 +138,11 @@ function M.setup_autocmds()
 		group = group,
 		pattern = { "todo.md" },
 		callback = function(args)
+			-- #91: patternはファイル名の末尾一致のみで、data_dir外の同名ファイルにも
+			-- マッチしてしまう。is_gtodo_fileでパスベースに対象外を除外する。
+			if not utils_mod.is_gtodo_file(vim.api.nvim_buf_get_name(args.buf)) then
+				return
+			end
 			local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
 			-- #94: config.sections.* はsetup()でカスタム名に変更できるが、
 			-- デフォルト名(Today等)も常にエイリアスとして受理する(既存ファイルの
@@ -214,6 +219,10 @@ function M.setup_autocmds()
 			group = group,
 			pattern = fname,
 			callback = function(args)
+				-- #91: data_dir外の同名ファイルを除外する
+				if not utils_mod.is_gtodo_file(vim.api.nvim_buf_get_name(args.buf)) then
+					return
+				end
 				local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
 				local has_header = false
 				for _, line in ipairs(lines) do
@@ -303,6 +312,10 @@ function M.setup_autocmds()
 		group = group,
 		pattern = { "*/projects/*.md" },
 		callback = function(args)
+			-- #91: data_dir外の同名パスを除外する
+			if not utils_mod.is_gtodo_file(vim.api.nvim_buf_get_name(args.buf)) then
+				return
+			end
 			local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
 			local filepath = args.match
 			local proj_name = vim.fn.fnamemodify(filepath, ":t:r")

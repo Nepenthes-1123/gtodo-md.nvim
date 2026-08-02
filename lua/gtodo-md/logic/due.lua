@@ -49,7 +49,6 @@ function M.check_dues(inbox_path, todo_path)
 	local inbox_warnings = {}
 	local inbox_changed = false
 	local items_to_move = {}
-	local future_items_to_move = {}
 
 	if inbox_data.sections["default"] then
 		local sec_items = inbox_data.sections["default"]
@@ -110,17 +109,6 @@ function M.check_dues(inbox_path, todo_path)
 		table.insert(todo_data.sections[config.sections.TODAY], item)
 		moved_count = moved_count + 1
 		todo_changed = true
-	end
-
-	if #future_items_to_move > 0 then
-		if not todo_data.sections[config.sections.WAITING] then
-			todo_data.sections[config.sections.WAITING] = {}
-		end
-		for _, item in ipairs(future_items_to_move) do
-			table.insert(todo_data.sections[config.sections.WAITING], item)
-			moved_count = moved_count + 1
-			todo_changed = true
-		end
 	end
 
 	for _, from_sec in ipairs({ config.sections.NEXT, config.sections.SOMEDAY, config.sections.WAITING }) do
