@@ -3,6 +3,9 @@ local config = require("gtodo-md.config")
 local utils = require("gtodo-md.utils")
 local float_ui = require("gtodo-md.ui.float")
 
+local WEEKDAYS_JP = { "日", "月", "火", "水", "木", "金", "土" }
+local SEPARATOR = string.rep("─", 46)
+
 -- ファイルをバッファとして読み込む。
 -- 既にロード済みならそのまま返す(何もイベントは発火しない)。
 -- 未ロードの場合、bufload() は BufRead/BufReadPre/BufReadPost 等の
@@ -34,21 +37,35 @@ local function load_buf_quietly(filepath)
 end
 M._load_buf_quietly = load_buf_quietly
 
--- Queue ビュー: due または wait 付き未完了タスクを表示する
--- mode: "due" (デフォルト) または "wait"
-function M.open_queue(mode, previous_target_id)
-	mode = mode or "due"
-	local data_dir = config.get("data_dir")
+-- 「今日」の日付文字列。純関数のデフォルト引数用。
+local function default_today_str()
+	return os.date("%Y-%m-%d")
+end
 
-	-- inbox.md と todo.md から対象タスクを収集
+--- データ収集 ---------------------------------------------------------------
+
+-- 行が Queue の表示対象かどうかを判定する(純関数)。
+-- 対象ならパース済みの task を、そうでなければ nil を返す。
+function M._match_queue_task(line, mode)
+	local task = require("gtodo-md.task").parse(line)
+	if task and task.status ~= "x" then
+		if (mode == "due" and task.due) or (mode == "wait" and task.wait) then
+			return task
+		end
+	end
+	return nil
+end
+
+-- inbox.md と todo.md を走査して対象タスクのエントリを集める。
+-- ジャンプ先の追跡用に、元バッファへ extmark を設置する。
+local function collect_entries(mode, ns)
+	local data_dir = config.get("data_dir")
 	local source_files = {
 		data_dir .. "/inbox.md",
 		data_dir .. "/todo.md",
 	}
 
-	local tasks = {}
-
-	local ns = vim.api.nvim_create_namespace("gtodo_queue_marks")
+	local entries = {}
 
 	for _, filepath in ipairs(source_files) do
 		if vim.fn.filereadable(filepath) == 1 then
@@ -56,24 +73,30 @@ function M.open_queue(mode, previous_target_id)
 			vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
 
 			local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-			local task_mod = require("gtodo-md.task")
 			for lnum, line in ipairs(lines) do
-				local task = task_mod.parse(line)
-				if task and task.status ~= "x" then
-					if (mode == "due" and task.due) or (mode == "wait" and task.wait) then
-						local mark_id = vim.api.nvim_buf_set_extmark(buf, ns, lnum - 1, 0, {})
-						table.insert(
-							tasks,
-							{ task = task, filepath = filepath, lnum = lnum, mark_id = mark_id, bufnr = buf }
-						)
-					end
+				local task = M._match_queue_task(line, mode)
+				if task then
+					local mark_id = vim.api.nvim_buf_set_extmark(buf, ns, lnum - 1, 0, {})
+					table.insert(
+						entries,
+						{ task = task, filepath = filepath, lnum = lnum, mark_id = mark_id, bufnr = buf }
+					)
 				end
 			end
 		end
 	end
 
-	local today_str = os.date("%Y-%m-%d")
-	local today_time = utils.date_to_time(today_str)
+	return entries
+end
+
+--- グルーピングとソート -----------------------------------------------------
+
+-- 収集済みエントリを表示グループへ振り分け、表示順へソートする(純関数)。
+-- entries: { { task=..., filepath=..., lnum=..., mark_id=..., bufnr=... }, ... }
+-- today_time: 「今日」の 00:00 を指すエポック秒(省略時は実際の今日)
+-- 戻り値: { overdue, by_date, sorted_dates, later, by_person, sorted_persons }
+function M._group_entries(entries, mode, today_time)
+	today_time = today_time or utils.date_to_time(default_today_str())
 	local week_end_time = today_time + 7 * 24 * 60 * 60
 
 	-- due モード用のグループ分け
@@ -84,7 +107,7 @@ function M.open_queue(mode, previous_target_id)
 	-- wait モード用のグループ分け
 	local by_person = {}
 
-	for _, entry in ipairs(tasks) do
+	for _, entry in ipairs(entries) do
 		if mode == "due" then
 			local due_time = utils.date_to_time(entry.task.due)
 			if due_time < today_time then
@@ -129,10 +152,69 @@ function M.open_queue(mode, previous_target_id)
 		table.sort(sorted_persons)
 	end
 
-	-- バッファ行 / ハイライト / ジャンプ先マップ
+	return {
+		overdue = overdue,
+		by_date = by_date,
+		sorted_dates = sorted_dates,
+		later = later,
+		by_person = by_person,
+		sorted_persons = sorted_persons,
+	}
+end
+
+--- 表示行の生成 -------------------------------------------------------------
+
+local function task_line(entry, prefix)
+	local task = entry.task
+	local line = (prefix or "  ▶ ") .. task.content
+	if task.project then
+		line = line .. " +" .. task.project
+	end
+	if task.context then
+		line = line .. " " .. task.context
+	end
+	return line
+end
+
+local function date_label(date_str, today_time)
+	local t = utils.date_to_time(date_str)
+	local diff = math.floor((t - today_time) / 86400)
+	local mo = tonumber(date_str:sub(6, 7))
+	local d = tonumber(date_str:sub(9, 10))
+	local wday = tonumber(os.date("%w", t)) + 1
+	local wd = WEEKDAYS_JP[wday]
+	if diff == 0 then
+		return string.format(" 今日 (%d/%d %s)", mo, d, wd), "DiagnosticWarn"
+	elseif diff == 1 then
+		return string.format(" 明日 (%d/%d %s)", mo, d, wd), "DiagnosticInfo"
+	else
+		return string.format(" %d/%d %s (%d日後)", mo, d, wd, diff), "DiagnosticInfo"
+	end
+end
+
+-- エントリからジャンプ先情報(line_map の値)を作る。
+local function source_of(entry)
+	return {
+		filepath = entry.filepath,
+		original_line = entry.task.original_line,
+		lnum = entry.lnum,
+		mark_id = entry.mark_id,
+		bufnr = entry.bufnr,
+	}
+end
+
+-- グルーピング済みデータから表示行を組み立てる(純関数)。
+-- 戻り値:
+--   lines    表示するバッファ行のリスト
+--   hls      { line_idx(0-based), hl_group } のリスト
+--   line_map line_idx(0-based) -> { filepath, original_line, lnum, mark_id, bufnr }
+function M._build_display(mode, groups, today_str, today_time)
+	today_str = today_str or default_today_str()
+	today_time = today_time or utils.date_to_time(today_str)
+
 	local lines = {}
-	local hls = {} -- { line_idx(0-based), hl_group }
-	local line_map = {} -- line_idx(0-based) -> { filepath, original_line, lnum }
+	local hls = {}
+	local line_map = {}
 
 	local function add(text, hl_group, source)
 		table.insert(lines, text)
@@ -145,37 +227,7 @@ function M.open_queue(mode, previous_target_id)
 		end
 	end
 
-	local function task_line(entry, prefix)
-		local task = entry.task
-		local line = (prefix or "  ▶ ") .. task.content
-		if task.project then
-			line = line .. " +" .. task.project
-		end
-		if task.context then
-			line = line .. " " .. task.context
-		end
-		return line
-	end
-
-	local weekdays_jp = { "日", "月", "火", "水", "木", "金", "土" }
-
-	local function date_label(date_str)
-		local t = utils.date_to_time(date_str)
-		local diff = math.floor((t - today_time) / 86400)
-		local mo = tonumber(date_str:sub(6, 7))
-		local d = tonumber(date_str:sub(9, 10))
-		local wday = tonumber(os.date("%w", t)) + 1
-		local wd = weekdays_jp[wday]
-		if diff == 0 then
-			return string.format(" 今日 (%d/%d %s)", mo, d, wd), "DiagnosticWarn"
-		elseif diff == 1 then
-			return string.format(" 明日 (%d/%d %s)", mo, d, wd), "DiagnosticInfo"
-		else
-			return string.format(" %d/%d %s (%d日後)", mo, d, wd, diff), "DiagnosticInfo"
-		end
-	end
-
-	local sep = string.rep("─", 46)
+	local sep = SEPARATOR
 
 	-- ヘッダー
 	if mode == "due" then
@@ -187,83 +239,82 @@ function M.open_queue(mode, previous_target_id)
 
 	if mode == "due" then
 		-- 期限切れ
-		if #overdue > 0 then
+		if #groups.overdue > 0 then
 			add("", nil)
 			add(" 期限切れ", "DiagnosticError")
 			add(sep, "Comment")
-			for _, entry in ipairs(overdue) do
+			for _, entry in ipairs(groups.overdue) do
 				local days_over = math.floor((today_time - utils.date_to_time(entry.task.due)) / 86400)
-				add(task_line(entry, "  ⚠ ") .. string.format(" (%d日超過)", days_over), "DiagnosticError", {
-					filepath = entry.filepath,
-					original_line = entry.task.original_line,
-					lnum = entry.lnum,
-					mark_id = entry.mark_id,
-					bufnr = entry.bufnr,
-				})
+				add(
+					task_line(entry, "  ⚠ ") .. string.format(" (%d日超過)", days_over),
+					"DiagnosticError",
+					source_of(entry)
+				)
 			end
 		end
 		-- 今日〜7日後（タスクある日のみ）
-		for _, date in ipairs(sorted_dates) do
-			local label, hl = date_label(date)
+		for _, date in ipairs(groups.sorted_dates) do
+			local label, hl = date_label(date, today_time)
 			add("", nil)
 			add(label, hl)
 			add(sep, "Comment")
-			for _, entry in ipairs(by_date[date]) do
-				add(task_line(entry), nil, {
-					filepath = entry.filepath,
-					original_line = entry.task.original_line,
-					lnum = entry.lnum,
-					mark_id = entry.mark_id,
-					bufnr = entry.bufnr,
-				})
+			for _, entry in ipairs(groups.by_date[date]) do
+				add(task_line(entry), nil, source_of(entry))
 			end
 		end
 
 		-- それ以降
-		if #later > 0 then
+		if #groups.later > 0 then
 			add("", nil)
 			add(" それ以降", "Comment")
 			add(sep, "Comment")
-			for _, entry in ipairs(later) do
+			for _, entry in ipairs(groups.later) do
 				local mo = tonumber(entry.task.due:sub(6, 7))
 				local d = tonumber(entry.task.due:sub(9, 10))
-				add(task_line(entry) .. string.format("  due:%d/%d", mo, d), "Comment", {
-					filepath = entry.filepath,
-					original_line = entry.task.original_line,
-					lnum = entry.lnum,
-					mark_id = entry.mark_id,
-					bufnr = entry.bufnr,
-				})
+				add(task_line(entry) .. string.format("  due:%d/%d", mo, d), "Comment", source_of(entry))
 			end
 		end
 
 		-- タスクがひとつもない場合
-		if #overdue == 0 and #sorted_dates == 0 and #later == 0 then
+		if #groups.overdue == 0 and #groups.sorted_dates == 0 and #groups.later == 0 then
 			add("", nil)
 			add("  期限付きタスクはありません", "DiagnosticOk")
 		end
 	else
 		-- wait モードの表示
-		for _, person in ipairs(sorted_persons) do
+		for _, person in ipairs(groups.sorted_persons) do
 			add("", nil)
 			add(" " .. person .. " 待ち", "DiagnosticWarn")
 			add(sep, "Comment")
-			for _, entry in ipairs(by_person[person]) do
-				add(task_line(entry), nil, {
-					filepath = entry.filepath,
-					original_line = entry.task.original_line,
-					lnum = entry.lnum,
-					mark_id = entry.mark_id,
-					bufnr = entry.bufnr,
-				})
+			for _, entry in ipairs(groups.by_person[person]) do
+				add(task_line(entry), nil, source_of(entry))
 			end
 		end
 
-		if #sorted_persons == 0 then
+		if #groups.sorted_persons == 0 then
 			add("", nil)
 			add("  誰かの作業を待っているタスクはありません", "DiagnosticOk")
 		end
 	end
+
+	return lines, hls, line_map
+end
+
+--- UI(バッファ/ウィンドウ/キーマップ) --------------------------------------
+
+-- Queue ビュー: due または wait 付き未完了タスクを表示する
+-- mode: "due" (デフォルト) または "wait"
+function M.open_queue(mode, previous_target_id)
+	mode = mode or "due"
+
+	local ns = vim.api.nvim_create_namespace("gtodo_queue_marks")
+	local entries = collect_entries(mode, ns)
+
+	local today_str = os.date("%Y-%m-%d")
+	local today_time = utils.date_to_time(today_str)
+
+	local groups = M._group_entries(entries, mode, today_time)
+	local lines, hls, line_map = M._build_display(mode, groups, today_str, today_time)
 
 	-- フローティングウィンドウ
 	local width = math.min(math.floor(vim.o.columns * 0.65), 80)
