@@ -324,10 +324,14 @@ function M.write_todo_file(filepath, data)
 
 	lines = collapse_blank_runs(lines)
 
+	-- 末尾の空行は取り除く。write_lines_to_disk が各行の後ろに改行を付けて
+	-- 書き出すため、最終行の改行だけでファイルは正しく改行で終わる。
+	-- ここで空文字列の行を足すと、その分の改行が最終行の改行に続いて
+	-- ファイル末尾が "\n\n" になり、:w のたびに末尾の空行が1行増えていた
+	-- (markdownlint MD012)。
 	while #lines > 0 and lines[#lines] == "" do
 		table.remove(lines)
 	end
-	table.insert(lines, "")
 
 	M.write_lines(filepath, lines)
 	return true
