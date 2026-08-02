@@ -16,8 +16,8 @@ Lua 5.1 のツールチェインと、PATH 上の Neovim が必要です。`plen
 # フルテストスイートを実行する（headless Neovim + plenary の busted 形式スペック）
 nvim --headless -u tests/minimal_init.lua -S tests/run_tests.lua
 
-# 単一のスペックファイルを実行する
-nvim --headless -u tests/minimal_init.lua -c "PlenaryBustedFile tests/spec/logic_sort_spec.lua"
+# 単一のスペックファイルを実行する（同一プロセスで実行すること。理由は下記）
+nvim --headless -u tests/minimal_init.lua -c "lua require('plenary.busted').run('tests/spec/logic_sort_spec.lua')"
 
 # Lint
 luarocks install luacheck   # 初回のみ
@@ -27,6 +27,8 @@ luacheck lua/ tests/
 stylua --check lua/ tests/
 stylua lua/ tests/
 ```
+
+**単一スペックの実行に `PlenaryBustedFile` を使ってはいけません。** `PlenaryBustedFile` は `-u` を引き継がない子プロセスを起動するため、作業中の worktree ではなくユーザーが `stdpath("data")/site/pack/core/opt/gtodo-md.nvim` にインストール済みのコピーを読み込んでしまいます。その結果、追加したばかりの関数が `nil` になる、一部のテストだけ通って一部だけ落ちる、といった**実態と食い違う結果**が出ます。上記の `require('plenary.busted').run(...)` は同一プロセスで実行するためこの問題が起きません（成功時 exit 0、失敗時 exit 1）。フルスイートの `tests/run_tests.lua` は `test_directory` に `minimal_init` を渡しているため元から正常です。
 
 CI（`.github/workflows/ci.yml`）は luacheck と stylua の `--check` を実行し、Neovim `v0.10.0` と `nightly` の両方に対してテストを実行します。
 
