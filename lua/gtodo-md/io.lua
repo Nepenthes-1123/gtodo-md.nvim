@@ -79,22 +79,25 @@ local function update_lines_incrementally(buf, new_lines)
 	vim.api.nvim_buf_set_lines(buf, start_idx - 1, end_old, false, replacement)
 end
 
--- inbox.md / todo.md への書き込み後、開いているプロジェクトバッファの進捗仮想テキストを更新する。
--- write_lines が :write を使わなくなったため、旧実装が依存していた
--- BufWritePost 経由の自動更新が効かなくなった分をここで肩代わりする。
-local function refresh_project_views_if_relevant(path)
-	local filename = vim.fn.fnamemodify(path, ":t")
-	if filename ~= "inbox.md" and filename ~= "todo.md" then
-		return
+-- write_lines の完了後に通知するオブザーバのリスト。
+-- io.lua は下位層のため上位層(ui 等)を require してはならず、
+-- 「書き込みが起きたこと」を通知する仕組みだけを提供して、
+-- 何をするかは購読側(上位層)が M.add_write_observer で登録する。
+local write_observers = {}
+
+-- 書き込み後に呼ばれるコールバックを登録する。
+-- コールバックは書き込み先の path を引数に受け取る。
+-- 解除用のAPIは現時点で必要としていないため用意していない。
+function M.add_write_observer(fn)
+	table.insert(write_observers, fn)
+end
+
+-- オブザーバのエラーが書き込み処理本体(および他のオブザーバ)を
+-- 巻き込まないよう、1件ずつ pcall で隔離して呼ぶ。
+local function notify_write_observers(path)
+	for _, fn in ipairs(write_observers) do
+		pcall(fn, path)
 	end
-	pcall(function()
-		local ui_project = require("gtodo-md.ui.project")
-		for _, b in ipairs(vim.api.nvim_list_bufs()) do
-			if vim.api.nvim_buf_is_loaded(b) then
-				ui_project.render_project_tasks(b)
-			end
-		end
-	end)
 end
 
 -- 行リストをファイルへアトミックに書き込む(改行コードを指定)
@@ -158,7 +161,7 @@ function M.write_lines(path, lines)
 		write_lines_to_disk(path, lines, is_crlf)
 	end
 
-	refresh_project_views_if_relevant(path)
+	notify_write_observers(path)
 end
 
 -- 指定ファイルをパースして、セクションごとの行のリストにする
@@ -321,10 +324,14 @@ function M.write_todo_file(filepath, data)
 
 	lines = collapse_blank_runs(lines)
 
+	-- 末尾の空行は取り除く。write_lines_to_disk が各行の後ろに改行を付けて
+	-- 書き出すため、最終行の改行だけでファイルは正しく改行で終わる。
+	-- ここで空文字列の行を足すと、その分の改行が最終行の改行に続いて
+	-- ファイル末尾が "\n\n" になり、:w のたびに末尾の空行が1行増えていた
+	-- (markdownlint MD012)。
 	while #lines > 0 and lines[#lines] == "" do
 		table.remove(lines)
 	end
-	table.insert(lines, "")
 
 	M.write_lines(filepath, lines)
 	return true

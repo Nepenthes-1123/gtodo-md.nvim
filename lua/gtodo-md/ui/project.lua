@@ -217,4 +217,21 @@ function M.render_project_tasks(bufnr)
 	})
 end
 
+-- inbox.md / todo.md への書き込み後、開いているプロジェクトバッファの進捗仮想テキストを更新する。
+-- io.write_lines が :write を使わなくなったため、旧実装が依存していた
+-- BufWritePost 経由の自動更新が効かなくなった分をここで肩代わりする。
+-- 対象ファイルの判定は「どのファイルがプロジェクト進捗に影響するか」という
+-- 上位層の関心事のため、io 側ではなくこちらに置く。
+io_mod.add_write_observer(function(path)
+	local filename = vim.fn.fnamemodify(path, ":t")
+	if filename ~= "inbox.md" and filename ~= "todo.md" then
+		return
+	end
+	for _, b in ipairs(vim.api.nvim_list_bufs()) do
+		if vim.api.nvim_buf_is_loaded(b) then
+			M.render_project_tasks(b)
+		end
+	end
+end)
+
 return M

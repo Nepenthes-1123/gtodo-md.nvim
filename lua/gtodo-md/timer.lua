@@ -95,7 +95,17 @@ function M.start_daily_rollover_timer()
 		interval,
 		vim.schedule_wrap(function()
 			if not M.should_skip_timer() then
-				require("gtodo-md.daily").check_daily_rollover()
+				if require("gtodo-md.daily").check_daily_rollover() then
+					-- 繰り越しでタスク件数が変わったことを statusline へ反映させる。
+					-- lualine は約1秒間隔でポーリングするため放置でも更新されるが、
+					-- 素の 'statusline' に api.get_statusline_string() を埋めている場合、
+					-- Vim は何らかのイベントが起きるまで statusline を再描画しない。
+					-- アイドル状態のユーザーには繰り越し前の件数が残り続けてしまう。
+					-- 再描画が失敗し得る状況(コマンドラインモード等)でタイマー処理
+					-- 全体を巻き込まないよう pcall で隔離する。
+					-- ロールオーバーが実際に走ったときだけ呼ぶ(毎ティック再描画しない)。
+					pcall(vim.cmd, "redrawstatus!")
+				end
 			end
 		end)
 	)

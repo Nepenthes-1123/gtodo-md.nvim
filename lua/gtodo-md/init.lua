@@ -5,8 +5,13 @@ local io_mod = require("gtodo-md.io")
 local logic_mod = require("gtodo-md.logic")
 local editor_mod = require("gtodo-md.editor")
 local timer_mod = require("gtodo-md.timer")
-local utils_mod = require("gtodo-md.utils")
 local lock_mod = require("gtodo-md.lock")
+local autocmds_mod = require("gtodo-md.autocmds")
+local keymaps_mod = require("gtodo-md.keymaps")
+local daily_mod = require("gtodo-md.daily")
+local highlight_mod = require("gtodo-md.highlight")
+local task_mod = require("gtodo-md.task")
+local prompt_mod = require("gtodo-md.ui.prompt")
 
 function M.setup(opts)
 	config.setup(opts)
@@ -15,7 +20,7 @@ function M.setup(opts)
 	io_mod.ensure_files()
 
 	-- 起動時に日付変更チェックを走らせる（Dashboard等への最新データ提供のため）
-	require("gtodo-md.daily").check_daily_rollover()
+	daily_mod.check_daily_rollover()
 
 	-- タイマー開始
 	timer_mod.start_waiting_timer()
@@ -23,7 +28,7 @@ function M.setup(opts)
 
 	-- Autocmdの設定
 	M.setup_autocmds()
-	require("gtodo-md.highlight").setup()
+	highlight_mod.setup()
 
 	-- グローバルキーマップの設定
 	if config.get("use_default_keymaps") then
@@ -52,8 +57,6 @@ function M.handle_buf_enter(bufnr)
 	local data_dir = config.get("data_dir")
 	local inbox_path = data_dir .. "/inbox.md"
 	local todo_path = data_dir .. "/todo.md"
-
-	local daily_mod = require("gtodo-md.daily")
 
 	-- 1. 日付変更チェック
 	daily_mod.check_daily_rollover()
@@ -108,7 +111,7 @@ function M.handle_buf_enter(bufnr)
 	end
 
 	-- 構文ハイライトのアタッチ
-	require("gtodo-md.highlight").attach(bufnr)
+	highlight_mod.attach(bufnr)
 
 	-- 自動処理によってディスク上のファイルが変更された場合、未保存の変更がなければ管理バッファを一括同期（リロード）する
 	daily_mod.reload_managed_bufs()
@@ -125,423 +128,47 @@ function M.handle_buf_enter(bufnr)
 	)
 end
 
+-- Autocmd の登録 (実体は autocmds.lua)
 function M.setup_autocmds()
-	local group = vim.api.nvim_create_augroup("GtodoMd", { clear = true })
+	autocmds_mod.setup()
+end
 
-	-- この setup_autocmds 実行インスタンスに完全にカプセル化されたキャッシュテーブル
-	-- augroup のクリア (clear = true) と連動して再初期化されるため、古い Autocmd との不整合は起きない
-	local original_created_dates = {}
-	local original_history_sections = {}
+-- dueチェックと(必要なら)ソートを排他ロック配下で実行し、check_duesの結果を返す。
+-- always_sort は呼び出し元による非対称な仕様を表す:
+--   todo.md 側は check_dues の結果に関わらず常にソートする (true)
+--   inbox.md 側は変更があったときだけソートする (false)
+local function check_dues_and_sort(data_dir, inbox_path, todo_path, always_sort)
+	local changed = false
+	lock_mod.with_write_lock(data_dir, function()
+		changed = logic_mod.check_dues(inbox_path, todo_path)
+		if always_sort or changed then
+			logic_mod.sort_todo_file(todo_path)
+		end
+	end)
+	return changed
+end
 
-	-- todo.md 保存時のバリデーション
-	vim.api.nvim_create_autocmd("BufWritePre", {
-		group = group,
-		pattern = { "todo.md" },
-		callback = function(args)
-			-- #91: patternはファイル名の末尾一致のみで、data_dir外の同名ファイルにも
-			-- マッチしてしまう。is_gtodo_fileでパスベースに対象外を除外する。
-			if not utils_mod.is_gtodo_file(vim.api.nvim_buf_get_name(args.buf)) then
-				return
-			end
-			local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
-			-- #94: config.sections.* はsetup()でカスタム名に変更できるが、
-			-- デフォルト名(Today等)も常にエイリアスとして受理する(既存ファイルの
-			-- 見出しをユーザーに手動でリネームさせないため)。config.section_aliases
-			-- がキーごとの有効な名称候補(カスタム名+デフォルト名)を返す。
-			local section_keys = { "TODAY", "NEXT", "WAITING", "SOMEDAY" }
-			local found = {}
-			for _, key in ipairs(section_keys) do
-				found[key] = false
-			end
-
-			for _, line in ipairs(lines) do
-				local sec = line:match("^##%s+(.*)$")
-				if sec then
-					sec = vim.trim(sec)
-					for _, key in ipairs(section_keys) do
-						for _, alias in ipairs(config.section_aliases(key)) do
-							if sec == alias then
-								found[key] = true
-							end
-						end
-					end
-				end
-			end
-
-			local missing = {}
-			for _, key in ipairs(section_keys) do
-				if not found[key] then
-					table.insert(missing, "## " .. config.sections[key])
-				end
-			end
-
-			if #missing > 0 then
-				local msg = "[gtodo-md] 必須セクションが不足しているため保存を中断しました ("
-					.. table.concat(missing, ", ")
-					.. ") ※スタックトレースは仕様です"
-				-- BufWritePreの中で標準の保存処理を中断させるには例外エラーを投げる必要がある。
-				-- 見栄えを良くするため、第2引数に0を渡してLuaのスタックトレースを非表示にしている。
-				error(msg, 0)
-			end
-		end,
-	})
-
-	-- done.md, cancelled.md ロード/表示時に既存の年月セクション見出しをキャッシュする
-	vim.api.nvim_create_autocmd({ "BufReadPost", "BufEnter" }, {
-		group = group,
-		pattern = { "done.md", "cancelled.md" },
-		callback = function(args)
-			if original_history_sections[tostring(args.buf)] then
-				return
-			end
-
-			local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
-			local original_secs = {}
-			for _, line in ipairs(lines) do
-				local sec = line:match("^##%s+(%d%d%d%d%-%d%d)$")
-				if sec then
-					original_secs[sec] = true
-				end
-			end
-			original_history_sections[tostring(args.buf)] = original_secs
-		end,
-	})
-
-	-- inbox.md, done.md, cancelled.md 保存時のヘッダー保護
-	local history_patterns = {
-		["inbox.md"] = "# Inbox",
-		["done.md"] = "# Done",
-		["cancelled.md"] = "# Cancelled",
-	}
-
-	for fname, expected_header in pairs(history_patterns) do
-		vim.api.nvim_create_autocmd("BufWritePre", {
-			group = group,
-			pattern = fname,
-			callback = function(args)
-				-- #91: data_dir外の同名ファイルを除外する
-				if not utils_mod.is_gtodo_file(vim.api.nvim_buf_get_name(args.buf)) then
-					return
-				end
-				local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
-				local has_header = false
-				for _, line in ipairs(lines) do
-					if line:match("^" .. expected_header) then
-						has_header = true
-						break
-					end
-				end
-
-				if not has_header then
-					local msg = string.format(
-						"[gtodo-md] 必須ヘッダー (%s) が削除されたため保存を中断しました ※スタックトレースは仕様です",
-						expected_header
-					)
-					-- BufWritePreの中で標準の保存処理を中断させるには例外エラーを投げる必要がある。
-					-- 見栄えを良くするため、第2引数に0を渡してLuaのスタックトレースを非表示にしている。
-					error(msg, 0)
-				end
-
-				-- 年月セクションの削除保護 (done.md と cancelled.md のみ)
-				if fname == "done.md" or fname == "cancelled.md" then
-					local original_secs = original_history_sections[tostring(args.buf)] or {}
-					local found_secs = {}
-					for _, line in ipairs(lines) do
-						local sec = line:match("^##%s+(%d%d%d%d%-%d%d)$")
-						if sec then
-							found_secs[sec] = true
-						end
-					end
-
-					local missing_secs = {}
-					for sec, _ in pairs(original_secs) do
-						if not found_secs[sec] then
-							table.insert(missing_secs, "## " .. sec)
-						end
-					end
-
-					if #missing_secs > 0 then
-						local msg = string.format(
-							"[gtodo-md] 既存の履歴セクション (%s) が削除されたため保存を中断しました ※スタックトレースは仕様です",
-							table.concat(missing_secs, ", ")
-						)
-						-- BufWritePreの中で標準の保存処理を中断させるには例外エラーを投げる必要がある。
-						-- 見栄えを良くするため、第2引数に0を渡してLuaのスタックトレースを非表示にしている。
-						error(msg, 0)
-					end
-				end
-			end,
-		})
+-- 末尾に溜まった空行アイテムを取り除く(追記のたびに空行が増えるのを防ぐ)
+local function trim_trailing_blank_items(items)
+	while #items > 0 and items[#items].type == "text" and vim.trim(items[#items].line) == "" do
+		table.remove(items)
 	end
+end
 
-	-- projects/*.md ロード/表示時に created の値とフロントマターをキャッシュする
-	vim.api.nvim_create_autocmd({ "BufReadPost", "BufEnter" }, {
-		group = group,
-		pattern = { "*/projects/*.md" },
-		callback = function(args)
-			if original_created_dates[tostring(args.buf)] then
-				return
-			end
-
-			local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
-			if #lines > 0 and lines[1] == "---" then
-				local end_idx = nil
-				for i = 2, #lines do
-					if lines[i] == "---" then
-						end_idx = i
-						break
-					end
-				end
-
-				if end_idx then
-					for i = 2, end_idx - 1 do
-						local line = lines[i]
-						local created_val = line:match("^created:%s*(.*)$")
-						if created_val then
-							original_created_dates[tostring(args.buf)] = vim.trim(created_val)
-							break
-						end
-					end
-				end
-			end
-		end,
-	})
-
-	-- projects/*.md 保存時のフロントマター保護
-	vim.api.nvim_create_autocmd("BufWritePre", {
-		group = group,
-		pattern = { "*/projects/*.md" },
-		callback = function(args)
-			-- #91: data_dir外の同名パスを除外する
-			if not utils_mod.is_gtodo_file(vim.api.nvim_buf_get_name(args.buf)) then
-				return
-			end
-			local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
-			local filepath = args.match
-			local proj_name = vim.fn.fnamemodify(filepath, ":t:r")
-
-			-- フロントマター検証
-			local valid_frontmatter = false
-			local created_changed = false
-			local tag_matches_filename = false
-			local required_keys = {
-				title = false,
-				tag = false,
-				created = false,
-				due = false,
-				status = false,
-				members = false,
-			}
-
-			if #lines > 0 and lines[1] == "---" then
-				local end_idx = nil
-				for i = 2, #lines do
-					if lines[i] == "---" then
-						end_idx = i
-						break
-					end
-				end
-
-				if end_idx then
-					for i = 2, end_idx - 1 do
-						local line = lines[i]
-						local key, val = line:match("^(%w+):%s*(.*)$")
-						if key then
-							if required_keys[key] ~= nil then
-								required_keys[key] = true
-							end
-							val = vim.trim(val or "")
-							if key == "tag" and val == proj_name then
-								tag_matches_filename = true
-							elseif key == "created" then
-								local original_created = original_created_dates[tostring(args.buf)]
-								if original_created and val ~= original_created then
-									created_changed = true
-								end
-							end
-						end
-					end
-
-					local missing_keys = {}
-					for k, found in pairs(required_keys) do
-						if not found then
-							table.insert(missing_keys, k)
-						end
-					end
-
-					if #missing_keys == 0 and tag_matches_filename and not created_changed then
-						valid_frontmatter = true
-					end
-				end
-			end
-
-			if not valid_frontmatter then
-				local errors = {}
-				if created_changed then
-					table.insert(errors, "created (作成日) の変更は禁止されています")
-				end
-				if not tag_matches_filename then
-					table.insert(
-						errors,
-						string.format("tag の値がファイル名 (%s) と一致していません", proj_name)
-					)
-				end
-
-				local missing_keys = {}
-				for k, found in pairs(required_keys) do
-					if not found then
-						table.insert(missing_keys, k)
-					end
-				end
-				if #missing_keys > 0 then
-					table.insert(
-						errors,
-						"必須項目が不足しています (" .. table.concat(missing_keys, ", ") .. ")"
-					)
-				end
-
-				if #errors == 0 then
-					table.insert(errors, "フロントマターのフォーマット (---) が破損しています")
-				end
-
-				local msg = "[gtodo-md] フロントマターが不正なため保存を中断しました ("
-					.. table.concat(errors, " / ")
-					.. ") ※スタックトレースは仕様です"
-				-- BufWritePreの中で標準の保存処理を中断させるには例外エラーを投げる必要がある。
-				-- 見栄えを良くするため、第2引数に0を渡してLuaのスタックトレースを非表示にしている。
-				error(msg, 0)
-			end
-		end,
-	})
-
-	-- バッファが完全にメモリから消去された時のみキャッシュメモリを解放
-	vim.api.nvim_create_autocmd("BufWipeout", {
-		group = group,
-		pattern = "*",
-		callback = function(args)
-			local bufnr = args.buf
-			-- バッファがまだ有効またはロード済みの場合は、誤検知なのでクリアをスキップする！
-			if vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_buf_is_loaded(bufnr) then
-				return
-			end
-
-			original_history_sections[tostring(bufnr)] = nil
-			original_created_dates[tostring(bufnr)] = nil
-		end,
-	})
-
-	-- gtodo-md 対象バッファへ autoread を設定
-	vim.api.nvim_create_autocmd({ "BufReadPost", "BufEnter" }, {
-		group = group,
-		pattern = "*",
-		callback = function(args)
-			if vim.api.nvim_buf_is_valid(args.buf) then
-				local bufname = vim.api.nvim_buf_get_name(args.buf)
-				if utils_mod.is_gtodo_file(bufname) then
-					vim.bo[args.buf].autoread = true
-				end
-			end
-		end,
-	})
-
-	-- inbox.md, todo.md 用
-	vim.api.nvim_create_autocmd("BufEnter", {
-		group = group,
-		pattern = { "inbox.md", "todo.md" },
-		callback = function(args)
-			vim.schedule(function()
-				M.handle_buf_enter(args.buf)
-			end)
-		end,
-	})
-
-	-- gtodo バッファ保存 (:w) 完了後の自動整理・全バッファ同期再開
-	vim.api.nvim_create_autocmd("BufWritePost", {
-		group = group,
-		pattern = "*.md",
-		callback = function(args)
-			if vim.api.nvim_buf_is_valid(args.buf) then
-				local bufname = vim.api.nvim_buf_get_name(args.buf)
-				if utils_mod.is_gtodo_file(bufname) then
-					vim.schedule(function()
-						M.handle_buf_enter(args.buf)
-					end)
-				end
-			end
-		end,
-	})
-
-	-- フォーカスが戻った時の日付変更検知と全 gtodo バッファの最新一括同期
-	vim.api.nvim_create_autocmd("FocusGained", {
-		group = group,
-		pattern = "*",
-		callback = function()
-			vim.schedule(function()
-				if not timer_mod.should_skip_timer() then
-					require("gtodo-md.daily").check_daily_rollover()
-				end
-			end)
-		end,
-	})
-
-	-- 構文ハイライトのアタッチ
-	vim.api.nvim_create_autocmd({ "BufReadPost", "BufNewFile", "FileChangedShellPost" }, {
-		group = group,
-		pattern = "*.md",
-		callback = function(ev)
-			local bufname = vim.api.nvim_buf_get_name(ev.buf)
-			local data_dir = require("gtodo-md.config").get("data_dir")
-			if data_dir and bufname:find(data_dir, 1, true) then
-				require("gtodo-md.highlight").attach(ev.buf)
-			end
-		end,
-	})
-
-	-- 言語変更時の即時反映のため、データディレクトリ内の.mdでBufEnter時にハイライトを更新
-	vim.api.nvim_create_autocmd({ "BufEnter" }, {
-		group = group,
-		pattern = "*.md",
-		callback = function(args)
-			local bufname = vim.api.nvim_buf_get_name(args.buf)
-			local data_dir = require("gtodo-md.config").get("data_dir")
-			if data_dir and bufname:find(data_dir, 1, true) then
-				vim.schedule(function()
-					require("gtodo-md.highlight").update_highlights(args.buf)
-				end)
-			end
-		end,
-	})
-
-	-- projects/*.md 用 (仮想テキストの描画)
-	vim.api.nvim_create_autocmd({ "BufEnter", "BufWritePost" }, {
-		group = group,
-		pattern = "*.md",
-		callback = function(args)
-			if vim.api.nvim_buf_is_valid(args.buf) then
-				local bufname = vim.api.nvim_buf_get_name(args.buf)
-				if require("gtodo-md.utils").is_gtodo_file(bufname) and bufname:find("projects") then
-					vim.schedule(function()
-						require("gtodo-md.ui").render_project_tasks(args.buf)
-					end)
-				end
-			end
-		end,
-	})
-
-	-- todo.md/inbox.md 保存時に、現在開いている全プロジェクトバッファの仮想テキストを更新する
-	vim.api.nvim_create_autocmd("BufWritePost", {
-		group = group,
-		pattern = { "inbox.md", "todo.md" },
-		callback = function()
-			vim.schedule(function()
-				for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-					if vim.api.nvim_buf_is_loaded(buf) then
-						require("gtodo-md.ui").render_project_tasks(buf)
-					end
-				end
-			end)
-		end,
-	})
+-- 指定ファイルの指定セクション末尾へタスクを追記して書き戻す。
+-- prepare_items は追記直前に既存アイテム列へ手を入れるための任意のフック。
+local function append_task_to_file(path, section_name, new_task, prepare_items)
+	local data = io_mod.read_todo_file(path)
+	local items = data.sections[section_name]
+	if not items then
+		items = {}
+		data.sections[section_name] = items
+	end
+	if prepare_items then
+		prepare_items(items)
+	end
+	table.insert(items, { type = "task", task = new_task })
+	io_mod.write_todo_file(path, data)
 end
 
 -- 適応的なタスクの追加または編集 (外部呼び出し可能)
@@ -557,15 +184,15 @@ function M.add_or_edit_task()
 		local task, row, old_line = editor_mod.get_current_task()
 		if task then
 			-- 編集
-			require("gtodo-md.ui.prompt").prompt_task(task, function(updated_task)
+			prompt_mod.prompt_task(task, function(updated_task)
 				if not vim.api.nvim_buf_is_valid(target_buf) then
 					return
 				end
-				local newline = require("gtodo-md.task").serialize(updated_task)
+				local newline = task_mod.serialize(updated_task)
 				-- ポップアップ編集中に裏側でソートが走り行番号がズレる対策（文字一致で現在行を再探査）
 				local target_row = nil
 				if old_line then
-					local normalized_old_line = require("gtodo-md.task").serialize(task)
+					local normalized_old_line = task_mod.serialize(task)
 					local current_lines = vim.api.nvim_buf_get_lines(target_buf, 0, -1, false)
 					for i, l in ipairs(current_lines) do
 						if l == old_line or l == normalized_old_line then
@@ -580,26 +207,9 @@ function M.add_or_edit_task()
 				vim.api.nvim_buf_call(target_buf, function()
 					vim.cmd("silent! write")
 				end)
-				if filename == "todo.md" then
-					local changed = false
-					lock_mod.with_write_lock(data_dir, function()
-						changed = logic_mod.check_dues(inbox_path, todo_path)
-						logic_mod.sort_todo_file(todo_path)
-					end)
-					if changed and not vim.bo[target_buf].modified then
-						require("gtodo-md.daily").reload_managed_bufs()
-					end
-				else
-					local changed = false
-					lock_mod.with_write_lock(data_dir, function()
-						changed = logic_mod.check_dues(inbox_path, todo_path)
-						if changed then
-							logic_mod.sort_todo_file(todo_path)
-						end
-					end)
-					if changed and not vim.bo[target_buf].modified then
-						require("gtodo-md.daily").reload_managed_bufs()
-					end
+				local changed = check_dues_and_sort(data_dir, inbox_path, todo_path, filename == "todo.md")
+				if changed and not vim.bo[target_buf].modified then
+					daily_mod.reload_managed_bufs()
 				end
 			end)
 			return
@@ -607,7 +217,7 @@ function M.add_or_edit_task()
 	end
 
 	-- 新規追加
-	require("gtodo-md.ui.prompt").prompt_task(nil, function(new_task)
+	prompt_mod.prompt_task(nil, function(new_task)
 		local cb_bufname = vim.api.nvim_buf_get_name(target_buf)
 		local cb_filename = vim.fn.fnamemodify(cb_bufname, ":t")
 
@@ -619,59 +229,32 @@ function M.add_or_edit_task()
 			end
 		end
 
-		if cb_filename == "todo.md" then
+		-- todo.md 以外(inbox.md や無関係なバッファ)からの追加は inbox に留める
+		local routed_to_inbox = cb_filename ~= "todo.md"
+
+		if not routed_to_inbox then
 			local target_sec = editor_mod.get_current_section()
 			if target_sec == "default" then
 				target_sec = config.sections.TODAY
 			end
 
-			local todo_data = io_mod.read_todo_file(todo_path)
-			if not todo_data.sections[target_sec] then
-				todo_data.sections[target_sec] = {}
-			end
-			table.insert(todo_data.sections[target_sec], { type = "task", task = new_task })
-			io_mod.write_todo_file(todo_path, todo_data)
+			append_task_to_file(todo_path, target_sec, new_task)
 			lock_mod.with_write_lock(data_dir, function()
 				logic_mod.sort_todo_file(todo_path)
 			end)
-
-			-- reload open buffers if not modified
-			if not timer_mod.should_skip_timer() then
-				require("gtodo-md.daily").reload_managed_bufs()
-			end
 		else
-			-- inbox.md (またはその他) で追加された場合は inbox に留める
-			local inbox_data = io_mod.read_todo_file(inbox_path)
-			if not inbox_data.sections["default"] then
-				inbox_data.sections["default"] = {}
-			end
+			append_task_to_file(inbox_path, "default", new_task, trim_trailing_blank_items)
+			check_dues_and_sort(data_dir, inbox_path, todo_path, false)
+		end
 
-			local sec_items = inbox_data.sections["default"]
-			while
-				#sec_items > 0
-				and sec_items[#sec_items].type == "text"
-				and vim.trim(sec_items[#sec_items].line) == ""
-			do
-				table.remove(sec_items)
-			end
+		-- reload open buffers if not modified
+		if not timer_mod.should_skip_timer() then
+			daily_mod.reload_managed_bufs()
+		end
 
-			table.insert(sec_items, { type = "task", task = new_task })
-			io_mod.write_todo_file(inbox_path, inbox_data)
-
-			lock_mod.with_write_lock(data_dir, function()
-				local changed = logic_mod.check_dues(inbox_path, todo_path)
-				if changed then
-					logic_mod.sort_todo_file(todo_path)
-				end
-			end)
-
-			-- reload open buffers if not modified
-			if not timer_mod.should_skip_timer() then
-				require("gtodo-md.daily").reload_managed_bufs()
-			end
-			if filename ~= "inbox.md" then
-				vim.notify("Created new task in inbox.md", vim.log.levels.INFO)
-			end
+		-- 追加先が呼び出し元のバッファと異なる場合のみ、行き先を通知する
+		if routed_to_inbox and filename ~= "inbox.md" then
+			vim.notify("Created new task in inbox.md", vim.log.levels.INFO)
 		end
 	end)
 end
@@ -692,90 +275,14 @@ function M.sort_and_check_dues()
 	end)
 end
 
--- グローバルキーマップの設定
+-- グローバルキーマップの設定 (実体は keymaps.lua)
 function M.setup_global_keymaps()
-	local prefix = config.get("keymap_prefix")
-
-	-- 表示系
-	vim.keymap.set("n", prefix .. "t", function()
-		ui_mod.open_todo_float()
-	end, { desc = "Toggle Todo float" })
-	vim.keymap.set("n", prefix .. "i", function()
-		ui_mod.open_inbox_float()
-	end, { desc = "Toggle Inbox float" })
-
-	-- 表示系 (履歴)
-	vim.keymap.set("n", prefix .. "hd", function()
-		ui_mod.open_done_float()
-	end, { desc = "Toggle Done float" })
-	vim.keymap.set("n", prefix .. "hc", function()
-		ui_mod.open_cancelled_float()
-	end, { desc = "Toggle Cancelled float" })
-
-	-- 検索
-	vim.keymap.set("n", prefix .. "/", function()
-		ui_mod.search_tasks()
-	end, { desc = "Search tasks" })
-
-	-- 追加・編集系 (適応的)
-	vim.keymap.set("n", prefix .. "a", function()
-		M.add_or_edit_task()
-	end, { desc = "Add or edit task" })
-
-	-- Queue ビュー
-	vim.keymap.set("n", prefix .. "q", function()
-		ui_mod.open_queue()
-	end, { desc = "Open Queue view" })
+	keymaps_mod.setup_global()
 end
 
--- バッファローカルなキーマップを設定する
+-- バッファローカルなキーマップを設定する (実体は keymaps.lua)
 function M.setup_buffer_keymaps(bufnr)
-	local prefix = config.get("keymap_prefix")
-	local function map(mode, lhs, rhs, desc)
-		vim.keymap.set(mode, lhs, rhs, { buffer = bufnr, silent = true, desc = desc })
-	end
-
-	-- 移動系
-	map("n", prefix .. "d", function()
-		editor_mod.move_current_task_to(config.sections.TODAY)
-	end, "Move task to " .. config.sections.TODAY)
-	map("n", prefix .. "n", function()
-		editor_mod.move_current_task_to(config.sections.NEXT)
-	end, "Move task to " .. config.sections.NEXT)
-	map("n", prefix .. "w", function()
-		editor_mod.move_current_task_to(config.sections.WAITING)
-	end, "Move task to " .. config.sections.WAITING)
-	map("n", prefix .. "tw", function()
-		editor_mod.assign_wait_tag(false)
-	end, "Assign wait: tag")
-	map("v", prefix .. "tw", function()
-		editor_mod.assign_wait_tag(true)
-	end, "Assign wait: tag to selection")
-	map("n", prefix .. "s", function()
-		editor_mod.move_current_task_to(config.sections.SOMEDAY)
-	end, "Move task to " .. config.sections.SOMEDAY)
-
-	map("n", prefix .. "x", function()
-		editor_mod.toggle_complete()
-	end, "Toggle task completion")
-	map("n", prefix .. "c", function()
-		editor_mod.cancel_current_task()
-	end, "Cancel task")
-
-	-- タスク分割・プロジェクト化 (Issue #22)
-	map("n", prefix .. "p", function()
-		editor_mod.split_current_task()
-	end, "Split / Promote task")
-
-	-- ジャンプ系
-	map("n", prefix .. "jp", function()
-		ui_mod.jump_to_project()
-	end, "Jump to project file")
-
-	-- 機能系
-	map("n", prefix .. "o", function()
-		M.sort_and_check_dues()
-	end, "Sort and check due dates")
+	keymaps_mod.setup_buffer(bufnr)
 end
 
 return M
