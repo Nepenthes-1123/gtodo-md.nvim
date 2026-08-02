@@ -43,7 +43,8 @@ describe("io.lua parse_markdown and write_todo_file roundtrip", function()
 		vim.fn.delete(tmpfile)
 
 		-- 空行の扱いやファイル末尾の改行により、完全に一致するかをテスト
-		-- write_todo_file は末尾に必ず空行を追加するため、
+		-- write_todo_file は末尾の空行を取り除いて書き出すため、通常ここは
+		-- 素通りする。将来また末尾へ空行が混入した場合に備えた保険として、
 		-- written_lines の末尾が空文字列なら除去して比較する
 		if written_lines[#written_lines] == "" then
 			table.remove(written_lines)
