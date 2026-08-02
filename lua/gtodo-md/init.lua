@@ -7,6 +7,7 @@ local editor_mod = require("gtodo-md.editor")
 local timer_mod = require("gtodo-md.timer")
 local utils_mod = require("gtodo-md.utils")
 local lock_mod = require("gtodo-md.lock")
+local validate_mod = require("gtodo-md.validate")
 
 function M.setup(opts)
 	config.setup(opts)
@@ -144,36 +145,7 @@ function M.setup_autocmds()
 				return
 			end
 			local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
-			-- #94: config.sections.* はsetup()でカスタム名に変更できるが、
-			-- デフォルト名(Today等)も常にエイリアスとして受理する(既存ファイルの
-			-- 見出しをユーザーに手動でリネームさせないため)。config.section_aliases
-			-- がキーごとの有効な名称候補(カスタム名+デフォルト名)を返す。
-			local section_keys = { "TODAY", "NEXT", "WAITING", "SOMEDAY" }
-			local found = {}
-			for _, key in ipairs(section_keys) do
-				found[key] = false
-			end
-
-			for _, line in ipairs(lines) do
-				local sec = line:match("^##%s+(.*)$")
-				if sec then
-					sec = vim.trim(sec)
-					for _, key in ipairs(section_keys) do
-						for _, alias in ipairs(config.section_aliases(key)) do
-							if sec == alias then
-								found[key] = true
-							end
-						end
-					end
-				end
-			end
-
-			local missing = {}
-			for _, key in ipairs(section_keys) do
-				if not found[key] then
-					table.insert(missing, "## " .. config.sections[key])
-				end
-			end
+			local missing = validate_mod.missing_todo_sections(lines)
 
 			if #missing > 0 then
 				local msg = "[gtodo-md] 必須セクションが不足しているため保存を中断しました ("
@@ -196,14 +168,7 @@ function M.setup_autocmds()
 			end
 
 			local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
-			local original_secs = {}
-			for _, line in ipairs(lines) do
-				local sec = line:match("^##%s+(%d%d%d%d%-%d%d)$")
-				if sec then
-					original_secs[sec] = true
-				end
-			end
-			original_history_sections[tostring(args.buf)] = original_secs
+			original_history_sections[tostring(args.buf)] = validate_mod.collect_history_sections(lines)
 		end,
 	})
 
@@ -224,15 +189,8 @@ function M.setup_autocmds()
 					return
 				end
 				local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
-				local has_header = false
-				for _, line in ipairs(lines) do
-					if line:match("^" .. expected_header) then
-						has_header = true
-						break
-					end
-				end
 
-				if not has_header then
+				if not validate_mod.has_required_header(lines, expected_header) then
 					local msg = string.format(
 						"[gtodo-md] 必須ヘッダー (%s) が削除されたため保存を中断しました ※スタックトレースは仕様です",
 						expected_header
@@ -245,20 +203,7 @@ function M.setup_autocmds()
 				-- 年月セクションの削除保護 (done.md と cancelled.md のみ)
 				if fname == "done.md" or fname == "cancelled.md" then
 					local original_secs = original_history_sections[tostring(args.buf)] or {}
-					local found_secs = {}
-					for _, line in ipairs(lines) do
-						local sec = line:match("^##%s+(%d%d%d%d%-%d%d)$")
-						if sec then
-							found_secs[sec] = true
-						end
-					end
-
-					local missing_secs = {}
-					for sec, _ in pairs(original_secs) do
-						if not found_secs[sec] then
-							table.insert(missing_secs, "## " .. sec)
-						end
-					end
+					local missing_secs = validate_mod.missing_history_sections(lines, original_secs)
 
 					if #missing_secs > 0 then
 						local msg = string.format(
@@ -284,25 +229,9 @@ function M.setup_autocmds()
 			end
 
 			local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
-			if #lines > 0 and lines[1] == "---" then
-				local end_idx = nil
-				for i = 2, #lines do
-					if lines[i] == "---" then
-						end_idx = i
-						break
-					end
-				end
-
-				if end_idx then
-					for i = 2, end_idx - 1 do
-						local line = lines[i]
-						local created_val = line:match("^created:%s*(.*)$")
-						if created_val then
-							original_created_dates[tostring(args.buf)] = vim.trim(created_val)
-							break
-						end
-					end
-				end
+			local created = validate_mod.extract_frontmatter_created(lines)
+			if created then
+				original_created_dates[tostring(args.buf)] = created
 			end
 		end,
 	})
@@ -321,89 +250,10 @@ function M.setup_autocmds()
 			local proj_name = vim.fn.fnamemodify(filepath, ":t:r")
 
 			-- フロントマター検証
-			local valid_frontmatter = false
-			local created_changed = false
-			local tag_matches_filename = false
-			local required_keys = {
-				title = false,
-				tag = false,
-				created = false,
-				due = false,
-				status = false,
-				members = false,
-			}
+			local original_created = original_created_dates[tostring(args.buf)]
+			local errors = validate_mod.validate_project_frontmatter(lines, proj_name, original_created)
 
-			if #lines > 0 and lines[1] == "---" then
-				local end_idx = nil
-				for i = 2, #lines do
-					if lines[i] == "---" then
-						end_idx = i
-						break
-					end
-				end
-
-				if end_idx then
-					for i = 2, end_idx - 1 do
-						local line = lines[i]
-						local key, val = line:match("^(%w+):%s*(.*)$")
-						if key then
-							if required_keys[key] ~= nil then
-								required_keys[key] = true
-							end
-							val = vim.trim(val or "")
-							if key == "tag" and val == proj_name then
-								tag_matches_filename = true
-							elseif key == "created" then
-								local original_created = original_created_dates[tostring(args.buf)]
-								if original_created and val ~= original_created then
-									created_changed = true
-								end
-							end
-						end
-					end
-
-					local missing_keys = {}
-					for k, found in pairs(required_keys) do
-						if not found then
-							table.insert(missing_keys, k)
-						end
-					end
-
-					if #missing_keys == 0 and tag_matches_filename and not created_changed then
-						valid_frontmatter = true
-					end
-				end
-			end
-
-			if not valid_frontmatter then
-				local errors = {}
-				if created_changed then
-					table.insert(errors, "created (作成日) の変更は禁止されています")
-				end
-				if not tag_matches_filename then
-					table.insert(
-						errors,
-						string.format("tag の値がファイル名 (%s) と一致していません", proj_name)
-					)
-				end
-
-				local missing_keys = {}
-				for k, found in pairs(required_keys) do
-					if not found then
-						table.insert(missing_keys, k)
-					end
-				end
-				if #missing_keys > 0 then
-					table.insert(
-						errors,
-						"必須項目が不足しています (" .. table.concat(missing_keys, ", ") .. ")"
-					)
-				end
-
-				if #errors == 0 then
-					table.insert(errors, "フロントマターのフォーマット (---) が破損しています")
-				end
-
+			if #errors > 0 then
 				local msg = "[gtodo-md] フロントマターが不正なため保存を中断しました ("
 					.. table.concat(errors, " / ")
 					.. ") ※スタックトレースは仕様です"
