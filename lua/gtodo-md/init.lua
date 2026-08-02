@@ -131,6 +131,44 @@ function M.setup_autocmds()
 	autocmds_mod.setup()
 end
 
+-- dueチェックと(必要なら)ソートを排他ロック配下で実行し、check_duesの結果を返す。
+-- always_sort は呼び出し元による非対称な仕様を表す:
+--   todo.md 側は check_dues の結果に関わらず常にソートする (true)
+--   inbox.md 側は変更があったときだけソートする (false)
+local function check_dues_and_sort(data_dir, inbox_path, todo_path, always_sort)
+	local changed = false
+	lock_mod.with_write_lock(data_dir, function()
+		changed = logic_mod.check_dues(inbox_path, todo_path)
+		if always_sort or changed then
+			logic_mod.sort_todo_file(todo_path)
+		end
+	end)
+	return changed
+end
+
+-- 末尾に溜まった空行アイテムを取り除く(追記のたびに空行が増えるのを防ぐ)
+local function trim_trailing_blank_items(items)
+	while #items > 0 and items[#items].type == "text" and vim.trim(items[#items].line) == "" do
+		table.remove(items)
+	end
+end
+
+-- 指定ファイルの指定セクション末尾へタスクを追記して書き戻す。
+-- prepare_items は追記直前に既存アイテム列へ手を入れるための任意のフック。
+local function append_task_to_file(path, section_name, new_task, prepare_items)
+	local data = io_mod.read_todo_file(path)
+	local items = data.sections[section_name]
+	if not items then
+		items = {}
+		data.sections[section_name] = items
+	end
+	if prepare_items then
+		prepare_items(items)
+	end
+	table.insert(items, { type = "task", task = new_task })
+	io_mod.write_todo_file(path, data)
+end
+
 -- 適応的なタスクの追加または編集 (外部呼び出し可能)
 function M.add_or_edit_task()
 	local target_buf = vim.api.nvim_get_current_buf()
@@ -167,26 +205,9 @@ function M.add_or_edit_task()
 				vim.api.nvim_buf_call(target_buf, function()
 					vim.cmd("silent! write")
 				end)
-				if filename == "todo.md" then
-					local changed = false
-					lock_mod.with_write_lock(data_dir, function()
-						changed = logic_mod.check_dues(inbox_path, todo_path)
-						logic_mod.sort_todo_file(todo_path)
-					end)
-					if changed and not vim.bo[target_buf].modified then
-						require("gtodo-md.daily").reload_managed_bufs()
-					end
-				else
-					local changed = false
-					lock_mod.with_write_lock(data_dir, function()
-						changed = logic_mod.check_dues(inbox_path, todo_path)
-						if changed then
-							logic_mod.sort_todo_file(todo_path)
-						end
-					end)
-					if changed and not vim.bo[target_buf].modified then
-						require("gtodo-md.daily").reload_managed_bufs()
-					end
+				local changed = check_dues_and_sort(data_dir, inbox_path, todo_path, filename == "todo.md")
+				if changed and not vim.bo[target_buf].modified then
+					require("gtodo-md.daily").reload_managed_bufs()
 				end
 			end)
 			return
@@ -206,59 +227,32 @@ function M.add_or_edit_task()
 			end
 		end
 
-		if cb_filename == "todo.md" then
+		-- todo.md 以外(inbox.md や無関係なバッファ)からの追加は inbox に留める
+		local routed_to_inbox = cb_filename ~= "todo.md"
+
+		if not routed_to_inbox then
 			local target_sec = editor_mod.get_current_section()
 			if target_sec == "default" then
 				target_sec = config.sections.TODAY
 			end
 
-			local todo_data = io_mod.read_todo_file(todo_path)
-			if not todo_data.sections[target_sec] then
-				todo_data.sections[target_sec] = {}
-			end
-			table.insert(todo_data.sections[target_sec], { type = "task", task = new_task })
-			io_mod.write_todo_file(todo_path, todo_data)
+			append_task_to_file(todo_path, target_sec, new_task)
 			lock_mod.with_write_lock(data_dir, function()
 				logic_mod.sort_todo_file(todo_path)
 			end)
-
-			-- reload open buffers if not modified
-			if not timer_mod.should_skip_timer() then
-				require("gtodo-md.daily").reload_managed_bufs()
-			end
 		else
-			-- inbox.md (またはその他) で追加された場合は inbox に留める
-			local inbox_data = io_mod.read_todo_file(inbox_path)
-			if not inbox_data.sections["default"] then
-				inbox_data.sections["default"] = {}
-			end
+			append_task_to_file(inbox_path, "default", new_task, trim_trailing_blank_items)
+			check_dues_and_sort(data_dir, inbox_path, todo_path, false)
+		end
 
-			local sec_items = inbox_data.sections["default"]
-			while
-				#sec_items > 0
-				and sec_items[#sec_items].type == "text"
-				and vim.trim(sec_items[#sec_items].line) == ""
-			do
-				table.remove(sec_items)
-			end
+		-- reload open buffers if not modified
+		if not timer_mod.should_skip_timer() then
+			require("gtodo-md.daily").reload_managed_bufs()
+		end
 
-			table.insert(sec_items, { type = "task", task = new_task })
-			io_mod.write_todo_file(inbox_path, inbox_data)
-
-			lock_mod.with_write_lock(data_dir, function()
-				local changed = logic_mod.check_dues(inbox_path, todo_path)
-				if changed then
-					logic_mod.sort_todo_file(todo_path)
-				end
-			end)
-
-			-- reload open buffers if not modified
-			if not timer_mod.should_skip_timer() then
-				require("gtodo-md.daily").reload_managed_bufs()
-			end
-			if filename ~= "inbox.md" then
-				vim.notify("Created new task in inbox.md", vim.log.levels.INFO)
-			end
+		-- 追加先が呼び出し元のバッファと異なる場合のみ、行き先を通知する
+		if routed_to_inbox and filename ~= "inbox.md" then
+			vim.notify("Created new task in inbox.md", vim.log.levels.INFO)
 		end
 	end)
 end
