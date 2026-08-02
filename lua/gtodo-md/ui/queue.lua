@@ -302,21 +302,9 @@ end
 
 --- UI(バッファ/ウィンドウ/キーマップ) --------------------------------------
 
--- Queue ビュー: due または wait 付き未完了タスクを表示する
--- mode: "due" (デフォルト) または "wait"
-function M.open_queue(mode, previous_target_id)
-	mode = mode or "due"
-
-	local ns = vim.api.nvim_create_namespace("gtodo_queue_marks")
-	local entries = collect_entries(mode, ns)
-
-	local today_str = os.date("%Y-%m-%d")
-	local today_time = utils.date_to_time(today_str)
-
-	local groups = M._group_entries(entries, mode, today_time)
-	local lines, hls, line_map = M._build_display(mode, groups, today_str, today_time)
-
-	-- フローティングウィンドウ
+-- 表示行からフローティングウィンドウを作る。
+-- 失敗した場合は通知した上で nil を返す(呼び出し元はそこで諦める)。
+local function open_queue_window(lines, hls)
 	local width = math.min(math.floor(vim.o.columns * 0.65), 80)
 	local height = math.min(#lines + 2, math.floor(vim.o.lines * 0.8))
 	local col = math.floor((vim.o.columns - width) / 2)
@@ -346,7 +334,7 @@ function M.open_queue(mode, previous_target_id)
 	if not ok or not queue_win then
 		pcall(vim.api.nvim_buf_delete, buf, { force = true })
 		vim.notify("Failed to open Queue window. Terminal size might be too small.", vim.log.levels.ERROR)
-		return
+		return nil
 	end
 
 	float_ui.register_float_win(queue_win)
@@ -357,7 +345,12 @@ function M.open_queue(mode, previous_target_id)
 		vim.api.nvim_buf_add_highlight(buf, hl_ns, hl[2], hl[1], 0, -1)
 	end
 
-	-- バッファローカルキーマップ
+	return buf, queue_win
+end
+
+-- Queue バッファ上のキーマップを登録する。
+-- ns: collect_entries で extmark を設置した名前空間(ジャンプ先の追跡に使う)
+local function setup_queue_keymaps(buf, mode, line_map, ns)
 	vim.keymap.set("n", "q", ":q<CR>", { buffer = buf, noremap = true, silent = true })
 	vim.keymap.set("n", "<Esc>", ":q<CR>", { buffer = buf, noremap = true, silent = true })
 
@@ -413,15 +406,41 @@ function M.open_queue(mode, previous_target_id)
 			pcall(vim.api.nvim_win_set_cursor, new_win, { new_lnum, 0 })
 		end
 	end, { buffer = buf, noremap = true, silent = true })
+end
 
-	-- もし前のビューから引き継いだターゲットがあれば復元
-	if previous_target_id then
-		for idx, source in pairs(line_map) do
-			if source and (source.filepath .. ":" .. vim.trim(source.original_line)) == previous_target_id then
-				pcall(vim.api.nvim_win_set_cursor, queue_win, { idx + 1, 0 })
-				break
-			end
+-- 前のビューから引き継いだターゲットがあればカーソルを復元する
+local function restore_previous_target(queue_win, line_map, previous_target_id)
+	for idx, source in pairs(line_map) do
+		if source and (source.filepath .. ":" .. vim.trim(source.original_line)) == previous_target_id then
+			pcall(vim.api.nvim_win_set_cursor, queue_win, { idx + 1, 0 })
+			break
 		end
+	end
+end
+
+-- Queue ビュー: due または wait 付き未完了タスクを表示する
+-- mode: "due" (デフォルト) または "wait"
+function M.open_queue(mode, previous_target_id)
+	mode = mode or "due"
+
+	local ns = vim.api.nvim_create_namespace("gtodo_queue_marks")
+	local entries = collect_entries(mode, ns)
+
+	local today_str = os.date("%Y-%m-%d")
+	local today_time = utils.date_to_time(today_str)
+
+	local groups = M._group_entries(entries, mode, today_time)
+	local lines, hls, line_map = M._build_display(mode, groups, today_str, today_time)
+
+	local buf, queue_win = open_queue_window(lines, hls)
+	if not buf then
+		return
+	end
+
+	setup_queue_keymaps(buf, mode, line_map, ns)
+
+	if previous_target_id then
+		restore_previous_target(queue_win, line_map, previous_target_id)
 	end
 end
 
