@@ -1,84 +1,95 @@
 local M = {}
 local io_mod = require("gtodo-md.io")
 
+-- 1件のタスクグループ（非タスク行を跨がない連続区間）をソートする比較関数。
+-- a/b は sort_items 内部だけで使うラッパー { item = <元のitem>, original_index = i }
+-- であり、呼び出し元から渡された item そのものではない(#96)。
+local function compare_wrapped(a, b)
+	local t_a = a.item.task
+	local t_b = b.item.task
+	-- 1. [x] 付きは最末尾に固定
+	local done_a = (t_a.status == "x")
+	local done_b = (t_b.status == "x")
+	if done_a ~= done_b then
+		return done_b
+	end
+
+	-- 2. dueあり優先、dueなしは末尾
+	local has_due_a = (t_a.due ~= nil and t_a.due ~= "")
+	local has_due_b = (t_b.due ~= nil and t_b.due ~= "")
+	if has_due_a ~= has_due_b then
+		return has_due_a
+	end
+
+	if has_due_a and has_due_b then
+		if t_a.due ~= t_b.due then
+			return t_a.due < t_b.due
+		end
+	end
+
+	-- 3. 優先度 (A > B > C ... > Z) ※Zは優先度指定なし扱い
+	-- task.lua が parse 時に task.priority へ分離済み（P2-1 修正）
+	local p_a = t_a.priority or "Z"
+	local p_b = t_b.priority or "Z"
+	if p_a ~= p_b then
+		return p_a < p_b
+	end
+
+	-- 4. stable sort
+	return a.original_index < b.original_index
+end
+
 -- items リストをソートする内部ヘルパー
 -- 入力: { type="task"|"text", ... } のフラット配列
 -- 出力: 同形式でタスクのみソートされた新しい配列
+--
+-- P0-1 の教訓: 見出し(### 等)やその他のテキスト行を挟んでタスクを並び替えると、
+-- タスクが元居たテキストブロックの外へ移動してしまう(サブセクション崩壊)。
+-- これを一般化して防ぐため、非タスク行を「並び替えの境界」として扱い、
+-- 境界で区切られた連続するタスクの区間(run)ごとに独立してソートする。
+-- テキスト行自体は元の位置にそのまま残る。
+--
+-- #96: 安定ソートのタイブレークに使う original_index は、以前 item に直接
+-- 書き込んでいたため、呼び出し元が保持し続けるオブジェクトを汚染していた
+-- (呼び出し元が同じitemを別の並びで再度渡した場合、前回の位置が残ってしまう
+-- 可能性があった)。sort_items 内部だけで使い捨てるラッパーに包むことで、
+-- 引数の item を一切書き換えないようにする。
 local function sort_items(items)
-	local tasks = {}
-	local task_indices = {}
-	for i, item in ipairs(items) do
+	local result = {}
+	local run = {}
+
+	local function flush_run()
+		if #run == 0 then
+			return
+		end
+		local wrapped = {}
+		for i, item in ipairs(run) do
+			wrapped[i] = { item = item, original_index = i }
+		end
+		table.sort(wrapped, compare_wrapped)
+		for _, w in ipairs(wrapped) do
+			table.insert(result, { type = "task", task = w.item.task })
+		end
+		run = {}
+	end
+
+	for _, item in ipairs(items) do
 		if item.type == "task" then
-			item.original_index = i
-			table.insert(tasks, item)
-			table.insert(task_indices, i)
+			table.insert(run, item)
+		else
+			flush_run()
+			table.insert(result, item)
 		end
 	end
+	flush_run()
 
-	table.sort(tasks, function(a, b)
-		local t_a = a.task
-		local t_b = b.task
-		-- 1. [x] 付きは最末尾に固定
-		local done_a = (t_a.status == "x")
-		local done_b = (t_b.status == "x")
-		if done_a ~= done_b then
-			return done_b
-		end
-
-		-- 2. dueあり優先、dueなしは末尾
-		local has_due_a = (t_a.due ~= nil and t_a.due ~= "")
-		local has_due_b = (t_b.due ~= nil and t_b.due ~= "")
-		if has_due_a ~= has_due_b then
-			return has_due_a
-		end
-
-		if has_due_a and has_due_b then
-			if t_a.due ~= t_b.due then
-				return t_a.due < t_b.due
-			end
-		end
-
-		-- 3. 優先度 (A > B > C ... > Z) ※Zは優先度指定なし扱い
-		-- task.lua が parse 時に task.priority へ分離済み（P2-1 修正）
-		local p_a = t_a.priority or "Z"
-		local p_b = t_b.priority or "Z"
-		if p_a ~= p_b then
-			return p_a < p_b
-		end
-
-		-- 4. stable sort
-		return a.original_index < b.original_index
-	end)
-
-	local new_items = {}
-	for i, item in ipairs(items) do
-		new_items[i] = item
-	end
-	for i, idx in ipairs(task_indices) do
-		new_items[idx] = { type = "task", task = tasks[i].task }
-	end
-	return new_items
+	return result
 end
 
 -- セクション内のタスクをソートする
--- 入力: data.sections[sec]（ネスト構造 { items, subsections } ）
--- 出力: 同形式で items と各 subsections.items がそれぞれソートされたもの
-function M.sort_section_tasks(sec_data)
-	-- ネスト構造（現行実装）
-	if type(sec_data) == "table" and sec_data.items ~= nil then
-		local sorted_items = sort_items(sec_data.items)
-		local sorted_subsections = {}
-		for _, sub in ipairs(sec_data.subsections or {}) do
-			table.insert(sorted_subsections, {
-				name = sub.name,
-				items = sort_items(sub.items),
-			})
-		end
-		return { items = sorted_items, subsections = sorted_subsections }
-	end
-
-	-- 旧フラット配列への安全フォールバック（実際には到達しない）
-	return sort_items(sec_data or {})
+-- 入力/出力: { type="task"|"text", ... } のフラット配列
+function M.sort_section_tasks(items)
+	return sort_items(items or {})
 end
 
 -- todo.mdをソートする

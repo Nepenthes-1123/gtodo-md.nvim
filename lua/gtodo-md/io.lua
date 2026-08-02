@@ -79,20 +79,69 @@ local function update_lines_incrementally(buf, new_lines)
 	vim.api.nvim_buf_set_lines(buf, start_idx - 1, end_old, false, replacement)
 end
 
--- ファイルまたはバッファに行リストを書き込む
+-- inbox.md / todo.md への書き込み後、開いているプロジェクトバッファの進捗仮想テキストを更新する。
+-- write_lines が :write を使わなくなったため、旧実装が依存していた
+-- BufWritePost 経由の自動更新が効かなくなった分をここで肩代わりする。
+local function refresh_project_views_if_relevant(path)
+	local filename = vim.fn.fnamemodify(path, ":t")
+	if filename ~= "inbox.md" and filename ~= "todo.md" then
+		return
+	end
+	pcall(function()
+		local ui_project = require("gtodo-md.ui.project")
+		for _, b in ipairs(vim.api.nvim_list_bufs()) do
+			if vim.api.nvim_buf_is_loaded(b) then
+				ui_project.render_project_tasks(b)
+			end
+		end
+	end)
+end
+
+-- 行リストをファイルへアトミックに書き込む(改行コードを指定)
+local function write_lines_to_disk(path, lines, use_crlf)
+	local tmp_path = path .. ".tmp"
+	local f = io.open(tmp_path, "wb")
+	if f then
+		local nl = use_crlf and "\r\n" or "\n"
+		for _, line in ipairs(lines) do
+			f:write(line .. nl)
+		end
+		f:close()
+		vim.fn.rename(tmp_path, path)
+	end
+end
+
+-- ファイルまたはバッファに行リストを書き込む。
+--
+-- バッファが開いている場合でも nvim_buf_call + :write は使わない。
+-- カレントバッファを一瞬切り替えることによる画面のちらつき(#57)や、
+-- BufWritePre 等の意図しないautocmd発火(検証の誤発火・処理の多重発火)を
+-- 避けるため、バッファへは直接内容を反映して modified フラグをクリアするに
+-- 留め、ディスクへは別途アトミックに書き込む。
+--
+-- バッファが未保存(dirty)であっても常に反映・保存する。read_lines が
+-- ライブバッファの内容(未保存分を含む)を読み取った上でこの関数に渡される
+-- 想定のため、自動処理による変更とユーザーの未保存編集はマージされて
+-- 保存され、未保存編集が失われることはない。
 function M.write_lines(path, lines)
 	local buf = get_buf_by_name(path)
 
 	if buf then
-		local was_modified = vim.bo[buf].modified
 		update_lines_incrementally(buf, lines)
-
-		if not was_modified then
-			-- バックグラウンドタイマーやプログラムによる自動更新でバッファがサイレントに汚染されるのを防ぐため、元々クリーンだった場合は即座に保存する
-			pcall(vim.api.nvim_buf_call, buf, function()
-				vim.cmd("silent! write")
-			end)
+		if vim.bo[buf].modified then
+			vim.bo[buf].modified = false
 		end
+		write_lines_to_disk(path, lines, vim.bo[buf].fileformat == "dos")
+
+		-- :write を使わずディスクへ直接書き込んだため、Vimが内部で持つ
+		-- 「最後に確認したファイルの更新時刻」がこの書き込みを認識しないまま
+		-- 古い値で残ってしまう。これを放置すると、後で別の編集が加わった際に
+		-- Vimが(実際にはこのプラグイン自身が書いた)今回の変更を「外部での
+		-- 変更」と誤認し、W12/W13警告を誤って出してしまう。バッファは既に
+		-- クリーンな状態のため、この checktime は内容の再読み込みを伴わず
+		-- サイレントに完了する(バッファ番号を明示指定するためカレントバッファの
+		-- 切り替えも発生しない)。
+		pcall(vim.cmd, "silent! checktime " .. buf)
 	else
 		local is_crlf = false
 		if vim.fn.filereadable(path) == 1 then
@@ -106,17 +155,10 @@ function M.write_lines(path, lines)
 			end
 		end
 
-		local tmp_path = path .. ".tmp"
-		local f = io.open(tmp_path, "wb")
-		if f then
-			local nl = is_crlf and "\r\n" or "\n"
-			for _, line in ipairs(lines) do
-				f:write(line .. nl)
-			end
-			f:close()
-			vim.fn.rename(tmp_path, path)
-		end
+		write_lines_to_disk(path, lines, is_crlf)
 	end
+
+	refresh_project_views_if_relevant(path)
 end
 
 -- 指定ファイルをパースして、セクションごとの行のリストにする
@@ -128,19 +170,20 @@ function M.read_todo_file(filepath)
 	return M.parse_markdown(lines)
 end
 
--- data.sections[sec] の items を返すヘルパー（フラット互換のための内部ユーティリティ）
--- 現在の実装では sections[sec] は常にネスト構造なので、そのまま .items を返す
-function M.get_section_items(sec_data)
-	if type(sec_data) == "table" and sec_data.items ~= nil then
-		return sec_data.items
+-- #94: 見出しが config.section_aliases(key) に含まれる名前(デフォルト名/
+-- 前回の設定名)であれば、その場で現在のカスタム名へ正規化する。これにより
+-- due.lua等の既存の config.sections.* 参照箇所は一切変更せずに動作し続け、
+-- 既存ファイルの見出しをユーザーに手動でリネームさせる必要もない
+-- (次回保存時に write_todo_file が新しい名前で書き戻す)。
+local function normalize_section_name(name)
+	for key, _ in pairs(config.default_sections) do
+		for _, alias in ipairs(config.section_aliases(key)) do
+			if name == alias then
+				return config.sections[key]
+			end
+		end
 	end
-	-- 旧フラット構造への互換（本来到達しないが安全ガード）
-	return sec_data or {}
-end
-
--- 空のセクションデータを生成するヘルパー
-local function new_section()
-	return { items = {}, subsections = {} }
+	return name
 end
 
 function M.parse_markdown(lines)
@@ -151,36 +194,22 @@ function M.parse_markdown(lines)
 	}
 
 	local current_section = "default"
-	data.sections[current_section] = new_section()
-
-	-- 現在のサブセクション状態
-	-- nil のときはトップレベル（### なし）、文字列のときはそのサブセクション配下
-	local current_subsection = nil
+	data.sections[current_section] = {}
 
 	local header_done = false
 
 	for _, line in ipairs(lines) do
 		-- ## セクション境界
 		local sec_name = line:match("^##%s+(.*)$")
-		-- ### サブセクション境界（## に続く # で始まるものは除外済みなので ^### で OK）
-		local subsec_name = (not sec_name) and line:match("^###%s+(.-)%s*$") or nil
 		local task = task_mod.parse(line)
 
 		if sec_name then
-			sec_name = vim.trim(sec_name)
+			sec_name = normalize_section_name(vim.trim(sec_name))
 			current_section = sec_name
-			current_subsection = nil -- 新セクションでサブセクションをリセット
 			if not data.sections[current_section] then
-				data.sections[current_section] = new_section()
+				data.sections[current_section] = {}
 				table.insert(data.section_order, current_section)
 			end
-			header_done = true
-		elseif subsec_name then
-			-- ### 見出し: 現在のセクション配下に新しいサブセクションを追加
-			current_subsection = subsec_name
-			local sec = data.sections[current_section]
-			-- 同名サブセクションが既に存在する場合は再利用しない（順序保持のため新規追加）
-			table.insert(sec.subsections, { name = subsec_name, items = {} })
 			header_done = true
 		elseif task then
 			header_done = true
@@ -188,22 +217,15 @@ function M.parse_markdown(lines)
 
 		if not header_done then
 			table.insert(data.header, line)
-		elseif not sec_name and not subsec_name then
-			local sec = data.sections[current_section]
-			-- 挿入先: サブセクション配下 or トップレベル items
-			local target_items
-			if current_subsection then
-				-- 末尾のサブセクション（最後に追加されたもの）に挿入
-				local sub = sec.subsections[#sec.subsections]
-				target_items = sub and sub.items or sec.items
-			else
-				target_items = sec.items
-			end
+		elseif not sec_name then
+			local target_items = data.sections[current_section]
 
 			if task then
 				table.insert(target_items, { type = "task", task = task, line = line })
 			else
 				-- 空行はソート時のインデックスズレやMarkdownリスト分断の原因になるため無視する
+				-- ### 見出し等の非タスク行はそのまま type="text" として保持し、
+				-- 元の位置に書き戻す（sort.lua が並び替えの境界として扱う）。
 				if vim.trim(line) ~= "" then
 					table.insert(target_items, { type = "text", line = line })
 				end
@@ -215,10 +237,19 @@ function M.parse_markdown(lines)
 end
 
 -- items リスト（task/text のフラット配列）を行リストに変換するローカルヘルパー
-local function items_to_lines(items, lines)
+-- seen_ids: この write_todo_file 呼び出し全体(全セクション・全サブセクション)で
+-- 使用済みのIDを追跡する共有テーブル。コピー&ペーストで複製されたタスクが
+-- 同じIDを持ち続けないよう、既に登場済みのIDを持つタスクは再発行させる
+-- (ファイル内で最初に登場した方が元のIDを保持する)。
+local function items_to_lines(items, lines, seen_ids)
 	for _, item in ipairs(items) do
 		if item.type == "task" then
-			table.insert(lines, task_mod.serialize(item.task))
+			if item.task.id and item.task.id ~= "" and seen_ids[item.task.id] then
+				item.task.id = nil -- 重複しているので serialize に再発行させる
+			end
+			local line = task_mod.serialize(item.task)
+			seen_ids[item.task.id] = true
+			table.insert(lines, line)
 		else
 			local text = item.line
 			if vim.trim(text) == "" then
@@ -226,28 +257,56 @@ local function items_to_lines(items, lines)
 					table.insert(lines, text)
 				end
 			else
+				-- 見出し行(### 等)は前後に空行を入れる。markdownlint 等の
+				-- 一般的な整形規約(見出しは空行で囲む)に沿わせるための処理で、
+				-- サブセクションを構造化データとして特別扱いしているわけではない
+				-- (## セクション見出し自体は data.header 側で別途処理される)。
+				local is_heading = text:match("^#+%s") ~= nil
+				if is_heading and #lines > 0 and lines[#lines] ~= "" then
+					table.insert(lines, "")
+				end
 				table.insert(lines, text)
+				if is_heading then
+					table.insert(lines, "")
+				end
 			end
 		end
 	end
 end
 
+-- 連続する空行を1行に圧縮する(markdownlint MD012対策)。
+-- data.header はユーザーが書いた行をそのまま echo するだけで空行を
+-- フィルタしないため(セクション内の items とは異なり)、手編集等で
+-- 見出し前に空行が連続していると、そのままファイルに残り続けていた。
+local function collapse_blank_runs(lines)
+	local result = {}
+	for _, line in ipairs(lines) do
+		-- 直前が既に空行なら追加しない(圧縮)
+		local is_redundant_blank = vim.trim(line) == "" and #result > 0 and vim.trim(result[#result]) == ""
+		if not is_redundant_blank then
+			table.insert(result, line)
+		end
+	end
+	return result
+end
+
 -- パースしたデータを書き戻す
 function M.write_todo_file(filepath, data)
 	local lines = {}
+	-- このファイル書き出し全体を通してIDの重複を検知するための共有テーブル
+	local seen_ids = {}
 
 	for _, l in ipairs(data.header) do
 		table.insert(lines, l)
 	end
 
 	-- default セクション（## なし領域）の書き出し
-	local default_sec = data.sections["default"]
-	local default_items = default_sec and M.get_section_items(default_sec) or {}
+	local default_items = data.sections["default"] or {}
 	if #default_items > 0 then
 		if #lines > 0 and lines[#lines] ~= "" then
 			table.insert(lines, "")
 		end
-		items_to_lines(default_items, lines)
+		items_to_lines(default_items, lines, seen_ids)
 	end
 
 	for _, sec in ipairs(data.section_order) do
@@ -257,23 +316,10 @@ function M.write_todo_file(filepath, data)
 		table.insert(lines, "## " .. sec)
 		table.insert(lines, "")
 
-		local sec_data = data.sections[sec] or new_section()
-
-		-- トップレベル items の書き出し
-		items_to_lines(M.get_section_items(sec_data), lines)
-
-		-- サブセクションの書き出し
-		local subsections = (type(sec_data) == "table" and sec_data.subsections) or {}
-		for _, sub in ipairs(subsections) do
-			-- サブセクション見出しの前に空行を入れる（直前が空でなければ）
-			if #lines > 0 and lines[#lines] ~= "" then
-				table.insert(lines, "")
-			end
-			table.insert(lines, "### " .. sub.name)
-			table.insert(lines, "")
-			items_to_lines(sub.items, lines)
-		end
+		items_to_lines(data.sections[sec] or {}, lines, seen_ids)
 	end
+
+	lines = collapse_blank_runs(lines)
 
 	while #lines > 0 and lines[#lines] == "" do
 		table.remove(lines)

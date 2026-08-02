@@ -1,8 +1,59 @@
 local M = {}
+local task_mod = require("gtodo-md.task")
 
+-- active_splits[source_buf] は現在アクティブな split ポップアップの配列。
+-- 各エントリは { id = task.id(あれば) } または { row, extmark_id(発行後) } の
+-- いずれかの形を取る(#92)。タスク行(チェックボックス行としてparseできる)は
+-- 一意なタスクidをロックキーに使うため、行の挿入・削除で行番号がズレても
+-- 対象を見失わない。idを持たない行(チェックボックスでない素のリスト項目)は
+-- 従来通り行番号で識別するが、extmark発行後はextmarkの現在位置を正として
+-- 解決する。
 local active_splits = {}
 local ns_id = vim.api.nvim_create_namespace("gtodo_split_ns")
 local AUGROUP = vim.api.nvim_create_augroup("GtodoMdSplit", { clear = true })
+
+-- row(1-indexed)・line から、既にアクティブな split がこの行を指しているかを
+-- 判定する。id持ちエントリはid一致で、それ以外は現在位置(extmarkがあれば
+-- そこから解決した行番号、無ければプロンプト表示中の元の行番号)で判定する。
+local function find_active_entry(source_buf, row, line)
+	local entries = active_splits[source_buf]
+	if not entries then
+		return nil
+	end
+	local task = task_mod.parse(line)
+	for _, entry in ipairs(entries) do
+		if entry.id then
+			if task and task.id == entry.id then
+				return entry
+			end
+		else
+			local current_row = entry.row
+			if entry.extmark_id then
+				local mark = vim.api.nvim_buf_get_extmark_by_id(source_buf, ns_id, entry.extmark_id, {})
+				if mark and #mark > 0 then
+					current_row = mark[1] + 1
+				end
+			end
+			if current_row == row then
+				return entry
+			end
+		end
+	end
+	return nil
+end
+
+local function release_entry(source_buf, entry)
+	local entries = active_splits[source_buf]
+	if not entries then
+		return
+	end
+	for i, e in ipairs(entries) do
+		if e == entry then
+			table.remove(entries, i)
+			return
+		end
+	end
+end
 
 local function get_list_marker_info(line)
 	local bq_prefix = line:match("^(%s*>[>%s]*)") or ""
@@ -59,19 +110,34 @@ function M.split_current_task()
 		return
 	end
 
-	if active_splits[source_buf] and active_splits[source_buf][row] then
+	if find_active_entry(source_buf, row, parent_line) then
 		vim.notify("[gtodo-md] A split window is already active for this task.", vim.log.levels.WARN)
 		return
 	end
 
+	-- #92: タスク行ならidをロックキーにする。id未発行(保存サイクルを経ていない
+	-- 手打ちタスク等)ならここで発行して行末へ埋め込む(id:はconcealされるため
+	-- 見た目には影響しない)。他のタグ位置やフォーマットを崩さないよう、
+	-- serializeで再構築せず末尾への追記に留める。
+	local entry = { row = row }
+	local task = task_mod.parse(parent_line)
+	if task then
+		if not task.id or task.id == "" then
+			task.id = task_mod._generate_id()
+			parent_line = vim.trim(parent_line) .. " id:" .. task.id
+			vim.api.nvim_buf_set_lines(source_buf, row - 1, row, false, { parent_line })
+		end
+		entry.id = task.id
+	end
+
 	active_splits[source_buf] = active_splits[source_buf] or {}
-	active_splits[source_buf][row] = true
+	table.insert(active_splits[source_buf], entry)
 
 	local existing_tag = parent_line:match("%+([%w%-_/%.]+)")
 
 	vim.ui.input({ prompt = "Project tag (empty for plain split): ", default = existing_tag or "" }, function(input_tag)
 		if input_tag == nil then
-			active_splits[source_buf][row] = nil
+			release_entry(source_buf, entry)
 			return
 		end
 
@@ -132,6 +198,17 @@ function M.split_current_task()
 			right_gravity = false,
 		})
 
+		-- #92のロック解決専用のextmark。上のextmark_idはright_gravity=falseで
+		-- commit時の親行追跡用に既存の挙動のまま残すが、これは「同じ行位置に
+		-- 挿入されたテキストの前に留まる」性質があり、行そのものの挿入(他の
+		-- 場所での編集で上に新しい行が入る場合)には追従しない。ロック解決には
+		-- 「上に行が挿入されたら自分も下にズレる」動きが必要なため、
+		-- right_gravity=true の別のextmarkを用意する。
+		local lock_extmark_id = vim.api.nvim_buf_set_extmark(source_buf, ns_id, row - 1, 0, {
+			right_gravity = true,
+		})
+		entry.extmark_id = lock_extmark_id
+
 		local scratch_buf = vim.api.nvim_create_buf(false, true)
 		vim.bo[scratch_buf].bufhidden = "wipe"
 		vim.bo[scratch_buf].filetype = "markdown"
@@ -190,17 +267,32 @@ function M.split_current_task()
 
 		local scratch_win = vim.api.nvim_open_win(scratch_buf, true, win_opts)
 
+		-- #92: ロック解放を BufWipeout(バッファが :q 等で片付いた場合)だけに
+		-- 頼らず、WinClosed(ウィンドウが閉じられた場合)でも確実に行う。
+		-- 両方発火し得るため cleaned_up フラグで冪等にしている。
+		local cleaned_up = false
+		local function cleanup()
+			if cleaned_up then
+				return
+			end
+			cleaned_up = true
+			if vim.api.nvim_buf_is_valid(source_buf) then
+				pcall(vim.api.nvim_buf_del_extmark, source_buf, ns_id, extmark_id)
+				pcall(vim.api.nvim_buf_del_extmark, source_buf, ns_id, lock_extmark_id)
+			end
+			release_entry(source_buf, entry)
+		end
+
 		vim.api.nvim_create_autocmd("BufWipeout", {
 			group = AUGROUP,
 			buffer = scratch_buf,
-			callback = function()
-				if vim.api.nvim_buf_is_valid(source_buf) then
-					pcall(vim.api.nvim_buf_del_extmark, source_buf, ns_id, extmark_id)
-				end
-				if active_splits[source_buf] then
-					active_splits[source_buf][row] = nil
-				end
-			end,
+			callback = cleanup,
+		})
+
+		vim.api.nvim_create_autocmd("WinClosed", {
+			group = AUGROUP,
+			pattern = tostring(scratch_win),
+			callback = cleanup,
 		})
 
 		local is_committing = false
@@ -250,6 +342,15 @@ function M.split_current_task()
 				end
 
 				-- Deep fallback: scan the ENTIRE buffer if still not found
+				--
+				-- #85: この行テキスト完全一致による探索は、同一テキストの行が複数存在すると
+				-- Extmarkの旧位置に最も近いものを誤って選んでしまう可能性があった。
+				-- task.lua の serialize が全タスクに一意な id: タグを付与するようになったため、
+				-- 保存済みのタスク行は id: を含めて完全一致する限りIDも一致することになり、
+				-- 「異なるタスクなのに行テキストが偶然衝突する」ケースは実質的に排除される。
+				-- そのため、ここでの行テキスト一致自体をID比較に置き換える必要はない。
+				-- 残るのは、IDがまだ付与されていない(保存サイクルを経ていない)タスク同士が
+				-- 偶然同一テキストになるケースのみで、これは以前から変わらない既知の限界。
 				if not found then
 					local all_lines = vim.api.nvim_buf_get_lines(source_buf, 0, -1, false)
 					local best_match_row = nil

@@ -16,20 +16,61 @@ M.defaults = {
 
 M.options = {}
 
-M.sections = {
+-- デフォルトのセクション名。#94: setup({sections=...})でカスタム名を設定
+-- できるが、この名前は常にエイリアスとして受理され続ける(io.luaのパース時に
+-- 正規化、init.luaのBufWritePreバリデーションで許容)。既存のtodo.mdの
+-- 見出しをユーザーに手動でリネームさせないための設計。
+M.default_sections = {
 	TODAY = "Today",
 	NEXT = "Next",
 	WAITING = "Waiting",
 	SOMEDAY = "Someday",
 }
 
+M.sections = vim.tbl_extend("force", {}, M.default_sections)
+
+-- 前回の setup() で使われていたセクション名(section_aliases が一時的な
+-- エイリアスとして参照する)。utils.read_last_sections で永続化されたものを
+-- setup() のたびに読み込む。
+M.last_sections = {}
+
 function M.setup(opts)
-	M.options = vim.tbl_deep_extend("force", M.defaults, opts or {})
+	opts = opts or {}
+	M.options = vim.tbl_deep_extend("force", M.defaults, opts)
 	-- ディレクトリが存在しない場合は作成
 	local projects_dir = M.options.data_dir .. "/projects"
 	if vim.fn.isdirectory(projects_dir) == 0 then
 		vim.fn.mkdir(projects_dir, "p")
 	end
+
+	-- #94: セクション名をカスタム化・変更した直後は、ファイル側の見出しが
+	-- まだ前回の名前のままであることが多い。前回の名前を読み込んでおき、
+	-- section_aliases が一時的なエイリアスとして受理できるようにする。
+	local utils = require("gtodo-md.utils")
+	local last = utils.read_last_sections()
+	M.last_sections = (type(last) == "table") and last or {}
+
+	M.sections = vim.tbl_deep_extend("force", M.default_sections, opts.sections or {})
+
+	utils.write_last_sections(M.sections)
+end
+
+-- key(TODAY/NEXT/WAITING/SOMEDAY)に対応する、見出しとして現在有効な
+-- 名称候補を返す。現在のカスタム名・デフォルト名に加え、前回の setup() で
+-- 使われていた名前(まだ変更していないファイルの見出しとの互換用)も含む。
+function M.section_aliases(key)
+	local aliases = {}
+	local seen = {}
+	local function add(name)
+		if name and name ~= "" and not seen[name] then
+			seen[name] = true
+			table.insert(aliases, name)
+		end
+	end
+	add(M.sections[key])
+	add(M.default_sections[key])
+	add(M.last_sections[key])
+	return aliases
 end
 
 -- オプション値を取得する。未設定の場合はデフォルト値を返す

@@ -1,5 +1,25 @@
 local M = {}
 
+-- 指定した年月の末日を返す(#88: 月末クランプ計算用)。
+-- 翌月1日の前日 = 当月末日、というトリックで求める。month=13等の
+-- 範囲外の値は os.time が年へ繰り上げて正規化するため year をまたいでも正しい。
+-- DST境界での日付ズレを避けるため hour=12(正午)を基準にする。
+local function days_in_month(year, month)
+	local t = os.time({ year = year, month = month + 1, day = 0, hour = 12 })
+	return tonumber(os.date("%d", t))
+end
+
+-- year/month/day に月単位の差分を加算する(#88: 暦算・月末クランプ)。
+-- 対象月に存在しない日(例: 1/31 + 1ヶ月 → 2月31日)は、その月の末日に
+-- クランプする(繰り越して3月にはしない)。+1y は +12m として扱う。
+local function add_months(year, month, day, delta_months)
+	local total_months = year * 12 + (month - 1) + delta_months
+	local new_year = math.floor(total_months / 12)
+	local new_month = (total_months % 12) + 1
+	local new_day = math.min(day, days_in_month(new_year, new_month))
+	return new_year, new_month, new_day
+end
+
 -- 日付文字列 (YYYY-MM-DD) → os.time に変換する
 function M.date_to_time(date_str)
 	return os.time({
@@ -35,10 +55,13 @@ function M.parse_due_date(str)
 			return os.date("%Y-%m-%d", today + num * 24 * 3600)
 		elseif unit == "w" then
 			return os.date("%Y-%m-%d", today + num * 7 * 24 * 3600)
-		elseif unit == "m" then
-			return os.date("%Y-%m-%d", today + num * 30 * 24 * 3600)
-		elseif unit == "y" then
-			return os.date("%Y-%m-%d", today + num * 365 * 24 * 3600)
+		elseif unit == "m" or unit == "y" then
+			-- #88: 固定日数(30日/365日)ではなく暦算で「翌月/翌年の同日」を求める。
+			-- 存在しない日(月末超過・閏日等)は月末クランプする(add_months参照)。
+			local t = os.date("*t", today)
+			local delta_months = (unit == "y") and (num * 12) or num
+			local ny, nm, nd = add_months(t.year, t.month, t.day, delta_months)
+			return string.format("%04d-%02d-%02d", ny, nm, nd)
 		end
 	end
 
@@ -134,6 +157,23 @@ function M.write_last_opened(date_str)
 	write_state(state)
 end
 
+-- #94: 前回の setup() で使われていたセクション名(config.sections)を記憶する。
+-- ユーザーがカスタム名を変更・削除した直後は、ファイル側の見出しがまだ
+-- 前回の名前のままであることが多いため、config.section_aliases がこれも
+-- 一時的にエイリアスとして受理することで、設定変更直後の保存がブロック
+-- されず、次回保存時に新しい名前へ自動的に移行できるようにする
+-- (全履歴ではなく直前の1世代分のみを覚える)。
+function M.read_last_sections()
+	local state = read_state()
+	return state.last_sections
+end
+
+function M.write_last_sections(sections)
+	local state = read_state()
+	state.last_sections = sections
+	write_state(state)
+end
+
 function M.read_notify_state()
 	local state = read_state()
 	return state.last_notify_time or 0, state.last_notify_content or ""
@@ -173,12 +213,12 @@ function M.create_project_file(project_tag)
 		local today = os.date("%Y-%m-%d")
 		local template = {
 			"---",
-			"title:                 ",
+			"title:",
 			"tag: " .. project_tag,
 			"created: " .. today,
-			"due:                   ",
-			"status: active         ",
-			"members: []            ",
+			"due:",
+			"status: active",
+			"members: []",
 			"---",
 			"",
 			"## Overview",

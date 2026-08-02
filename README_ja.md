@@ -46,11 +46,20 @@ require("gtodo-md").setup({
   waiting_warning_interval = 3600, -- Waiting タスク警告のチェック間隔 (秒) (デフォルト 3600 秒 = 1時間)
   enable_project_progress = true, -- プロジェクトファイル最下部に進捗バーを表示するかどうか (デフォルト true)
   auto_move_inbox_to_today = true, -- Inbox内でタスクを追加・編集した際、期日が「今日・過去」であれば自動的にTodayへ移動するかどうか
+  sections = { -- todo.md のセクション名をカスタマイズ(一部のキーだけの上書きも可)
+    TODAY = "Today",
+    NEXT = "Next",
+    WAITING = "Waiting",
+    SOMEDAY = "Someday",
+  },
 })
 ```
 
 > [!NOTE]
 > `todo.md` などのファイルを `:w backup.md` 等で別名保存した場合でも、プラグイン側の各種キーバインド、期限チェック、自動移動処理は常に `data_dir` に設定された元のタスクファイルを対象にして動作し続けます。
+
+> [!NOTE]
+> 既にプラグインを使い始めた後で `sections` をカスタマイズしても、`todo.md` 内の既存の `## Today`/`## Next`/`## Waiting`/`## Someday` 見出しはそのまま動作し続けます(手動でのリネームは不要です)。次回保存時に自動的に認識され、カスタム名へ書き換えられます。
 
 
 ### 2. lazy.nvim の場合
