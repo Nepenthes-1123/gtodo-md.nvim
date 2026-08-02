@@ -173,11 +173,12 @@ local function create_project_file_if_missing(tag)
 	require("gtodo-md.utils").create_project_file(tag)
 end
 
-function M.split_current_task()
-	local source_buf = vim.api.nvim_get_current_buf()
+-- カーソル行が分割の対象になり得るかを判定する。対象外なら(必要に応じて通知した上で)
+-- nil を返す。返り値: row(1-indexed), parent_line, bq_prefix
+local function resolve_split_target(source_buf)
 	if not vim.bo[source_buf].modifiable then
 		vim.notify("[gtodo-md] Buffer is not modifiable.", vim.log.levels.WARN)
-		return
+		return nil
 	end
 
 	local cursor = vim.api.nvim_win_get_cursor(0)
@@ -185,24 +186,29 @@ function M.split_current_task()
 	local parent_line = vim.api.nvim_buf_get_lines(source_buf, row - 1, row, false)[1]
 
 	if not parent_line then
-		return
+		return nil
 	end
 
 	local bq_prefix, marker, _ = get_list_marker_info(parent_line)
 	if not marker then
 		vim.notify("[gtodo-md] Not on a valid task line.", vim.log.levels.WARN)
-		return
+		return nil
 	end
 
 	if find_active_entry(source_buf, row, parent_line) then
 		vim.notify("[gtodo-md] A split window is already active for this task.", vim.log.levels.WARN)
-		return
+		return nil
 	end
 
-	-- #92: タスク行ならidをロックキーにする。id未発行(保存サイクルを経ていない
-	-- 手打ちタスク等)ならここで発行して行末へ埋め込む(id:はconcealされるため
-	-- 見た目には影響しない)。他のタグ位置やフォーマットを崩さないよう、
-	-- serializeで再構築せず末尾への追記に留める。
+	return row, parent_line, bq_prefix
+end
+
+-- #92: タスク行ならidをロックキーにする。id未発行(保存サイクルを経ていない
+-- 手打ちタスク等)ならここで発行して行末へ埋め込む(id:はconcealされるため
+-- 見た目には影響しない)。他のタグ位置やフォーマットを崩さないよう、
+-- serializeで再構築せず末尾への追記に留める。
+-- 返り値: entry, parent_line(idを発行した場合は付与後の行)
+local function acquire_split_entry(source_buf, row, parent_line)
 	local entry = { row = row }
 	local task = task_mod.parse(parent_line)
 	if task then
@@ -216,6 +222,337 @@ function M.split_current_task()
 
 	active_splits[source_buf] = active_splits[source_buf] or {}
 	table.insert(active_splits[source_buf], entry)
+
+	return entry, parent_line
+end
+
+-- commit時の親行追跡用と、#92のロック解決用の2つのextmarkを設置する。
+-- 返り値: parent_extmark_id(right_gravity=false), lock_extmark_id(right_gravity=true)
+local function create_tracking_extmarks(source_buf, row)
+	local parent_extmark_id = vim.api.nvim_buf_set_extmark(source_buf, ns_id, row - 1, 0, {
+		right_gravity = false,
+	})
+
+	-- #92のロック解決専用のextmark。上のparent_extmark_idはright_gravity=falseで
+	-- commit時の親行追跡用に既存の挙動のまま残すが、これは「同じ行位置に
+	-- 挿入されたテキストの前に留まる」性質があり、行そのものの挿入(他の
+	-- 場所での編集で上に新しい行が入る場合)には追従しない。ロック解決には
+	-- 「上に行が挿入されたら自分も下にズレる」動きが必要なため、
+	-- right_gravity=true の別のextmarkを用意する。
+	local lock_extmark_id = vim.api.nvim_buf_set_extmark(source_buf, ns_id, row - 1, 0, {
+		right_gravity = true,
+	})
+
+	return parent_extmark_id, lock_extmark_id
+end
+
+-- 分割内容を入力するスクラッチバッファとフロートウィンドウを構築する。
+-- 返り値: scratch_buf, scratch_win
+local function open_split_window(parent_line)
+	local scratch_buf = vim.api.nvim_create_buf(false, true)
+	vim.bo[scratch_buf].bufhidden = "wipe"
+	vim.bo[scratch_buf].filetype = "markdown"
+
+	vim.api.nvim_buf_set_lines(scratch_buf, 0, -1, false, { "- [ ] " })
+
+	local width = math.floor(vim.o.columns * 0.8)
+	local height = math.floor(vim.o.lines * 0.6)
+
+	local win_opts = {
+		relative = "editor",
+		width = width,
+		height = height,
+		col = math.floor((vim.o.columns - width) / 2),
+		row = math.floor((vim.o.lines - height) / 2),
+		style = "minimal",
+		border = "rounded",
+		title = " Splitting: " .. summarize_parent_text(parent_line) .. " ",
+		title_pos = "center",
+	}
+
+	if vim.fn.has("nvim-0.10") == 1 then
+		win_opts.footer = " [Commit: g<CR> or <Leader><CR>] | [Cancel: :q] "
+		win_opts.footer_pos = "center"
+	else
+		win_opts.title = win_opts.title .. " | [Commit: g<CR>] "
+	end
+
+	local scratch_win = vim.api.nvim_open_win(scratch_buf, true, win_opts)
+
+	return scratch_buf, scratch_win
+end
+
+-- #92: ロック解放を BufWipeout(バッファが :q 等で片付いた場合)だけに
+-- 頼らず、WinClosed(ウィンドウが閉じられた場合)でも確実に行う。
+-- 両方発火し得るため cleaned_up フラグで冪等にしている。
+local function register_cleanup(split)
+	local cleaned_up = false
+	local function cleanup()
+		if cleaned_up then
+			return
+		end
+		cleaned_up = true
+		if vim.api.nvim_buf_is_valid(split.source_buf) then
+			pcall(vim.api.nvim_buf_del_extmark, split.source_buf, ns_id, split.parent_extmark_id)
+			pcall(vim.api.nvim_buf_del_extmark, split.source_buf, ns_id, split.lock_extmark_id)
+		end
+		release_entry(split.source_buf, split.entry)
+	end
+
+	vim.api.nvim_create_autocmd("BufWipeout", {
+		group = AUGROUP,
+		buffer = split.scratch_buf,
+		callback = cleanup,
+	})
+
+	vim.api.nvim_create_autocmd("WinClosed", {
+		group = AUGROUP,
+		pattern = tostring(split.scratch_win),
+		callback = cleanup,
+	})
+end
+
+-- commit時に親タスクの行番号を再解決する。extmarkの位置を起点に、行テキストが
+-- 一致しなければ前後2行 → バッファ全体の順にフォールバックする。
+-- extmarkそのものが失われていた場合のみ nil を返す。
+-- 返り値: parent_row(0-indexed), current_parent_line
+local function resolve_parent_row(source_buf, parent_extmark_id, parent_line)
+	local mark = vim.api.nvim_buf_get_extmark_by_id(source_buf, ns_id, parent_extmark_id, {})
+	if not mark or #mark == 0 then
+		return nil
+	end
+
+	local parent_row = mark[1]
+	local current_parent_line = vim.api.nvim_buf_get_lines(source_buf, parent_row, parent_row + 1, false)[1]
+
+	if current_parent_line == parent_line then
+		return parent_row, current_parent_line
+	end
+
+	-- Fallback: if extmark shifted (e.g. due to undo bugs), scan +/- 2 lines first
+	for offset = -2, 2 do
+		if offset ~= 0 then
+			local check_row = parent_row + offset
+			if check_row >= 0 then
+				local check_line = vim.api.nvim_buf_get_lines(source_buf, check_row, check_row + 1, false)[1]
+				if check_line == parent_line then
+					return check_row, check_line
+				end
+			end
+		end
+	end
+
+	-- Deep fallback: scan the ENTIRE buffer if still not found
+	--
+	-- #85: この行テキスト完全一致による探索は、同一テキストの行が複数存在すると
+	-- Extmarkの旧位置に最も近いものを誤って選んでしまう可能性があった。
+	-- task.lua の serialize が全タスクに一意な id: タグを付与するようになったため、
+	-- 保存済みのタスク行は id: を含めて完全一致する限りIDも一致することになり、
+	-- 「異なるタスクなのに行テキストが偶然衝突する」ケースは実質的に排除される。
+	-- そのため、ここでの行テキスト一致自体をID比較に置き換える必要はない。
+	-- 残るのは、IDがまだ付与されていない(保存サイクルを経ていない)タスク同士が
+	-- 偶然同一テキストになるケースのみで、これは以前から変わらない既知の限界。
+	local all_lines = vim.api.nvim_buf_get_lines(source_buf, 0, -1, false)
+	local best_match_row = nil
+	local min_dist = math.huge
+	for i, line in ipairs(all_lines) do
+		if line == parent_line then
+			local dist = math.abs((i - 1) - parent_row)
+			if dist < min_dist then
+				min_dist = dist
+				best_match_row = i - 1
+			end
+		end
+	end
+	if best_match_row then
+		return best_match_row, all_lines[best_match_row + 1]
+	end
+
+	return parent_row, current_parent_line
+end
+
+local function extract_metadata(line)
+	local metadata = {}
+	for word in line:gmatch("[%+@#][%w%-_/%.%(%):]+") do
+		table.insert(metadata, word)
+	end
+	for word in line:gmatch("[%w%-_]+:[%w%-_/%.%(%):]+") do
+		if not word:match("^https?:") then
+			table.insert(metadata, word)
+		end
+	end
+	return metadata
+end
+
+local function get_meta_prefix(meta)
+	return meta:match("^([%+@#][^%(%):]+)") or meta:match("^([^:]+:)") or meta
+end
+
+-- スクラッチバッファの内容(payload)を、ソースバッファへ差し込む行群へ変換する。
+-- インデントを親行に合わせ、親タスクのメタデータを持たないサブタスクへ継承させる。
+local function build_injection(source_buf, payload, bq_prefix, parent_line)
+	local stripped_parent = parent_line:sub(#bq_prefix + 1)
+	local parent_indent = get_visual_indent(stripped_parent)
+	local base_offset = parent_indent -- フラットモデル：親と同じインデント
+
+	local injection = {}
+	local expandtab = vim.bo[source_buf].expandtab
+	local sw = vim.bo[source_buf].shiftwidth
+	if sw == 0 then
+		sw = vim.bo[source_buf].tabstop
+	end
+
+	-- 親タスクからすべてのメタデータを抽出
+	local parent_metadata = extract_metadata(parent_line)
+
+	for _, p_line in ipairs(payload) do
+		if p_line:match("^%s*$") then
+			table.insert(injection, bq_prefix:gsub("%s+$", ""))
+		else
+			local p_indent_spaces = p_line:match("^(%s*)")
+			p_indent_spaces = p_indent_spaces:gsub("\t", string.rep(" ", sw))
+			local total_indent_num = base_offset + #p_indent_spaces
+			local total_indent_str
+			if not expandtab then
+				local tabs = math.floor(total_indent_num / sw)
+				local spaces = total_indent_num % sw
+				total_indent_str = string.rep("\t", tabs) .. string.rep(" ", spaces)
+			else
+				total_indent_str = string.rep(" ", total_indent_num)
+			end
+
+			local text = p_line:match("^%s*(.*)$")
+			local _, l_marker, _ = get_list_marker_info(text)
+
+			if l_marker then
+				local existing_metadata = extract_metadata(text)
+				for _, meta in ipairs(parent_metadata) do
+					local meta_prefix = get_meta_prefix(meta)
+					local has_meta = false
+
+					for _, e_meta in ipairs(existing_metadata) do
+						if get_meta_prefix(e_meta) == meta_prefix then
+							has_meta = true
+							break
+						end
+					end
+
+					if not has_meta then
+						text = text:gsub("%s*$", "") .. " " .. meta
+					end
+				end
+			end
+
+			table.insert(injection, bq_prefix .. total_indent_str .. text)
+		end
+	end
+
+	return injection
+end
+
+-- コミット処理を生成する。親行の位置ズレやテキスト変更を解決した上で、
+-- 親タスクを分割後のタスク群で置き換える。
+-- 親行が変更されユーザーが続行を選んだ場合は split.parent_line/bq_prefix を更新する。
+local function make_commit(split)
+	local is_committing = false
+
+	return function()
+		if is_committing then
+			return
+		end
+
+		local source_buf = split.source_buf
+		if
+			not vim.api.nvim_buf_is_valid(source_buf)
+			or not vim.api.nvim_buf_is_loaded(source_buf)
+			or not vim.bo[source_buf].modifiable
+		then
+			vim.notify("[gtodo-md] Source buffer is invalid, unloaded, or unmodifiable.", vim.log.levels.ERROR)
+			return
+		end
+
+		is_committing = true
+
+		local parent_row, current_parent_line =
+			resolve_parent_row(source_buf, split.parent_extmark_id, split.parent_line)
+		if not parent_row then
+			vim.notify("[gtodo-md] Parent task extmark was destroyed.", vim.log.levels.ERROR)
+			is_committing = false
+			return
+		end
+
+		if current_parent_line ~= split.parent_line then
+			local c_bq_prefix, c_marker, _ = get_list_marker_info(current_parent_line)
+			if not c_marker then
+				vim.notify(
+					string.format(
+						"[gtodo-md] Parent task was modified and is no longer a valid task.\nExpected: '%s'\nFound: '%s'",
+						split.parent_line,
+						current_parent_line
+					),
+					vim.log.levels.ERROR
+				)
+				is_committing = false
+				return
+			end
+
+			local choice = vim.fn.confirm("Parent task text changed. Inject here?", "&Yes\n&No")
+			if choice ~= 1 then
+				is_committing = false
+				return
+			end
+
+			split.parent_line = current_parent_line
+			split.bq_prefix = c_bq_prefix
+		end
+
+		local payload = vim.api.nvim_buf_get_lines(split.scratch_buf, 0, -1, false)
+		if table.concat(payload, "\n"):match("^%s*$") then
+			vim.notify("[gtodo-md] Empty payload. Aborting split.", vim.log.levels.INFO)
+			vim.api.nvim_win_close(split.scratch_win, true)
+			return
+		end
+
+		local injection = build_injection(source_buf, payload, split.bq_prefix, split.parent_line)
+
+		pcall(function()
+			vim.cmd("undojoin")
+		end)
+		-- 親タスクを削除し、分割されたタスク群に置き換える（フラットモデル）
+		vim.api.nvim_buf_set_lines(source_buf, parent_row, parent_row + 1, false, injection)
+		vim.api.nvim_win_close(split.scratch_win, true)
+	end
+end
+
+local function setup_scratch_keymaps(scratch_buf, commit)
+	vim.keymap.set("n", "g<CR>", commit, { buffer = scratch_buf, silent = true, desc = "Commit Split" })
+	vim.keymap.set("n", "<Leader><CR>", commit, { buffer = scratch_buf, silent = true, desc = "Commit Split" })
+
+	-- インサートモードでのエンターキーで自動的にチェックボックスを継続する
+	vim.keymap.set("i", "<CR>", function()
+		local line = vim.api.nvim_get_current_line()
+		-- 現在の行が空のチェックボックスなら、それを消して通常の改行にする
+		if line:match("^%s*%- %[%s*%]%s*$") then
+			return "<C-u><CR>"
+		-- チェックボックスがある行で改行したら、次の行にもチェックボックスを入れる
+		elseif line:match("^%s*%- %[%s*%]") then
+			return "<CR>- [ ] "
+		else
+			return "<CR>"
+		end
+	end, { buffer = scratch_buf, expr = true, remap = false })
+end
+
+function M.split_current_task()
+	local source_buf = vim.api.nvim_get_current_buf()
+
+	local row, parent_line, bq_prefix = resolve_split_target(source_buf)
+	if not row then
+		return
+	end
+
+	local entry
+	entry, parent_line = acquire_split_entry(source_buf, row, parent_line)
 
 	local existing_tag = parent_line:match("%+([%w%-_/%.]+)")
 
@@ -246,286 +583,24 @@ function M.split_current_task()
 
 		parent_line = vim.api.nvim_buf_get_lines(source_buf, row - 1, row, false)[1]
 
-		local extmark_id = vim.api.nvim_buf_set_extmark(source_buf, ns_id, row - 1, 0, {
-			right_gravity = false,
-		})
-
-		-- #92のロック解決専用のextmark。上のextmark_idはright_gravity=falseで
-		-- commit時の親行追跡用に既存の挙動のまま残すが、これは「同じ行位置に
-		-- 挿入されたテキストの前に留まる」性質があり、行そのものの挿入(他の
-		-- 場所での編集で上に新しい行が入る場合)には追従しない。ロック解決には
-		-- 「上に行が挿入されたら自分も下にズレる」動きが必要なため、
-		-- right_gravity=true の別のextmarkを用意する。
-		local lock_extmark_id = vim.api.nvim_buf_set_extmark(source_buf, ns_id, row - 1, 0, {
-			right_gravity = true,
-		})
+		local parent_extmark_id, lock_extmark_id = create_tracking_extmarks(source_buf, row)
 		entry.extmark_id = lock_extmark_id
 
-		local scratch_buf = vim.api.nvim_create_buf(false, true)
-		vim.bo[scratch_buf].bufhidden = "wipe"
-		vim.bo[scratch_buf].filetype = "markdown"
+		local scratch_buf, scratch_win = open_split_window(parent_line)
 
-		vim.api.nvim_buf_set_lines(scratch_buf, 0, -1, false, { "- [ ] " })
-
-		local width = math.floor(vim.o.columns * 0.8)
-		local height = math.floor(vim.o.lines * 0.6)
-
-		local parent_text = summarize_parent_text(parent_line)
-
-		local win_opts = {
-			relative = "editor",
-			width = width,
-			height = height,
-			col = math.floor((vim.o.columns - width) / 2),
-			row = math.floor((vim.o.lines - height) / 2),
-			style = "minimal",
-			border = "rounded",
-			title = " Splitting: " .. parent_text .. " ",
-			title_pos = "center",
+		local split = {
+			source_buf = source_buf,
+			entry = entry,
+			parent_line = parent_line,
+			bq_prefix = bq_prefix,
+			parent_extmark_id = parent_extmark_id,
+			lock_extmark_id = lock_extmark_id,
+			scratch_buf = scratch_buf,
+			scratch_win = scratch_win,
 		}
 
-		if vim.fn.has("nvim-0.10") == 1 then
-			win_opts.footer = " [Commit: g<CR> or <Leader><CR>] | [Cancel: :q] "
-			win_opts.footer_pos = "center"
-		else
-			win_opts.title = win_opts.title .. " | [Commit: g<CR>] "
-		end
-
-		local scratch_win = vim.api.nvim_open_win(scratch_buf, true, win_opts)
-
-		-- #92: ロック解放を BufWipeout(バッファが :q 等で片付いた場合)だけに
-		-- 頼らず、WinClosed(ウィンドウが閉じられた場合)でも確実に行う。
-		-- 両方発火し得るため cleaned_up フラグで冪等にしている。
-		local cleaned_up = false
-		local function cleanup()
-			if cleaned_up then
-				return
-			end
-			cleaned_up = true
-			if vim.api.nvim_buf_is_valid(source_buf) then
-				pcall(vim.api.nvim_buf_del_extmark, source_buf, ns_id, extmark_id)
-				pcall(vim.api.nvim_buf_del_extmark, source_buf, ns_id, lock_extmark_id)
-			end
-			release_entry(source_buf, entry)
-		end
-
-		vim.api.nvim_create_autocmd("BufWipeout", {
-			group = AUGROUP,
-			buffer = scratch_buf,
-			callback = cleanup,
-		})
-
-		vim.api.nvim_create_autocmd("WinClosed", {
-			group = AUGROUP,
-			pattern = tostring(scratch_win),
-			callback = cleanup,
-		})
-
-		local is_committing = false
-		local function commit()
-			if is_committing then
-				return
-			end
-
-			if
-				not vim.api.nvim_buf_is_valid(source_buf)
-				or not vim.api.nvim_buf_is_loaded(source_buf)
-				or not vim.bo[source_buf].modifiable
-			then
-				vim.notify("[gtodo-md] Source buffer is invalid, unloaded, or unmodifiable.", vim.log.levels.ERROR)
-				return
-			end
-
-			is_committing = true
-
-			local mark = vim.api.nvim_buf_get_extmark_by_id(source_buf, ns_id, extmark_id, {})
-			if not mark or #mark == 0 then
-				vim.notify("[gtodo-md] Parent task extmark was destroyed.", vim.log.levels.ERROR)
-				is_committing = false
-				return
-			end
-
-			local parent_row = mark[1]
-			local current_parent_line = vim.api.nvim_buf_get_lines(source_buf, parent_row, parent_row + 1, false)[1]
-
-			-- Fallback: if extmark shifted (e.g. due to undo bugs), scan +/- 2 lines first
-			if current_parent_line ~= parent_line then
-				local found = false
-				for offset = -2, 2 do
-					if offset ~= 0 then
-						local check_row = parent_row + offset
-						if check_row >= 0 then
-							local check_line =
-								vim.api.nvim_buf_get_lines(source_buf, check_row, check_row + 1, false)[1]
-							if check_line == parent_line then
-								parent_row = check_row
-								current_parent_line = check_line
-								found = true
-								break
-							end
-						end
-					end
-				end
-
-				-- Deep fallback: scan the ENTIRE buffer if still not found
-				--
-				-- #85: この行テキスト完全一致による探索は、同一テキストの行が複数存在すると
-				-- Extmarkの旧位置に最も近いものを誤って選んでしまう可能性があった。
-				-- task.lua の serialize が全タスクに一意な id: タグを付与するようになったため、
-				-- 保存済みのタスク行は id: を含めて完全一致する限りIDも一致することになり、
-				-- 「異なるタスクなのに行テキストが偶然衝突する」ケースは実質的に排除される。
-				-- そのため、ここでの行テキスト一致自体をID比較に置き換える必要はない。
-				-- 残るのは、IDがまだ付与されていない(保存サイクルを経ていない)タスク同士が
-				-- 偶然同一テキストになるケースのみで、これは以前から変わらない既知の限界。
-				if not found then
-					local all_lines = vim.api.nvim_buf_get_lines(source_buf, 0, -1, false)
-					local best_match_row = nil
-					local min_dist = math.huge
-					for i, line in ipairs(all_lines) do
-						if line == parent_line then
-							local dist = math.abs((i - 1) - parent_row)
-							if dist < min_dist then
-								min_dist = dist
-								best_match_row = i - 1
-							end
-						end
-					end
-					if best_match_row then
-						parent_row = best_match_row
-						current_parent_line = all_lines[best_match_row + 1]
-					end
-				end
-			end
-
-			if current_parent_line ~= parent_line then
-				local c_bq_prefix, c_marker, _ = get_list_marker_info(current_parent_line)
-				if not c_marker then
-					vim.notify(
-						string.format(
-							"[gtodo-md] Parent task was modified and is no longer a valid task.\nExpected: '%s'\nFound: '%s'",
-							parent_line,
-							current_parent_line
-						),
-						vim.log.levels.ERROR
-					)
-					is_committing = false
-					return
-				end
-
-				local choice = vim.fn.confirm("Parent task text changed. Inject here?", "&Yes\n&No")
-				if choice ~= 1 then
-					is_committing = false
-					return
-				end
-
-				parent_line = current_parent_line
-				bq_prefix = c_bq_prefix
-			end
-
-			local payload = vim.api.nvim_buf_get_lines(scratch_buf, 0, -1, false)
-			if table.concat(payload, "\n"):match("^%s*$") then
-				vim.notify("[gtodo-md] Empty payload. Aborting split.", vim.log.levels.INFO)
-				vim.api.nvim_win_close(scratch_win, true)
-				return
-			end
-
-			local stripped_parent = parent_line:sub(#bq_prefix + 1)
-			local parent_indent = get_visual_indent(stripped_parent)
-			local base_offset = parent_indent -- フラットモデル：親と同じインデント
-
-			local injection = {}
-			local expandtab = vim.bo[source_buf].expandtab
-			local sw = vim.bo[source_buf].shiftwidth
-			if sw == 0 then
-				sw = vim.bo[source_buf].tabstop
-			end
-
-			local function extract_metadata(line)
-				local metadata = {}
-				for word in line:gmatch("[%+@#][%w%-_/%.%(%):]+") do
-					table.insert(metadata, word)
-				end
-				for word in line:gmatch("[%w%-_]+:[%w%-_/%.%(%):]+") do
-					if not word:match("^https?:") then
-						table.insert(metadata, word)
-					end
-				end
-				return metadata
-			end
-
-			local function get_meta_prefix(meta)
-				return meta:match("^([%+@#][^%(%):]+)") or meta:match("^([^:]+:)") or meta
-			end
-
-			-- 親タスクからすべてのメタデータを抽出
-			local parent_metadata = extract_metadata(parent_line)
-
-			for _, p_line in ipairs(payload) do
-				if p_line:match("^%s*$") then
-					table.insert(injection, bq_prefix:gsub("%s+$", ""))
-				else
-					local p_indent_spaces = p_line:match("^(%s*)")
-					p_indent_spaces = p_indent_spaces:gsub("\t", string.rep(" ", sw))
-					local total_indent_num = base_offset + #p_indent_spaces
-					local total_indent_str
-					if not expandtab then
-						local tabs = math.floor(total_indent_num / sw)
-						local spaces = total_indent_num % sw
-						total_indent_str = string.rep("\t", tabs) .. string.rep(" ", spaces)
-					else
-						total_indent_str = string.rep(" ", total_indent_num)
-					end
-
-					local text = p_line:match("^%s*(.*)$")
-					local _, l_marker, _ = get_list_marker_info(text)
-
-					if l_marker then
-						local existing_metadata = extract_metadata(text)
-						for _, meta in ipairs(parent_metadata) do
-							local meta_prefix = get_meta_prefix(meta)
-							local has_meta = false
-
-							for _, e_meta in ipairs(existing_metadata) do
-								if get_meta_prefix(e_meta) == meta_prefix then
-									has_meta = true
-									break
-								end
-							end
-
-							if not has_meta then
-								text = text:gsub("%s*$", "") .. " " .. meta
-							end
-						end
-					end
-
-					table.insert(injection, bq_prefix .. total_indent_str .. text)
-				end
-			end
-
-			pcall(function()
-				vim.cmd("undojoin")
-			end)
-			-- 親タスクを削除し、分割されたタスク群に置き換える（フラットモデル）
-			vim.api.nvim_buf_set_lines(source_buf, parent_row, parent_row + 1, false, injection)
-			vim.api.nvim_win_close(scratch_win, true)
-		end
-
-		vim.keymap.set("n", "g<CR>", commit, { buffer = scratch_buf, silent = true, desc = "Commit Split" })
-		vim.keymap.set("n", "<Leader><CR>", commit, { buffer = scratch_buf, silent = true, desc = "Commit Split" })
-
-		-- インサートモードでのエンターキーで自動的にチェックボックスを継続する
-		vim.keymap.set("i", "<CR>", function()
-			local line = vim.api.nvim_get_current_line()
-			-- 現在の行が空のチェックボックスなら、それを消して通常の改行にする
-			if line:match("^%s*%- %[%s*%]%s*$") then
-				return "<C-u><CR>"
-			-- チェックボックスがある行で改行したら、次の行にもチェックボックスを入れる
-			elseif line:match("^%s*%- %[%s*%]") then
-				return "<CR>- [ ] "
-			else
-				return "<CR>"
-			end
-		end, { buffer = scratch_buf, expr = true, remap = false })
+		register_cleanup(split)
+		setup_scratch_keymaps(scratch_buf, make_commit(split))
 
 		-- カーソルを最初の行の末尾に移動してインサートモードへ
 		vim.api.nvim_win_set_cursor(scratch_win, { 1, 6 })
