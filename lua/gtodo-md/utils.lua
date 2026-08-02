@@ -157,6 +157,23 @@ function M.write_last_opened(date_str)
 	write_state(state)
 end
 
+-- #94: 前回の setup() で使われていたセクション名(config.sections)を記憶する。
+-- ユーザーがカスタム名を変更・削除した直後は、ファイル側の見出しがまだ
+-- 前回の名前のままであることが多いため、config.section_aliases がこれも
+-- 一時的にエイリアスとして受理することで、設定変更直後の保存がブロック
+-- されず、次回保存時に新しい名前へ自動的に移行できるようにする
+-- (全履歴ではなく直前の1世代分のみを覚える)。
+function M.read_last_sections()
+	local state = read_state()
+	return state.last_sections
+end
+
+function M.write_last_sections(sections)
+	local state = read_state()
+	state.last_sections = sections
+	write_state(state)
+end
+
 function M.read_notify_state()
 	local state = read_state()
 	return state.last_notify_time or 0, state.last_notify_content or ""
