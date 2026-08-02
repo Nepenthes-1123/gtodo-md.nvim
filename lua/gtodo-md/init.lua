@@ -8,6 +8,10 @@ local timer_mod = require("gtodo-md.timer")
 local lock_mod = require("gtodo-md.lock")
 local autocmds_mod = require("gtodo-md.autocmds")
 local keymaps_mod = require("gtodo-md.keymaps")
+local daily_mod = require("gtodo-md.daily")
+local highlight_mod = require("gtodo-md.highlight")
+local task_mod = require("gtodo-md.task")
+local prompt_mod = require("gtodo-md.ui.prompt")
 
 function M.setup(opts)
 	config.setup(opts)
@@ -16,7 +20,7 @@ function M.setup(opts)
 	io_mod.ensure_files()
 
 	-- 起動時に日付変更チェックを走らせる（Dashboard等への最新データ提供のため）
-	require("gtodo-md.daily").check_daily_rollover()
+	daily_mod.check_daily_rollover()
 
 	-- タイマー開始
 	timer_mod.start_waiting_timer()
@@ -24,7 +28,7 @@ function M.setup(opts)
 
 	-- Autocmdの設定
 	M.setup_autocmds()
-	require("gtodo-md.highlight").setup()
+	highlight_mod.setup()
 
 	-- グローバルキーマップの設定
 	if config.get("use_default_keymaps") then
@@ -53,8 +57,6 @@ function M.handle_buf_enter(bufnr)
 	local data_dir = config.get("data_dir")
 	local inbox_path = data_dir .. "/inbox.md"
 	local todo_path = data_dir .. "/todo.md"
-
-	local daily_mod = require("gtodo-md.daily")
 
 	-- 1. 日付変更チェック
 	daily_mod.check_daily_rollover()
@@ -109,7 +111,7 @@ function M.handle_buf_enter(bufnr)
 	end
 
 	-- 構文ハイライトのアタッチ
-	require("gtodo-md.highlight").attach(bufnr)
+	highlight_mod.attach(bufnr)
 
 	-- 自動処理によってディスク上のファイルが変更された場合、未保存の変更がなければ管理バッファを一括同期（リロード）する
 	daily_mod.reload_managed_bufs()
@@ -182,15 +184,15 @@ function M.add_or_edit_task()
 		local task, row, old_line = editor_mod.get_current_task()
 		if task then
 			-- 編集
-			require("gtodo-md.ui.prompt").prompt_task(task, function(updated_task)
+			prompt_mod.prompt_task(task, function(updated_task)
 				if not vim.api.nvim_buf_is_valid(target_buf) then
 					return
 				end
-				local newline = require("gtodo-md.task").serialize(updated_task)
+				local newline = task_mod.serialize(updated_task)
 				-- ポップアップ編集中に裏側でソートが走り行番号がズレる対策（文字一致で現在行を再探査）
 				local target_row = nil
 				if old_line then
-					local normalized_old_line = require("gtodo-md.task").serialize(task)
+					local normalized_old_line = task_mod.serialize(task)
 					local current_lines = vim.api.nvim_buf_get_lines(target_buf, 0, -1, false)
 					for i, l in ipairs(current_lines) do
 						if l == old_line or l == normalized_old_line then
@@ -207,7 +209,7 @@ function M.add_or_edit_task()
 				end)
 				local changed = check_dues_and_sort(data_dir, inbox_path, todo_path, filename == "todo.md")
 				if changed and not vim.bo[target_buf].modified then
-					require("gtodo-md.daily").reload_managed_bufs()
+					daily_mod.reload_managed_bufs()
 				end
 			end)
 			return
@@ -215,7 +217,7 @@ function M.add_or_edit_task()
 	end
 
 	-- 新規追加
-	require("gtodo-md.ui.prompt").prompt_task(nil, function(new_task)
+	prompt_mod.prompt_task(nil, function(new_task)
 		local cb_bufname = vim.api.nvim_buf_get_name(target_buf)
 		local cb_filename = vim.fn.fnamemodify(cb_bufname, ":t")
 
@@ -247,7 +249,7 @@ function M.add_or_edit_task()
 
 		-- reload open buffers if not modified
 		if not timer_mod.should_skip_timer() then
-			require("gtodo-md.daily").reload_managed_bufs()
+			daily_mod.reload_managed_bufs()
 		end
 
 		-- 追加先が呼び出し元のバッファと異なる場合のみ、行き先を通知する
