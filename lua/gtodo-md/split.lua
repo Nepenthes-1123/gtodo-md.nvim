@@ -85,6 +85,90 @@ local function escape_lua_pattern(s)
 	return (s:gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1"))
 end
 
+-- 入力されたプロジェクトタグを、ファイル名として安全な形へ正規化する。
+-- 引数は trim 済みの文字列を想定する。正規化の結果が空文字になる場合(記号のみの
+-- 入力など)は空文字を返し、その扱い(処理の中断)は呼び出し元に委ねる。
+local function sanitize_project_tag(tag)
+	local result = tag:gsub("^%.+", ""):gsub("%.+$", "")
+	result = result:gsub('[<>:"/\\|?*]', "-")
+	result = result:gsub("%s+", "-")
+	result = result:gsub("%-+", "-")
+	result = result:gsub("^%-+", ""):gsub("%-+$", "")
+
+	local base = result:match("^([^.]+)")
+	if base then
+		local dos_reserved = {
+			CON = true,
+			PRN = true,
+			AUX = true,
+			NUL = true,
+			COM1 = true,
+			COM2 = true,
+			COM3 = true,
+			COM4 = true,
+			LPT1 = true,
+			LPT2 = true,
+			LPT3 = true,
+		}
+		if dos_reserved[base:upper()] then
+			result = result:gsub("^([^.]+)", "%1_proj")
+		end
+	end
+
+	return vim.fn.strcharpart(result, 0, 80)
+end
+
+-- 親タスク行の `+project` タグを書き換える。existing_tag は行から抽出済みの
+-- 既存タグ(無ければ nil)、new_tag は正規化済みの新しいタグ(空文字なら除去)。
+local function rewrite_project_tag(line, existing_tag, new_tag)
+	if existing_tag and new_tag == "" then
+		return (line:gsub("%s*%+" .. escape_lua_pattern(existing_tag) .. "%s*$", ""))
+	elseif existing_tag and new_tag ~= "" and existing_tag ~= new_tag then
+		return (line:gsub("%+" .. escape_lua_pattern(existing_tag) .. "(%s*)$", "+" .. new_tag .. "%1"))
+	elseif not existing_tag and new_tag ~= "" then
+		return line:gsub("%s*$", "") .. " +" .. new_tag
+	end
+	return line
+end
+
+-- フロートウィンドウのタイトル用に、親タスク行から本文だけを取り出して要約する。
+local function summarize_parent_text(line)
+	local text = line
+
+	-- マーカー部分を除去
+	local t_bq, t_marker, _ = get_list_marker_info(text)
+	if t_marker then
+		text = text:sub(#t_bq + #t_marker + 1)
+	end
+
+	-- チェックボックスを除去（[ ] や [x] など）
+	text = text:gsub("^%s*%[.%]%s+", "")
+
+	-- メタデータ (+, @, #) を除去
+	text = text:gsub("[%+@#][%w%-_/%.%(%):]+", "")
+
+	-- key:value 形式のメタデータ (例: due:2023) も除去（ただし URL の http(s) は残す）
+	text = text:gsub("%s*[%w%-_]+:[%w%-_/%.%(%):]+", function(match)
+		if match:match("^%s*https?:") then
+			return match
+		else
+			return ""
+		end
+	end)
+	text = vim.trim(text)
+
+	if vim.fn.strchars(text) > 40 then
+		text = vim.fn.strcharpart(text, 0, 40) .. "..."
+	end
+
+	return text
+end
+
+-- テスト用に公開する純関数
+M._sanitize_project_tag = sanitize_project_tag
+M._rewrite_project_tag = rewrite_project_tag
+M._summarize_parent_text = summarize_parent_text
+
 local function create_project_file_if_missing(tag)
 	require("gtodo-md.utils").create_project_file(tag)
 end
@@ -144,49 +228,17 @@ function M.split_current_task()
 		local new_tag = vim.trim(input_tag)
 
 		if new_tag ~= "" then
-			new_tag = new_tag:gsub("^%.+", ""):gsub("%.+$", "")
-			new_tag = new_tag:gsub('[<>:"/\\|?*]', "-")
-			new_tag = new_tag:gsub("%s+", "-")
-			new_tag = new_tag:gsub("%-+", "-")
-			new_tag = new_tag:gsub("^%-+", ""):gsub("%-+$", "")
+			new_tag = sanitize_project_tag(new_tag)
 
+			-- 正規化の結果が空になった場合(記号のみの入力など)は分割を中断する
 			if new_tag == "" then
 				return
 			end
 
-			local base = new_tag:match("^([^.]+)")
-			if base then
-				local dos_reserved = {
-					CON = true,
-					PRN = true,
-					AUX = true,
-					NUL = true,
-					COM1 = true,
-					COM2 = true,
-					COM3 = true,
-					COM4 = true,
-					LPT1 = true,
-					LPT2 = true,
-					LPT3 = true,
-				}
-				if dos_reserved[base:upper()] then
-					new_tag = new_tag:gsub("^([^.]+)", "%1_proj")
-				end
-			end
-			new_tag = vim.fn.strcharpart(new_tag, 0, 80)
-
 			create_project_file_if_missing(new_tag)
 		end
 
-		local new_parent_line = parent_line
-		if existing_tag and new_tag == "" then
-			new_parent_line = new_parent_line:gsub("%s*%+" .. escape_lua_pattern(existing_tag) .. "%s*$", "")
-		elseif existing_tag and new_tag ~= "" and existing_tag ~= new_tag then
-			new_parent_line =
-				new_parent_line:gsub("%+" .. escape_lua_pattern(existing_tag) .. "(%s*)$", "+" .. new_tag .. "%1")
-		elseif not existing_tag and new_tag ~= "" then
-			new_parent_line = new_parent_line:gsub("%s*$", "") .. " +" .. new_tag
-		end
+		local new_parent_line = rewrite_project_tag(parent_line, existing_tag, new_tag)
 
 		if new_parent_line ~= parent_line then
 			vim.api.nvim_buf_set_lines(source_buf, row - 1, row, false, { new_parent_line })
@@ -218,33 +270,7 @@ function M.split_current_task()
 		local width = math.floor(vim.o.columns * 0.8)
 		local height = math.floor(vim.o.lines * 0.6)
 
-		local parent_text = parent_line
-
-		-- マーカー部分を除去
-		local t_bq, t_marker, _ = get_list_marker_info(parent_text)
-		if t_marker then
-			parent_text = parent_text:sub(#t_bq + #t_marker + 1)
-		end
-
-		-- チェックボックスを除去（[ ] や [x] など）
-		parent_text = parent_text:gsub("^%s*%[.%]%s+", "")
-
-		-- メタデータ (+, @, #) を除去
-		parent_text = parent_text:gsub("[%+@#][%w%-_/%.%(%):]+", "")
-
-		-- key:value 形式のメタデータ (例: due:2023) も除去（ただし URL の http(s) は残す）
-		parent_text = parent_text:gsub("%s*[%w%-_]+:[%w%-_/%.%(%):]+", function(match)
-			if match:match("^%s*https?:") then
-				return match
-			else
-				return ""
-			end
-		end)
-		parent_text = vim.trim(parent_text)
-
-		if vim.fn.strchars(parent_text) > 40 then
-			parent_text = vim.fn.strcharpart(parent_text, 0, 40) .. "..."
-		end
+		local parent_text = summarize_parent_text(parent_line)
 
 		local win_opts = {
 			relative = "editor",
