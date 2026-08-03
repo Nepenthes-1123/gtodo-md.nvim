@@ -186,6 +186,21 @@ function M._execute_move(task, row, target_section)
 	elseif filename == "todo.md" then
 		local current_sec = M.get_current_section()
 		if current_sec == target_section then
+			-- Waiting 内での操作だけは no-op にしない。セクション移動は起きないが、
+			-- 待ち先(wait:)を変更する手段がこの経路以外に存在しないため、
+			-- 同一セクションであっても wait: の更新だけは受け付ける。
+			if target_section == config.sections.WAITING then
+				local updated = update_task_in_todo(task, current_sec, function(_, _, idx, sec_items)
+					sec_items[idx].task.wait = task.wait
+				end)
+				if updated then
+					vim.notify(string.format("Updated wait: in [%s]", target_section), vim.log.levels.INFO)
+				else
+					vim.notify("Task not found in current section.", vim.log.levels.WARN)
+				end
+				return
+			end
+
 			vim.notify("Already in " .. target_section, vim.log.levels.INFO)
 			return
 		end
@@ -299,84 +314,6 @@ end
 
 function M.split_current_task()
 	require("gtodo-md.split").split_current_task()
-end
-
-function M.assign_wait_tag(is_visual)
-	local bufnr = vim.api.nvim_get_current_buf()
-	local start_row, end_row
-	if is_visual then
-		start_row = vim.fn.line("'<")
-		end_row = vim.fn.line("'>")
-	else
-		start_row = vim.fn.line(".")
-		end_row = start_row
-	end
-
-	-- 1. 非同期待機中の行追跡のためにExtmarksを打つ
-	local ns = vim.api.nvim_create_namespace("gtodo_wait_assign")
-	local marks = {}
-	for row = start_row, end_row do
-		local mark_id = vim.api.nvim_buf_set_extmark(bufnr, ns, row - 1, 0, {})
-		table.insert(marks, mark_id)
-	end
-
-	-- 2. プロンプトを開く
-	vim.ui.input({ prompt = "Waiting for (empty to remove): " }, function(input)
-		-- 非同期コールバック
-		if not input then
-			-- aborted
-			vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
-			return
-		end
-
-		input = vim.trim(input)
-		local lines_to_update = {}
-
-		for _, mark_id in ipairs(marks) do
-			local pos = vim.api.nvim_buf_get_extmark_by_id(bufnr, ns, mark_id, {})
-			if pos and pos[1] then
-				local r = pos[1]
-				local line = vim.api.nvim_buf_get_lines(bufnr, r, r + 1, false)[1]
-				local task = task_mod.parse(line)
-				if task then
-					if input == "" then
-						task.wait = nil
-					else
-						task.wait = input
-					end
-					local new_line = task_mod.serialize(task)
-					table.insert(lines_to_update, { row = r, text = new_line })
-				end
-			end
-		end
-
-		-- Extmarkの掃除
-		vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
-
-		if #lines_to_update == 0 then
-			return
-		end
-
-		-- 3. 一括でバッファを更新し、undo履歴を連結する
-		local ok, err = pcall(function()
-			vim.cmd("undojoin")
-			for _, update in ipairs(lines_to_update) do
-				vim.api.nvim_buf_set_lines(bufnr, update.row, update.row + 1, false, { update.text })
-			end
-		end)
-
-		-- もし undojoin が直前の変更がないという理由で失敗した場合のフォールバック
-		if not ok and err and tostring(err):match("E790") then
-			for _, update in ipairs(lines_to_update) do
-				vim.api.nvim_buf_set_lines(bufnr, update.row, update.row + 1, false, { update.text })
-			end
-		end
-
-		-- 保存
-		pcall(vim.api.nvim_buf_call, bufnr, function()
-			vim.cmd("silent! write")
-		end)
-	end)
 end
 
 return M
