@@ -113,14 +113,21 @@ Buffer-local keymaps (available inside `todo.md` / `inbox.md` only):~
 
 <Leader>td  : Move task under cursor to `Today` section
 <Leader>tn  : Move task under cursor to `Next` section
-<Leader>tw  : Move task under cursor to `Waiting` section
+<Leader>tw  : Move task under cursor to `Waiting` section and set who it
+              is waiting for (`wait:`) interactively. Empty input removes
+              it. If the task is already in `Waiting`, the section is kept
+              and only `wait:` is updated.
 <Leader>ts  : Move task under cursor to `Someday` section
 <Leader>tx  : Toggle task completion ([ ] <-> [x])
 <Leader>tc  : Cancel task and move it to `cancelled.md`
 <Leader>tp  : Split task into subtasks or promote to a project
 <Leader>tjp : Jump to the project file for the `+Project` tag under cursor
-<Leader>ttw : Assign a `wait:` tag to the task (Normal / Visual)
 <Leader>to  : Manually run due-date check & sort
+
+*NOTE*: `wait:` belongs to tasks in the `Waiting` section. Moving a task to
+`Today` / `Next` / `Someday` removes its `wait:` tag. Tasks in `Waiting` are
+never auto-promoted to `Today` when their due date arrives; auto-promotion
+applies to `Inbox` / `Next` / `Someday` only.
 
 *Picker Actions*:
 When using `:GtodoSearch` with Snacks, Telescope, or fzf-lua:

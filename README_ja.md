@@ -148,14 +148,17 @@ vim.keymap.set('n', '<Leader>ta', function() require('gtodo-md').add_or_edit_tas
 |---|---|
 | `<Leader>td` | カーソル行を `Today` セクションへ移動 |
 | `<Leader>tn` | カーソル行を `Next` セクションへ移動 |
-| `<Leader>tw` | カーソル行を `Waiting` セクションへ移動 |
+| `<Leader>tw` | カーソル行を `Waiting` セクションへ移動し、待ち先（`wait:`）を対話的に設定（空入力で削除）。既に `Waiting` にいる場合はセクションを移動せず `wait:` のみ更新 |
 | `<Leader>ts` | カーソル行を `Someday` セクションへ移動 |
 | `<Leader>tx` | `[ ]` / `[x]` をトグル（完了時に `completed_at:YYYY-MM-DD` を付与） |
 | `<Leader>tc` | カーソル行のタスクをキャンセルし、`cancelled.md` へ移動 |
 | `<Leader>tp` | タスクを分割してサブタスク化（Split）、またはプロジェクトへ昇格（Promote） |
 | `<Leader>tjp` | カーソル上の `+プロジェクト名` から対応するプロジェクトファイルへジャンプ（存在しない場合はテンプレートから自動作成） |
-| `<Leader>ttw` | カーソル行のタスクに `wait:` タグを付与（Normal / Visual） |
 | `<Leader>to` | 手動での期日チェック & 自動ソート実行 |
+
+> [!NOTE]
+> `wait:` は `Waiting` セクションに属するタスクの情報として扱われます。`Today` / `Next` / `Someday` へ移動すると `wait:` は削除されます。
+> また `Waiting` のタスクは、期日が来ても `Today` へ自動昇格しません（自動昇格の対象は `Inbox` / `Next` / `Someday` です）。
 
 ## コマンド
 - `:GtodoTodo` : `todo.md` をフローティング表示で開きます。
