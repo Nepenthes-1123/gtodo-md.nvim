@@ -231,6 +231,14 @@ function M.move_current_task_to(target_section)
 		return
 	end
 
+	-- 完了済みタスクは done.md への繰り込み待ちであり、セクションの区別を持たない。
+	-- 移動を許すと繰り込み前後で置き場所が変わるだけで意味が無いため受け付けない。
+	-- wait: の付与も同じ理由でここで弾かれる。
+	if task.status == "x" then
+		vim.notify("Cannot move a completed task.", vim.log.levels.WARN)
+		return
+	end
+
 	if target_section == config.sections.WAITING then
 		vim.ui.input({ prompt = "Waiting for (empty to skip/remove): ", default = task.wait or "" }, function(input)
 			if input == nil then
