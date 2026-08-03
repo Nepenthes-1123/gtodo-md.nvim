@@ -14,6 +14,13 @@ for k, _ in pairs(package.loaded) do
 	end
 end
 
+-- スワップファイルを無効化する。
+-- plenary の test_directory は複数の Neovim を並列で起動するため、名前付き
+-- バッファを作るスペックが同時に走ると、各プロセスが同じスワップ用ディレクトリ
+-- (stdpath("state")/swap) を同時に作ろうとして E303 で落ちることがある。
+-- ヘッダレスのテストにクラッシュ復旧は不要なので、そもそも作らせない。
+vim.opt.swapfile = false
+
 -- plenary のパスを追加
 local plenary_path = vim.fn.stdpath("data") .. "/site/pack/core/opt/plenary.nvim"
 local local_plenary = vim.fn.getcwd() .. "/plenary"
