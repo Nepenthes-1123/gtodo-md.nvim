@@ -6,7 +6,6 @@ local history = require("gtodo-md.logic.history")
 -- 完了タスクを done.md へ移動
 function M.move_completed_tasks(inbox_path, todo_path, done_path)
 	local today = os.date("%Y-%m-%d")
-	local current_month = os.date("%Y-%m")
 	local moved_tasks = {}
 
 	-- 1. inbox.md から完了タスクを抽出
@@ -61,17 +60,32 @@ function M.move_completed_tasks(inbox_path, todo_path, done_path)
 	end
 
 	-- 3. done.md へ追加
-	local done_tasks = {}
+	--
+	-- 月見出しは繰り込みを実行した日ではなく completed_at の月で振り分ける。
+	-- 実行日を基準にすると、月をまたいで放置された完了タスクや、日付を遡って
+	-- 完了させたタスクが、実際に完了した月とは違う見出しの下に記録されてしまう。
+	local by_month = {}
+	local month_order = {}
 	for _, entry in ipairs(moved_tasks) do
 		local t = entry.task
 		local comp_date = t.completed_at or today
 		t.completed_at = nil
 		t.done = comp_date
 		t.from = entry.from
-		table.insert(done_tasks, t)
+
+		-- 手編集で不正な日付が入っている場合は当月へ寄せる
+		local month = comp_date:match("^(%d%d%d%d%-%d%d)") or os.date("%Y-%m")
+		if not by_month[month] then
+			by_month[month] = {}
+			table.insert(month_order, month)
+		end
+		table.insert(by_month[month], t)
 	end
 
-	history.append_to_history(done_path, "Done", current_month, done_tasks)
+	table.sort(month_order)
+	for _, month in ipairs(month_order) do
+		history.append_to_history(done_path, "Done", month, by_month[month])
+	end
 	vim.notify(string.format("Moved %d completed tasks to done.md", #moved_tasks), vim.log.levels.INFO)
 	return true
 end
