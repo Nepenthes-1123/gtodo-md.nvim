@@ -140,14 +140,17 @@ If `use_default_keymaps = true`, the prefix is `<Leader>t`.
 | --- | --- | --- |
 | `<Leader>td` | Normal | Move task under cursor to `Today` section |
 | `<Leader>tn` | Normal | Move task under cursor to `Next` section |
-| `<Leader>tw` | Normal | Move task under cursor to `Waiting` section |
+| `<Leader>tw` | Normal | Move task under cursor to `Waiting` section and set who it is waiting for (`wait:`) interactively. Empty input removes it. If the task is already in `Waiting`, only `wait:` is updated |
 | `<Leader>ts` | Normal | Move task under cursor to `Someday` section |
 | `<Leader>tx` | Normal | Toggle task completion (`[ ]` ↔ `[x]`) |
 | `<Leader>tc` | Normal | Cancel task and move it to `cancelled.md` |
 | `<Leader>tp` | Normal | Split task into subtasks or promote to a project |
 | `<Leader>tjp` | Normal | Jump to the project file for the `+Project` tag under cursor |
-| `<Leader>ttw` | Normal / Visual | Assign a `wait:` tag to the task |
 | `<Leader>to` | Normal | Manually run due-date check & sort |
+
+> [!NOTE]
+> `wait:` belongs to tasks in the `Waiting` section. Moving a task to `Today` / `Next` / `Someday` removes its `wait:` tag.
+> Tasks in `Waiting` are never auto-promoted to `Today` when their due date arrives (auto-promotion applies to `Inbox` / `Next` / `Someday`).
 
 ## Commands
 - `:GtodoTodo` - Open `todo.md`

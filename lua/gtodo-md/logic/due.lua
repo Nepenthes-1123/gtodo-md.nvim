@@ -111,7 +111,10 @@ function M.check_dues(inbox_path, todo_path)
 		todo_changed = true
 	end
 
-	for _, from_sec in ipairs({ config.sections.NEXT, config.sections.SOMEDAY, config.sections.WAITING }) do
+	-- Waiting は昇格対象に含めない。他者の応答待ちを表すセクションであり、
+	-- 期日が来ても自分が着手できるようになった訳ではないため、Today へ動かすと
+	-- 「今日やること」の一覧が実際には着手できないタスクで埋まってしまう。
+	for _, from_sec in ipairs({ config.sections.NEXT, config.sections.SOMEDAY }) do
 		if todo_data.sections[from_sec] then
 			local sec_items = todo_data.sections[from_sec]
 			local remaining_items = {}
