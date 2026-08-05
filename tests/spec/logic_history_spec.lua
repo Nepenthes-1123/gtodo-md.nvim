@@ -16,7 +16,15 @@ local function contains_line_prefix(lines, prefix)
 end
 
 describe("logic.append_to_history", function()
-	local done_path = vim.fn.tempname() .. "_done.md"
+	-- パスはテストごとに変える。io.lua は「読んだ時点のディスク」をパス単位で
+	-- 覚えており(並行更新の検出用)、同じパスを使い回すと前のテストの記録が
+	-- 次のテストへ持ち越されて、外部からの作り直しを他プロセスの割り込みと
+	-- 判定してしまう。
+	local done_path
+
+	before_each(function()
+		done_path = vim.fn.tempname() .. "_done.md"
+	end)
 
 	after_each(function()
 		vim.fn.delete(done_path)

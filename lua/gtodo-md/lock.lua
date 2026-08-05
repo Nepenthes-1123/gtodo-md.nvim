@@ -50,6 +50,10 @@ function M.with_write_lock(data_dir, fn)
 		return false
 	end
 
+	-- release は pcall の内側に置かないこと。fn が error を投げたときにロックが
+	-- 残ると、取得失敗時は即諦める仕様(上記)と相まって、stale 判定される 60 秒間
+	-- 全インスタンスの自動処理が通知も無くスキップされる。書き込み失敗が続く状況
+	-- (ディスク満杯等)では自動処理が恒常的に間引かれ、日次ロールオーバーを取りこぼす。
 	local ok, err = pcall(fn)
 	release(lock_path)
 

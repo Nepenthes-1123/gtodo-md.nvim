@@ -7,7 +7,10 @@ function M.toggle_task_file_line(file, lnum)
 		return
 	end
 
-	local lines = vim.fn.readfile(file)
+	-- io_mod 経由で読む。開いているバッファがあればその内容(未保存分を含む)が返るため、
+	-- 直後の書き戻しでユーザーの未保存編集を潰さずに済む。
+	local io_mod = require("gtodo-md.io")
+	local lines = io_mod.read_lines(file)
 	local line = lines[lnum]
 	if not line then
 		return
@@ -30,7 +33,11 @@ function M.toggle_task_file_line(file, lnum)
 	end
 
 	lines[lnum] = line
-	vim.fn.writefile(lines, file)
+	local ok, err = pcall(io_mod.write_lines, file, lines)
+	if not ok then
+		vim.notify(tostring(err), vim.log.levels.ERROR)
+		return
+	end
 	vim.notify("Task toggled!", vim.log.levels.INFO)
 end
 
