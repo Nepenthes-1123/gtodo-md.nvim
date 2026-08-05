@@ -62,15 +62,29 @@ end
 -- autoread をバッファ単位で設定することで、ユーザーの他ファイルの設定に影響を与えずに
 -- 確認ダイアログを抑制できる。グローバルな &autoread を変更しない理由はここにある。
 -- init.lua の各 checktime 呼び出し箇所からも参照できるよう公開している。
+--
+-- #125: checktime は「外部変更を検知してリロードする」だけの操作ではない。
+-- Neovim の buf_check_timestamp() は buf_reload() の直後、そのバッファで
+-- 'undofile' が有効なら u_write_undo() を呼んで undo ファイルを書き直す。
+-- u_write_undo() は既存ファイルを os_remove() してから O_EXCL で作り直すため、
+-- 同じ todo.md を開いた複数インスタンスが同一の undo ファイルパスを奪い合い、
+-- 負けた側が E828 になる。undo ファイルはプロセス間でロックされない。
+-- しかも本プラグインは mtime 変化を全インスタンスが 60 秒タイマーで検知する構造上、
+-- リロードのタイミングが構造的に揃うため、競合は偶発ではなく再現性を持つ。
+-- undofile をバッファローカルに落とすことで u_write_undo() 自体を発生させない
+-- (:w を介さずディスクを書き換える設計である以上、これらのファイルの永続 undo は
+-- そもそも成立していない。機能の切り捨てではなく整合性の回復)。
 function M.reload_managed_bufs()
 	for _, buf in ipairs(vim.api.nvim_list_bufs()) do
 		if vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_is_loaded(buf) then
 			local bname = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t")
 			if bname == "inbox.md" or bname == "todo.md" or bname == "done.md" then
 				vim.bo[buf].autoread = true
-				vim.api.nvim_buf_call(buf, function()
-					vim.cmd("checktime")
-				end)
+				vim.bo[buf].undofile = false
+				-- :checktime はバッファ番号を引数に取れるので nvim_buf_call は不要
+				-- (カレントバッファの一瞬の切り替えも省ける)。リロード周りの失敗が
+				-- タイマー処理全体を巻き込まないよう pcall + silent! で隔離する。
+				pcall(vim.cmd, "silent! checktime " .. buf)
 			end
 		end
 	end

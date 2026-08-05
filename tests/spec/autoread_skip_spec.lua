@@ -3,21 +3,23 @@ local worktree = vim.fn.getcwd():gsub("\\", "/")
 
 describe("autoread and timer skip for project files", function()
 	before_each(function()
-		package.loaded["gtodo-md.utils"] = dofile(worktree .. "/lua/gtodo-md/utils.lua")
-		package.loaded["gtodo-md.config"] = dofile(worktree .. "/lua/gtodo-md/config.lua")
-		package.loaded["gtodo-md.timer"] = dofile(worktree .. "/lua/gtodo-md/timer.lua")
-		-- daily/logic/lock/io は永続状態(キャッシュされたmtime等)を持つため、
-		-- テスト間の汚染を避けるためこちらも毎回リロードする
-		package.loaded["gtodo-md.lock"] = dofile(worktree .. "/lua/gtodo-md/lock.lua")
-		package.loaded["gtodo-md.io"] = dofile(worktree .. "/lua/gtodo-md/io.lua")
-		package.loaded["gtodo-md.logic"] = dofile(worktree .. "/lua/gtodo-md/logic/init.lua")
-		package.loaded["gtodo-md.daily"] = dofile(worktree .. "/lua/gtodo-md/daily.lua")
-		package.loaded["gtodo-md.init"] = dofile(worktree .. "/lua/gtodo-md/init.lua")
-		package.loaded["gtodo-md"] = package.loaded["gtodo-md.init"]
-		utils = package.loaded["gtodo-md.utils"]
-		timer = package.loaded["gtodo-md.timer"]
+		-- daily/logic/lock/io は永続状態(キャッシュされたmtime、書き込み前の世代スタンプ等)を
+		-- 持つため、テスト間の汚染を避けて毎回リロードする。
+		--
+		-- **一部だけを列挙してリロードしてはいけない。** 例えば io だけを差し替えると、
+		-- 先に読み込まれた logic/sort.lua が上位値として掴んでいる古い io と、
+		-- autocmd が require で取り直す新しい io が別インスタンスになり、
+		-- モジュールローカルの状態(世代スタンプ表)が分裂する。
+		-- 本番ではモジュールは一度しか読まれないため起きない、テスト固有の事故である。
+		for name, _ in pairs(package.loaded) do
+			if name == "gtodo-md" or name:match("^gtodo%-md%.") then
+				package.loaded[name] = nil
+			end
+		end
+		utils = require("gtodo-md.utils")
+		timer = require("gtodo-md.timer")
 
-		local config = package.loaded["gtodo-md.config"]
+		local config = require("gtodo-md.config")
 		config.setup({ data_dir = worktree })
 
 		for _, b in ipairs(vim.api.nvim_list_bufs()) do

@@ -1,6 +1,7 @@
 local M = {}
 local task_mod = require("gtodo-md.task")
 local config = require("gtodo-md.config")
+local uv = vim.uv or vim.loop
 
 -- 指定されたパスのバッファが存在し、ロードされているか確認
 local function get_buf_by_name(path)
@@ -16,10 +17,83 @@ local function get_buf_by_name(path)
 	return nil
 end
 
+-- 並行更新(lost update)検出用のスタンプ表。
+-- key: 正規化した絶対パス, value: { sec, nsec, size }
+local read_stamps = {}
+
+local function norm_path(path)
+	return vim.fn.fnamemodify(path, ":p")
+end
+
+local function stat_stamp(path)
+	local st = uv.fs_stat(path)
+	if not st then
+		return nil
+	end
+	return { sec = st.mtime.sec, nsec = st.mtime.nsec or 0, size = st.size }
+end
+
+-- 「このパスの内容をディスクと同期した」と言える時点の stat を記録する。
+--
+-- 記録してよい契機は次の4つだけ:
+--   1. read_lines がディスクから読んだ直後
+--   2. BufReadPost (autocmds.lua から)
+--   3. BufWritePost (autocmds.lua から。ユーザーの :w もここで拾う)
+--   4. 自身の write_lines が成功した直後
+--
+-- read_lines がバッファ優先で読んだときに記録してはならない。バッファの内容は
+-- 「読んだ瞬間のディスク」ではなく「最後にディスクと同期した時点」の写しであり、
+-- そこで今のディスクを刻印すると、古いバッファと新しいディスクを「一致している」と
+-- 誤って宣言することになる。その状態で全行置換すると、他インスタンスがその間に
+-- 追記した行を検出できないまま消してしまう。
+function M.record_stamp(path)
+	read_stamps[norm_path(path)] = stat_stamp(path)
+end
+
+-- 既に追跡中のパスに限ってスタンプを更新する。
+-- 追跡していないパスまで記録すると、プラグインが書かないファイルの分まで
+-- 表が際限なく育つため、対象を絞るための入口を分けている。
+function M.refresh_stamp_if_tracked(path)
+	if read_stamps[norm_path(path)] then
+		M.record_stamp(path)
+	end
+end
+
+-- 書き込み直前に、読み取り時点からディスクが動いていないかを確認する。
+-- 動いていれば、他インスタンス(またはユーザーの :w)が書いた内容を全行置換で
+-- 潰すことになるため、一切書かずに中断する。
+--
+-- これは検出であって防止ではない。stat から rename までの窓に他インスタンスの
+-- 書き込みが挟まれば取り逃すし、スタンプが無いパス(read を経ずに書く経路)は
+-- 照合そのものを行わない。静かな消失を明示的な失敗に変えるのが目的。
+local function assert_not_changed_since_read(path)
+	local recorded = read_stamps[norm_path(path)]
+	if not recorded then
+		return
+	end
+	local current = stat_stamp(path)
+	if not current then
+		-- ファイルが存在しない。新規作成として扱い、書き込みを許す。
+		return
+	end
+	if current.sec == recorded.sec and current.nsec == recorded.nsec and current.size == recorded.size then
+		return
+	end
+	error(
+		string.format(
+			"[gtodo-md] %s は他のプロセスによって更新されています。書き込みを中止しました。\n"
+				.. "バッファを再読み込み(:checktime または :e)してから操作をやり直してください。",
+			path
+		),
+		0
+	)
+end
+
 -- ファイルまたはバッファから行リストを読み込む
 function M.read_lines(path)
 	local buf = get_buf_by_name(path)
 	if buf then
+		-- バッファ優先。ここでスタンプを更新しないのが要点(record_stamp のコメント参照)。
 		return vim.api.nvim_buf_get_lines(buf, 0, -1, false)
 	else
 		local lines = {}
@@ -27,6 +101,9 @@ function M.read_lines(path)
 		if not f then
 			return lines
 		end
+		-- 読み始める前に記録する。読んでいる最中に書き換えられた場合も
+		-- スタンプが古いままになるため、後続の照合で検出できる。
+		M.record_stamp(path)
 		for line in f:lines() do
 			if line:sub(-1) == "\r" then
 				line = line:sub(1, -2)
@@ -100,18 +177,213 @@ local function notify_write_observers(path)
 	end
 end
 
--- 行リストをファイルへアトミックに書き込む(改行コードを指定)
-local function write_lines_to_disk(path, lines, use_crlf)
-	local tmp_path = path .. ".tmp"
-	local f = io.open(tmp_path, "wb")
-	if f then
-		local nl = use_crlf and "\r\n" or "\n"
-		for _, line in ipairs(lines) do
-			f:write(line .. nl)
-		end
-		f:close()
-		vim.fn.rename(tmp_path, path)
+-- 一時ファイル名に使う連番。<pid> と組み合わせて名前の衝突確率を下げるための
+-- ヒントであり、正しさを担保するのは fs_open の "wx"(O_EXCL) である。
+-- PID は OS に再利用されるため所有者の識別子として使ってはならない
+-- (残骸の掃除が mtime だけで判定しているのはこのため)。
+local tmp_seq = 0
+
+-- 残骸とみなすまでの猶予。write_lines は open→write→fsync→rename を同期実行するため、
+-- 一時ファイルの寿命は通常ミリ秒〜数十ミリ秒しかない。ここを短く取ると、I/O が
+-- ストールした他インスタンスの「書き込み途中」のファイルを消してしまう。
+-- lock.lua の STALE_SECONDS とは守る対象が違うので値を揃えない。
+local TMP_TTL_SECONDS = 24 * 60 * 60
+
+-- rename が一時的な共有違反で弾かれたときの再試行間隔(ミリ秒、総待機 630ms)。
+-- Windows では他インスタンスが checktime のためにファイルハンドルを保持している間、
+-- MoveFileExW が ERROR_ACCESS_DENIED / ERROR_SHARING_VIOLATION で失敗しうる。
+-- この予算は正しさを支えるものではなく失敗頻度を下げるだけで、実測に基づく値でもない。
+local RENAME_BACKOFF_MS = { 10, 20, 40, 80, 160, 320 }
+
+-- 再試行して結果が変わりうるエラーだけを対象にする。ENOSPC や EXDEV は何度試しても
+-- 同じなので、待つだけ無駄(かつ UI を止める)ため即座に失敗させる。
+local RETRYABLE_RENAME_ERRORS = { EACCES = true, EBUSY = true, EPERM = true }
+
+-- luv はバージョンによって (nil, msg) と (nil, msg, code) の両方を返しうるため、
+-- どちらの形でもエラーコードを取り出せるようにする。
+local function err_code(msg, code)
+	if code then
+		return code
 	end
+	return tostring(msg or ""):match("^(E%u+)") or ""
+end
+
+-- シンボリックリンクは実体パスへ解決してから書き込む。リンクをそのまま rename の
+-- 置換先にすると、リンク自体が実体ファイルで置き換わって消え、ユーザーが構築した
+-- 外部同期や共有の仕組みが警告なく壊れる。実体側のディレクトリに一時ファイルを
+-- 作るため、実体が別ファイルシステムにあっても rename は同一FS内で完結する。
+local function resolve_link(path)
+	local lst = uv.fs_lstat(path)
+	if not lst or lst.type ~= "link" then
+		return path
+	end
+	return uv.fs_realpath(path) or path
+end
+
+-- 一時ファイルを O_EXCL で作る。名前が衝突しても既存ファイルを壊さず EEXIST で
+-- 失敗するので、連番を進めて数回だけやり直す。
+local function create_tmp(dir, base)
+	for _ = 1, 3 do
+		tmp_seq = tmp_seq + 1
+		local tmp_path = string.format("%s/.%s.%d.%d.tmp", dir, base, vim.fn.getpid(), tmp_seq)
+		local fd, msg, code = uv.fs_open(tmp_path, "wx", 384) -- 0600
+		if fd then
+			return fd, tmp_path
+		end
+		if err_code(msg, code) ~= "EEXIST" then
+			return nil, nil, msg
+		end
+	end
+	return nil, nil, "temporary file name kept colliding"
+end
+
+-- 内容を書き切ってから fsync する。fsync を挟まないと、ファイルシステムによっては
+-- rename のメタデータだけが先に永続化され、直後のクラッシュで「中身が0バイトの
+-- ファイル」が残る。todo データの唯一の保管先なのでこの失敗モードは許容しない。
+local function write_and_sync(fd, data)
+	local offset = 0
+	while offset < #data do
+		local written, msg = uv.fs_write(fd, data:sub(offset + 1), offset)
+		if not written then
+			return nil, msg
+		end
+		offset = offset + written
+	end
+	local synced, sync_err = uv.fs_fsync(fd)
+	if not synced then
+		return nil, sync_err
+	end
+	return true
+end
+
+-- 既存ファイルの権限を一時ファイルへ引き継ぐ。"wx" は 0600 で作るため、これをせずに
+-- rename すると 0644 のファイルが 0600 へ静かに落ちる。
+-- stat が失敗したときは「ファイルが無い(＝新規作成)」のか「一時的に stat できない
+-- (EMFILE 等)」のかを区別する。後者を新規作成と同じ扱いにすると、既存ファイルの
+-- 権限を落としたまま確定させてしまうため、書き込み自体を失敗させる。
+local function inherit_mode(target, tmp_path)
+	local st, msg, code = uv.fs_stat(target)
+	if st then
+		uv.fs_chmod(tmp_path, st.mode)
+		return true
+	end
+	if err_code(msg, code) == "ENOENT" then
+		return true
+	end
+	return nil, msg
+end
+
+local function rename_with_retry(tmp_path, target)
+	local ok, msg, code = uv.fs_rename(tmp_path, target)
+	local attempt = 0
+	while not ok and attempt < #RENAME_BACKOFF_MS and RETRYABLE_RENAME_ERRORS[err_code(msg, code)] do
+		attempt = attempt + 1
+		-- vim.wait はイベントループを回すため、書き込みの途中で他の autocmd や
+		-- ユーザー操作が再入する。ここはスレッドごと止める uv.sleep を使う。
+		uv.sleep(RENAME_BACKOFF_MS[attempt])
+		ok, msg, code = uv.fs_rename(tmp_path, target)
+	end
+	if not ok then
+		return nil, msg
+	end
+	return true
+end
+
+-- ファイルの内容をアトミックに置き換える。成功なら true、失敗なら nil とエラー文字列。
+--
+-- vim.fn.rename() は使わない。Neovim の vim_rename() は rename の前に
+-- os_remove(to) で置換先を削除するため、置換先が一瞬ディスクから消える。
+-- 同じ data_dir を複数インスタンスが共有する運用ではこの窓を他インスタンスが踏み、
+-- 読み取りが空を返す・checktime が壊れた状態を拾う、といった事故につながる(#125)。
+-- uv.fs_rename は置換先を消さずに差し替える(POSIX: rename(2)、Windows:
+-- MoveFileExW の MOVEFILE_REPLACE_EXISTING)。
+local function atomic_replace(path, data)
+	local target = resolve_link(path)
+	local dir = vim.fn.fnamemodify(target, ":h")
+	local base = vim.fn.fnamemodify(target, ":t")
+
+	-- 一時ファイルは必ず置換先と同じディレクトリに作る。別ディレクトリだと
+	-- クロスデバイス rename になり EXDEV で失敗する。
+	local fd, tmp_path, open_err = create_tmp(dir, base)
+	if not fd then
+		return nil, string.format("open: %s", tostring(open_err))
+	end
+
+	local written, write_err = write_and_sync(fd, data)
+	uv.fs_close(fd)
+	if not written then
+		uv.fs_unlink(tmp_path)
+		return nil, string.format("write: %s", tostring(write_err))
+	end
+
+	local mode_ok, mode_err = inherit_mode(target, tmp_path)
+	if not mode_ok then
+		uv.fs_unlink(tmp_path)
+		return nil, string.format("stat: %s", tostring(mode_err))
+	end
+
+	local renamed, rename_err = rename_with_retry(tmp_path, target)
+	if not renamed then
+		uv.fs_unlink(tmp_path)
+		return nil, string.format("rename: %s", tostring(rename_err))
+	end
+
+	return true
+end
+
+-- 行リストを指定の改行コードでアトミックに書き出す。
+local function write_lines_to_disk(path, lines, use_crlf)
+	local nl = use_crlf and "\r\n" or "\n"
+	local data = #lines > 0 and (table.concat(lines, nl) .. nl) or ""
+	return atomic_replace(path, data)
+end
+
+-- 任意の内容をアトミックに書き出す公開ヘルパー。
+-- markdown 以外(.state.json、projects/*.md のテンプレート)を書く上位層が、
+-- 同じ置換手順を各自で実装し直さずに済むよう io.lua 側に集約する。
+-- 成功なら true、失敗なら nil とエラー文字列を返す(error は投げない —
+-- 呼び出し元の失敗時の振る舞いがそれぞれ異なるため判断を委ねる)。
+function M.atomic_write(path, data)
+	return atomic_replace(path, data)
+end
+
+-- 残留した一時ファイルを掃除する。判定は mtime だけで行い、ファイル名に含まれる
+-- PID は見ない。PID は OS に再利用されるため所有者の識別子にならず、再利用された
+-- 瞬間にその残骸がどのインスタンスからも永久に削除対象から外れてしまう。
+-- 削除できなかった場合は放置する(他インスタンスが同時に消した場合など)。
+local function sweep_stale_tmp(dir)
+	local scanner = uv.fs_scandir(dir)
+	if not scanner then
+		return
+	end
+	local now = os.time()
+	while true do
+		local name, entry_type = uv.fs_scandir_next(scanner)
+		if not name then
+			break
+		end
+		if entry_type ~= "directory" and name:match("^%..+%.tmp$") then
+			local entry_path = dir .. "/" .. name
+			local st = uv.fs_stat(entry_path)
+			if st and (now - st.mtime.sec) > TMP_TTL_SECONDS then
+				uv.fs_unlink(entry_path)
+			end
+		end
+	end
+end
+
+-- バッファが無い場合の改行コード判定。既存ファイルの先頭だけ覗いて CRLF かを見る。
+local function detect_crlf(path)
+	if vim.fn.filereadable(path) == 0 then
+		return false
+	end
+	local fr = io.open(path, "rb")
+	if not fr then
+		return false
+	end
+	local content = fr:read(2048) or ""
+	fr:close()
+	return content:find("\r\n") ~= nil
 end
 
 -- ファイルまたはバッファに行リストを書き込む。
@@ -120,21 +392,46 @@ end
 -- カレントバッファを一瞬切り替えることによる画面のちらつき(#57)や、
 -- BufWritePre 等の意図しないautocmd発火(検証の誤発火・処理の多重発火)を
 -- 避けるため、バッファへは直接内容を反映して modified フラグをクリアするに
--- 留め、ディスクへは別途アトミックに書き込む。
+-- 留め、ディスクへは別途アトミックに置き換える(一時ファイルへ書いて fsync し、
+-- uv.fs_rename で差し替える)。
 --
 -- バッファが未保存(dirty)であっても常に反映・保存する。read_lines が
 -- ライブバッファの内容(未保存分を含む)を読み取った上でこの関数に渡される
 -- 想定のため、自動処理による変更とユーザーの未保存編集はマージされて
 -- 保存され、未保存編集が失われることはない。
+--
+-- ディスクへの書き込みが失敗した場合は error を投げる。以前は失敗を黙殺していたが、
+-- 呼び出し元が成功と信じたまま処理を続けるため、何が失われたのか誰にも分からなかった。
 function M.write_lines(path, lines)
 	local buf = get_buf_by_name(path)
+	local use_crlf
+	if buf then
+		use_crlf = vim.bo[buf].fileformat == "dos"
+	else
+		use_crlf = detect_crlf(path)
+	end
+
+	-- 読み取り時点からディスクが動いていれば、ここで中断する(全行置換のため、
+	-- 続行すると他インスタンスの変更を黙って潰すことになる)。
+	assert_not_changed_since_read(path)
+
+	-- ディスクへの書き込みを先に確定させる。バッファを先に更新して modified を
+	-- 落とすと、ディスク書き込みが失敗したときバッファだけが「保存済み」に見え、
+	-- 次の checktime で古い内容へ静かに戻ってユーザーの変更が消える。
+	local ok, err = write_lines_to_disk(path, lines, use_crlf)
+	if not ok then
+		error(string.format("[gtodo-md] failed to write %s: %s", path, err), 0)
+	end
+
+	-- 自分が書いた結果を新しい基準にする(次回の照合で自分の書き込みを
+	-- 他インスタンスの変更と誤検出しないため)。
+	M.record_stamp(path)
 
 	if buf then
 		update_lines_incrementally(buf, lines)
 		if vim.bo[buf].modified then
 			vim.bo[buf].modified = false
 		end
-		write_lines_to_disk(path, lines, vim.bo[buf].fileformat == "dos")
 
 		-- :write を使わずディスクへ直接書き込んだため、Vimが内部で持つ
 		-- 「最後に確認したファイルの更新時刻」がこの書き込みを認識しないまま
@@ -145,20 +442,6 @@ function M.write_lines(path, lines)
 		-- サイレントに完了する(バッファ番号を明示指定するためカレントバッファの
 		-- 切り替えも発生しない)。
 		pcall(vim.cmd, "silent! checktime " .. buf)
-	else
-		local is_crlf = false
-		if vim.fn.filereadable(path) == 1 then
-			local fr = io.open(path, "rb")
-			if fr then
-				local content = fr:read(2048) or ""
-				if content:find("\r\n") then
-					is_crlf = true
-				end
-				fr:close()
-			end
-		end
-
-		write_lines_to_disk(path, lines, is_crlf)
 	end
 
 	notify_write_observers(path)
@@ -357,13 +640,13 @@ function M.ensure_files()
 
 	for _, f in ipairs(files) do
 		if vim.fn.filereadable(f.path) == 0 then
-			local file = io.open(f.path, "wb")
-			if file then
-				file:write(f.title .. "\n")
-				file:close()
-			end
+			atomic_replace(f.path, f.title .. "\n")
 		end
 	end
+
+	-- クラッシュや書き込み失敗で取り残された一時ファイルを回収する。
+	sweep_stale_tmp(data_dir)
+	sweep_stale_tmp(data_dir .. "/projects")
 end
 
 return M

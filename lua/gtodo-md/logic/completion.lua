@@ -2,13 +2,19 @@ local M = {}
 local config = require("gtodo-md.config")
 local io_mod = require("gtodo-md.io")
 local history = require("gtodo-md.logic.history")
+local write_pair = require("gtodo-md.logic.write_pair")
 
 -- 完了タスクを done.md へ移動
+--
+-- 順序は **done.md への追記が先、inbox/todo からの削除が後**(write_pair 参照)。
+-- 以前は削除を先に行っていたため、追記が失敗するとタスクがどのファイルにも
+-- 残らず消失していた。現在は追記が失敗すれば削除元は一切触られず、
+-- 削除が失敗した場合は「両方に存在 = 重複」で済む。
 function M.move_completed_tasks(inbox_path, todo_path, done_path)
 	local today = os.date("%Y-%m-%d")
 	local moved_tasks = {}
 
-	-- 1. inbox.md から完了タスクを抽出
+	-- 1. inbox.md から完了タスクを抽出する(この時点では書き込まない)
 	local inbox_data = io_mod.read_todo_file(inbox_path)
 	local inbox_changed = false
 	if inbox_data.sections["default"] then
@@ -24,11 +30,8 @@ function M.move_completed_tasks(inbox_path, todo_path, done_path)
 		end
 		inbox_data.sections["default"] = remaining
 	end
-	if inbox_changed then
-		io_mod.write_todo_file(inbox_path, inbox_data)
-	end
 
-	-- 2. todo.md から完了タスクを抽出
+	-- 2. todo.md から完了タスクを抽出する(この時点では書き込まない)
 	local todo_data = io_mod.read_todo_file(todo_path)
 	local todo_changed = false
 	for _, sec in ipairs({
@@ -51,15 +54,12 @@ function M.move_completed_tasks(inbox_path, todo_path, done_path)
 			todo_data.sections[sec] = remaining
 		end
 	end
-	if todo_changed then
-		io_mod.write_todo_file(todo_path, todo_data)
-	end
 
 	if #moved_tasks == 0 then
 		return false
 	end
 
-	-- 3. done.md へ追加
+	-- 3. 月ごとに仕分ける。
 	--
 	-- 月見出しは繰り込みを実行した日ではなく completed_at の月で振り分ける。
 	-- 実行日を基準にすると、月をまたいで放置された完了タスクや、日付を遡って
@@ -81,11 +81,22 @@ function M.move_completed_tasks(inbox_path, todo_path, done_path)
 		end
 		table.insert(by_month[month], t)
 	end
-
 	table.sort(month_order)
-	for _, month in ipairs(month_order) do
-		history.append_to_history(done_path, "Done", month, by_month[month])
-	end
+
+	-- 4. 追記 → (段間の同期) → 削除 の順で確定させる
+	write_pair.append_then_remove(function()
+		for _, month in ipairs(month_order) do
+			history.append_to_history(done_path, "Done", month, by_month[month])
+		end
+	end, function()
+		if inbox_changed then
+			io_mod.write_todo_file(inbox_path, inbox_data)
+		end
+		if todo_changed then
+			io_mod.write_todo_file(todo_path, todo_data)
+		end
+	end, config.get("data_dir"))
+
 	vim.notify(string.format("Moved %d completed tasks to done.md", #moved_tasks), vim.log.levels.INFO)
 	return true
 end
