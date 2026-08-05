@@ -151,8 +151,29 @@ Integration with `snacks.dashboard` and `alpha-nvim` is provided: >lua
 
 *Virtual Text & Highlights*
 Task priorities `(A)`, `(B)`, and tags like `+project` and `@context` are
-automatically syntax-highlighted. Due dates are augmented with virtual text 
+automatically syntax-highlighted. Due dates are augmented with virtual text
 showing relative days (e.g., "Tomorrow", "In 3 days").
+
+*Persistent undo is disabled for managed files*
+'undofile' is turned off (buffer-locally) for `inbox.md`, `todo.md`,
+`done.md`, `cancelled.md` and `projects/*.md`. Undo inside the buffer keeps
+working as usual; only the on-disk undo history is disabled.
+
+Reason: when |:checktime| reloads a buffer whose 'undofile' is on, Neovim
+rewrites the undo file immediately afterwards. Rewriting deletes the existing
+undo file and re-creates it exclusively, and undo files are not locked between
+processes. Because this plugin updates the files on disk directly, every
+Neovim instance sharing the same `data_dir` detects the change at the same
+moment and races on the very same undo file path, so one of them fails with
+`E828: Cannot open undo file for writing`.
+
+Even without E828 the persistent undo is not trustworthy here: an instance
+that has no undo history for the file silently removes the undo file written
+by another instance. Since the plugin writes these files without going
+through |:write|, persistent undo for them never had a coherent meaning.
+
+Your global 'undofile' setting is not modified, and files outside `data_dir`
+are untouched.
 
 
 vim:tw=78:ts=8:ft=help:norl:
