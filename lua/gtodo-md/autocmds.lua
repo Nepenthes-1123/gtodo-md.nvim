@@ -164,7 +164,17 @@ function M.setup()
 		end,
 	})
 
-	-- gtodo-md 対象バッファへ autoread を設定
+	-- gtodo-md 対象バッファへ autoread を設定し、永続 undo を無効化する。
+	--
+	-- #125: undofile を落とすのはバッファ生成時が本筋。checktime は外部変更を
+	-- 検知してリロードした直後に u_write_undo() を呼ぶため('undofile' 有効時)、
+	-- 同じファイルを開いた複数インスタンスが同一の undo ファイルを
+	-- 「削除 → O_EXCL で作成」で奪い合い、負けた側が E828 になる。
+	-- さらに undo 情報が空のインスタンスがリロードを踏むと、既存の undo ファイルを
+	-- 黙って削除するため、E828 が出ないケースでも永続 undo は成立していない。
+	-- write_lines が :w を介さずディスクを書き換える設計上、これらのファイルの
+	-- 永続 undo は元から意味を持たない(バッファ内の undo は従来どおり効く)。
+	-- daily.reload_managed_bufs 側にも同じ設定があるが、あちらは保険。
 	vim.api.nvim_create_autocmd({ "BufReadPost", "BufEnter" }, {
 		group = group,
 		pattern = "*",
@@ -173,6 +183,36 @@ function M.setup()
 				local bufname = vim.api.nvim_buf_get_name(args.buf)
 				if utils_mod.is_gtodo_file(bufname) then
 					vim.bo[args.buf].autoread = true
+					vim.bo[args.buf].undofile = false
+				end
+			end
+		end,
+	})
+
+	-- #125: バッファとディスクが一致していると言える瞬間を io.lua のスタンプ表へ記録する。
+	-- 記録した値は write_lines 直前の照合に使われ、他インスタンス(やユーザーの :w)が
+	-- 割り込んだ内容を全行置換で潰すのを防ぐ。
+	-- **BufEnter を契機に含めてはならない** — バッファがディスクと一致している保証が無く、
+	-- 古いバッファに新しいディスクの stat を刻印すると照合が素通りしてしまう。
+	--
+	-- FileChangedShellPost が必要な理由: autoread/checktime によるリロードは
+	-- BufReadPost を発火させない(highlight のアタッチが同イベントを別途購読しているのも
+	-- 同じ理由)。ここを取りこぼすと、リロードでバッファが最新になったのにスタンプが
+	-- 古いまま残り、以降そのパスへの書き込みが恒久的に拒否される。
+	--
+	-- data_dir 外のパスでも、既に追跡中(＝プラグインが読み書きした)ものは更新する。
+	-- 追跡していないパスまで記録すると表が無制限に育つため入口を分けている。
+	vim.api.nvim_create_autocmd({ "BufReadPost", "BufWritePost", "FileChangedShellPost" }, {
+		group = group,
+		pattern = "*",
+		callback = function(args)
+			if vim.api.nvim_buf_is_valid(args.buf) then
+				local bufname = vim.api.nvim_buf_get_name(args.buf)
+				local io_mod = require("gtodo-md.io")
+				if utils_mod.is_gtodo_file(bufname) then
+					io_mod.record_stamp(bufname)
+				else
+					io_mod.refresh_stamp_if_tracked(bufname)
 				end
 			end
 		end,
@@ -277,6 +317,25 @@ function M.setup()
 			end)
 		end,
 	})
+
+	-- setup() より前に開かれていたバッファへの遡り適用(highlight.lua と同じ理由)。
+	-- autocmd は「これから発火するイベント」にしか効かないため、lazy.nvim の
+	-- ft/cmd/keys 等で setup() がバッファ表示より後に走る構成では、上記の
+	-- BufReadPost が既に発火し終えていてスタンプも undofile 設定も入らない。
+	-- 未保存(modified)のバッファはディスクと一致していないため、スタンプは記録しない
+	-- (一致していない状態を「一致」と刻印すると照合が素通りする)。
+	for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+		if vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_is_loaded(buf) then
+			local bufname = vim.api.nvim_buf_get_name(buf)
+			if utils_mod.is_gtodo_file(bufname) then
+				vim.bo[buf].autoread = true
+				vim.bo[buf].undofile = false
+				if not vim.bo[buf].modified then
+					require("gtodo-md.io").record_stamp(bufname)
+				end
+			end
+		end
+	end
 end
 
 return M
