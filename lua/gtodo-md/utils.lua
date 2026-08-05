@@ -132,17 +132,16 @@ local function write_state(data)
 	if vim.fn.isdirectory(dir) == 0 then
 		vim.fn.mkdir(dir, "p")
 	end
-	local tmp_path = path .. ".tmp"
-	local f = io.open(tmp_path, "wb")
-	if f then
-		local ok, content = pcall(vim.json.encode, data)
-		if ok then
-			f:write(content)
-		end
-		f:close()
-		if vim.fn.rename(tmp_path, path) ~= 0 then
-			os.remove(tmp_path)
-		end
+	local ok, content = pcall(vim.json.encode, data)
+	if not ok then
+		return
+	end
+	-- config.lua がこのモジュールを require するため、io.lua はここで遅延requireする
+	-- (io.lua は config.lua を require しており、トップレベルで書くと循環参照になる)。
+	local io_mod = require("gtodo-md.io")
+	local written, err = io_mod.atomic_write(path, content)
+	if not written then
+		vim.notify(string.format("[gtodo-md] failed to write %s: %s", path, err), vim.log.levels.ERROR)
 	end
 end
 
@@ -229,25 +228,15 @@ function M.create_project_file(project_tag)
 			"",
 		}
 
-		local tmp_file = proj_file .. ".tmp"
-		local ok, f = pcall(io.open, tmp_file, "wb")
-		if ok and f then
-			for _, l in ipairs(template) do
-				f:write(l .. "\n")
-			end
-			f:close()
-			if vim.fn.rename(tmp_file, proj_file) == 0 then
-				vim.notify("Created new project file: " .. project_tag, vim.log.levels.INFO)
-				return true
-			else
-				os.remove(tmp_file)
-				vim.notify("Failed to create project file atomically: " .. proj_file, vim.log.levels.ERROR)
-				return false
-			end
-		else
-			vim.notify("Failed to create project file: " .. proj_file, vim.log.levels.ERROR)
+		-- 循環参照を避けるためここで遅延requireする(write_state と同じ理由)。
+		local io_mod = require("gtodo-md.io")
+		local written, err = io_mod.atomic_write(proj_file, table.concat(template, "\n") .. "\n")
+		if not written then
+			vim.notify(string.format("Failed to create project file: %s (%s)", proj_file, err), vim.log.levels.ERROR)
 			return false
 		end
+		vim.notify("Created new project file: " .. project_tag, vim.log.levels.INFO)
+		return true
 	end
 	return true
 end
