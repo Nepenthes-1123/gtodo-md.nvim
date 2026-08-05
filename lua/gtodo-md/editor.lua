@@ -82,23 +82,38 @@ function M._find_task_idx(sec_items, task)
 	return nil
 end
 
+-- io.write_lines は書き込み失敗時に error を投げる。キーマップ経由の操作は
+-- lock.with_write_lock の外側で走るため誰も pcall しておらず、そのままでは
+-- 生の例外がユーザーへ表面化してしまう。ここで捕まえて通知に変える。
+local function protected_write(fn, ...)
+	local ok, err = pcall(fn, ...)
+	if not ok then
+		vim.notify(tostring(err), vim.log.levels.ERROR)
+	end
+	return ok
+end
+
+-- 戻り値: 成功なら true、失敗なら false と理由("notfound" / "write")。
+-- "write" の場合はこの関数が既に通知済みなので、呼び出し元は追加の通知をしない。
 local function update_task_in_todo(task, section, action_fn)
 	local todo_path = config.get("data_dir") .. "/todo.md"
 	local todo_data = io_mod.read_todo_file(todo_path)
 
 	if not todo_data.sections[section] then
-		return false
+		return false, "notfound"
 	end
 
 	local sec_items = todo_data.sections[section]
 	local found_idx = M._find_task_idx(sec_items, task)
 
 	if not found_idx then
-		return false
+		return false, "notfound"
 	end
 
 	action_fn(todo_data, section, found_idx, sec_items)
-	io_mod.write_todo_file(todo_path, todo_data)
+	if not protected_write(io_mod.write_todo_file, todo_path, todo_data) then
+		return false, "write"
+	end
 	return true
 end
 
@@ -117,7 +132,7 @@ function M.toggle_complete()
 
 	if filename == "todo.md" then
 		local current_sec = M.get_current_section()
-		local ok = update_task_in_todo(task, current_sec, function(todo_data, section, idx, sec_items)
+		local ok, reason = update_task_in_todo(task, current_sec, function(todo_data, section, idx, sec_items)
 			local t = sec_items[idx].task
 			if is_completed then
 				t.status = " "
@@ -128,7 +143,7 @@ function M.toggle_complete()
 			end
 			todo_data.sections[section] = logic_mod.sort_section_tasks(todo_data.sections[section])
 		end)
-		if not ok then
+		if not ok and reason == "notfound" then
 			vim.notify("Task not found in todo.md.", vim.log.levels.WARN)
 		end
 	else
@@ -181,7 +196,9 @@ function M._execute_move(task, row, target_section)
 		end
 		table.insert(todo_data.sections[target_section], { type = "task", task = task })
 		todo_data.sections[target_section] = logic_mod.sort_section_tasks(todo_data.sections[target_section])
-		io_mod.write_todo_file(todo_path, todo_data)
+		if not protected_write(io_mod.write_todo_file, todo_path, todo_data) then
+			return
+		end
 		vim.notify(string.format("Moved task to todo.md [%s]", target_section), vim.log.levels.INFO)
 	elseif filename == "todo.md" then
 		local current_sec = M.get_current_section()
@@ -190,12 +207,12 @@ function M._execute_move(task, row, target_section)
 			-- 待ち先(wait:)を変更する手段がこの経路以外に存在しないため、
 			-- 同一セクションであっても wait: の更新だけは受け付ける。
 			if target_section == config.sections.WAITING then
-				local updated = update_task_in_todo(task, current_sec, function(_, _, idx, sec_items)
+				local updated, reason = update_task_in_todo(task, current_sec, function(_, _, idx, sec_items)
 					sec_items[idx].task.wait = task.wait
 				end)
 				if updated then
 					vim.notify(string.format("Updated wait: in [%s]", target_section), vim.log.levels.INFO)
-				else
+				elseif reason == "notfound" then
 					vim.notify("Task not found in current section.", vim.log.levels.WARN)
 				end
 				return
@@ -207,7 +224,7 @@ function M._execute_move(task, row, target_section)
 
 		-- BUG-15対応: update_task_in_todo の戻り値を確認してから notify
 		local moved = false
-		local ok = update_task_in_todo(task, current_sec, function(todo_data, section, idx, sec_items)
+		local ok, reason = update_task_in_todo(task, current_sec, function(todo_data, section, idx, sec_items)
 			table.remove(sec_items, idx)
 
 			if not todo_data.sections[target_section] then
@@ -232,7 +249,7 @@ function M._execute_move(task, row, target_section)
 
 		if ok and moved then
 			vim.notify(string.format("Moved task to [%s]", target_section), vim.log.levels.INFO)
-		elseif not ok then
+		elseif reason == "notfound" then
 			vim.notify("Task not found in current section.", vim.log.levels.WARN)
 		end
 	end
@@ -282,33 +299,49 @@ function M.cancel_current_task()
 
 	local bufname = vim.api.nvim_buf_get_name(0)
 	local filename = vim.fn.fnamemodify(bufname, ":t")
-
-	if filename == "todo.md" then
-		local current_sec = M.get_current_section()
-		local ok = update_task_in_todo(task, current_sec, function(_, _, idx, sec_items)
-			table.remove(sec_items, idx)
-		end)
-		if not ok then
-			vim.notify("Task not found in todo.md.", vim.log.levels.WARN)
-			return
-		end
-	else
-		local buf = vim.api.nvim_get_current_buf()
-		local ok, err = pcall(vim.api.nvim_buf_set_lines, buf, row - 1, row, false, {})
-		if not ok then
-			vim.notify("Failed to remove task line: " .. tostring(err), vim.log.levels.ERROR)
-			return
-		end
-		pcall(vim.api.nvim_buf_call, buf, function()
-			vim.cmd("write")
-		end)
-	end
-
 	local current_month = os.date("%Y-%m")
 	local data_dir = config.get("data_dir")
 	local cancelled_path = data_dir .. "/cancelled.md"
 
-	logic_mod.append_to_history(cancelled_path, "Cancelled", current_month, { task })
+	-- cancelled.md への追記が先、元ファイルからの削除が後(logic/write_pair 参照)。
+	-- 逆順だと、追記が失敗したときタスクがどちらのファイルにも残らず消える。
+	local removed_reason
+	local ok = protected_write(logic_mod.append_then_remove, function()
+		logic_mod.append_to_history(cancelled_path, "Cancelled", current_month, { task })
+	end, function()
+		if filename == "todo.md" then
+			local current_sec = M.get_current_section()
+			local updated, reason = update_task_in_todo(task, current_sec, function(_, _, idx, sec_items)
+				table.remove(sec_items, idx)
+			end)
+			if not updated then
+				removed_reason = reason
+			end
+		else
+			local buf = vim.api.nvim_get_current_buf()
+			vim.api.nvim_buf_set_lines(buf, row - 1, row, false, {})
+			vim.api.nvim_buf_call(buf, function()
+				vim.cmd("write")
+			end)
+		end
+	end, data_dir)
+
+	if not ok then
+		return
+	end
+	if removed_reason == "notfound" then
+		-- 追記は済んでいるので消失はしていないが、元の行が残る(＝重複)。
+		vim.notify(
+			"Task was recorded in cancelled.md but could not be removed from the source file. "
+				.. "Please delete the remaining line manually.",
+			vim.log.levels.WARN
+		)
+		return
+	end
+	if removed_reason then
+		-- 書き込み失敗は update_task_in_todo 側で通知済み
+		return
+	end
 	vim.notify("Task cancelled and moved to cancelled.md", vim.log.levels.INFO)
 end
 

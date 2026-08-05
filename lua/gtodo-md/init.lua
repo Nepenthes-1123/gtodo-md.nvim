@@ -157,6 +157,8 @@ end
 
 -- 指定ファイルの指定セクション末尾へタスクを追記して書き戻す。
 -- prepare_items は追記直前に既存アイテム列へ手を入れるための任意のフック。
+-- 書き込みに失敗した場合は通知したうえで false を返す(io.write_lines は失敗時に
+-- error を投げるが、この経路は lock.with_write_lock の外側で誰も pcall していない)。
 local function append_task_to_file(path, section_name, new_task, prepare_items)
 	local data = io_mod.read_todo_file(path)
 	local items = data.sections[section_name]
@@ -168,7 +170,12 @@ local function append_task_to_file(path, section_name, new_task, prepare_items)
 		prepare_items(items)
 	end
 	table.insert(items, { type = "task", task = new_task })
-	io_mod.write_todo_file(path, data)
+	local ok, err = pcall(io_mod.write_todo_file, path, data)
+	if not ok then
+		vim.notify(tostring(err), vim.log.levels.ERROR)
+		return false
+	end
+	return true
 end
 
 -- 適応的なタスクの追加または編集 (外部呼び出し可能)
@@ -238,12 +245,16 @@ function M.add_or_edit_task()
 				target_sec = config.sections.TODAY
 			end
 
-			append_task_to_file(todo_path, target_sec, new_task)
+			if not append_task_to_file(todo_path, target_sec, new_task) then
+				return
+			end
 			lock_mod.with_write_lock(data_dir, function()
 				logic_mod.sort_todo_file(todo_path)
 			end)
 		else
-			append_task_to_file(inbox_path, "default", new_task, trim_trailing_blank_items)
+			if not append_task_to_file(inbox_path, "default", new_task, trim_trailing_blank_items) then
+				return
+			end
 			check_dues_and_sort(data_dir, inbox_path, todo_path, false)
 		end
 
