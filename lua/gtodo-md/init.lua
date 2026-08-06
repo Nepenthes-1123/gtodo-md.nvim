@@ -210,10 +210,23 @@ function M.add_or_edit_task()
 				end
 				target_row = target_row or row
 
-				vim.api.nvim_buf_set_lines(target_buf, target_row - 1, target_row, false, { newline })
-				vim.api.nvim_buf_call(target_buf, function()
-					vim.cmd("silent! write")
-				end)
+				-- 生の `silent! write` を使ってはならない。io.lua を経由しないため
+				-- アトミック置換が掛からないうえ、`silent!` が BufWritePre の検証エラーを
+				-- 含む一切の失敗を握り潰す。ユーザーには成功したように見えるがディスクへは
+				-- 保存されておらず、次の外部変更リロードで編集内容が静かに失われる。
+				local target_path = vim.api.nvim_buf_get_name(target_buf)
+				local buf_lines = vim.api.nvim_buf_get_lines(target_buf, 0, -1, false)
+				if target_row < 1 or target_row > #buf_lines then
+					vim.notify("[gtodo-md] The edited line no longer exists.", vim.log.levels.ERROR)
+					return
+				end
+				buf_lines[target_row] = newline
+				local write_ok, write_err = pcall(io_mod.write_lines, target_path, buf_lines)
+				if not write_ok then
+					vim.notify(tostring(write_err), vim.log.levels.ERROR)
+					return
+				end
+
 				local changed = check_dues_and_sort(data_dir, inbox_path, todo_path, filename == "todo.md")
 				if changed and not vim.bo[target_buf].modified then
 					daily_mod.reload_managed_bufs()

@@ -103,15 +103,32 @@ end
 --
 -- 行が既に存在しない場合は false を返す(呼び出し元が「追記済みだが削除できなかった」
 -- ことをユーザーへ伝えられるようにするため。ここで error にすると区別できない)。
-local function commit_current_buffer_line(path, row, replacement)
+-- `expected_line` を渡すと、その行テキストで対象行を確認し直す。
+-- Waiting への移動は `vim.ui.input` で待ち先を尋ねる間 row をクロージャに抱えたまま
+-- 待機するが、その間にも自動処理や外部変更リロードは走るため行がずれうる。
+-- 確認しないと無関係な行を書き換える/削除することになる。
+local function locate_row(lines, row, expected_line)
+	if not expected_line or lines[row] == expected_line then
+		return row
+	end
+	for i, line in ipairs(lines) do
+		if line == expected_line then
+			return i
+		end
+	end
+	return nil
+end
+
+local function commit_current_buffer_line(path, row, replacement, expected_line)
 	local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-	if row < 1 or row > #lines then
+	local target = locate_row(lines, row, expected_line)
+	if not target or target < 1 or target > #lines then
 		return false
 	end
 	if replacement then
-		lines[row] = replacement
+		lines[target] = replacement
 	else
-		table.remove(lines, row)
+		table.remove(lines, target)
 	end
 	io_mod.write_lines(path, lines)
 	return true
@@ -181,7 +198,7 @@ function M.toggle_complete()
 		local newline = task_mod.serialize(task)
 		local found
 		local ok = protected_write(function()
-			found = commit_current_buffer_line(bufname, row, newline)
+			found = commit_current_buffer_line(bufname, row, newline, task.original_line)
 		end)
 		if ok and not found then
 			vim.notify("Task line not found.", vim.log.levels.WARN)
@@ -215,7 +232,7 @@ function M._execute_move(task, row, target_section)
 		local ok = protected_write(logic_mod.append_then_remove, function()
 			io_mod.write_todo_file(todo_path, todo_data)
 		end, function()
-			removed = commit_current_buffer_line(bufname, row, nil)
+			removed = commit_current_buffer_line(bufname, row, nil, task.original_line)
 		end, data_dir)
 
 		if not ok then
@@ -349,7 +366,7 @@ function M.cancel_current_task()
 				removed_reason = reason
 			end
 		else
-			if not commit_current_buffer_line(bufname, row, nil) then
+			if not commit_current_buffer_line(bufname, row, nil, task.original_line) then
 				removed_reason = "notfound"
 			end
 		end
