@@ -189,16 +189,50 @@ function M.setup()
 		end,
 	})
 
+	-- 管理対象ファイルが外部で変更されたとき、確認プロンプトを出さずにディスクの
+	-- 内容へ強制リロードする。
+	--
+	-- Vim は「ディスクが変わった、かつバッファに未保存編集がある」場合、
+	-- 'autoread' の設定に関わらず W12 のプロンプト([O]K, (L)oad File:)で人間に聞く。
+	-- 未保存編集を勝手に捨てないための保護だが、同じ data_dir を複数インスタンスで
+	-- 共有する本プラグインではこれが日常的に発生し、しかも古いバッファを抱えたまま
+	-- 自動処理が走ると全行置換で他インスタンスの変更を潰す。ディスクを正とすることで
+	-- 両方を解消する(破棄された未保存編集はバッファ内 undo で戻せる)。
+	--
+	-- pattern が "*" なのは他の autocmd と揃えるためだが、FileChangedShell だけは
+	-- 「autocmd が存在するだけで警告とプロンプトが抑制される」という副作用がある
+	-- (:h FileChangedShell)。管理対象外のファイルまで黙って握り潰さないよう、
+	-- 対象外には "ask" を明示して既定の挙動へ戻す。
+	vim.api.nvim_create_autocmd("FileChangedShell", {
+		group = group,
+		pattern = "*",
+		callback = function(args)
+			-- FileChangedShell はカレントバッファが対象バッファではない(:h FileChangedShell)。
+			-- 判定には必ず args.buf(= <abuf>)を使う。
+			if not utils_mod.is_gtodo_file(vim.api.nvim_buf_get_name(args.buf)) then
+				vim.v.fcs_choice = "ask"
+				return
+			end
+			-- "reload" は削除されたファイルには効かない(:h v:fcs_choice)。
+			-- ファイル消失は黙って進めてよい事象ではないので、既定のプロンプトに委ねる。
+			if vim.v.fcs_reason == "deleted" then
+				vim.v.fcs_choice = "ask"
+				return
+			end
+			vim.v.fcs_choice = "reload"
+		end,
+	})
+
 	-- #125: バッファとディスクが一致していると言える瞬間を io.lua のスタンプ表へ記録する。
 	-- 記録した値は write_lines 直前の照合に使われ、他インスタンス(やユーザーの :w)が
 	-- 割り込んだ内容を全行置換で潰すのを防ぐ。
 	-- **BufEnter を契機に含めてはならない** — バッファがディスクと一致している保証が無く、
 	-- 古いバッファに新しいディスクの stat を刻印すると照合が素通りしてしまう。
 	--
-	-- FileChangedShellPost が必要な理由: autoread/checktime によるリロードは
-	-- BufReadPost を発火させない(highlight のアタッチが同イベントを別途購読しているのも
-	-- 同じ理由)。ここを取りこぼすと、リロードでバッファが最新になったのにスタンプが
-	-- 古いまま残り、以降そのパスへの書き込みが恒久的に拒否される。
+	-- FileChangedShellPost が必要な理由: autoread/checktime によるリロードで
+	-- 「バッファは最新になったのにスタンプだけ古いまま」になると、以降そのパスへの
+	-- 書き込みが恒久的に拒否される。リロード経路を確実に拾うためここを購読する
+	-- (highlight のアタッチが同イベントを別途購読しているのも同じ理由)。
 	--
 	-- data_dir 外のパスでも、既に追跡中(＝プラグインが読み書きした)ものは更新する。
 	-- 追跡していないパスまで記録すると表が無制限に育つため入口を分けている。
