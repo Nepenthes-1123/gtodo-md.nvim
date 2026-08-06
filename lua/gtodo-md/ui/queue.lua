@@ -17,9 +17,24 @@ local SEPARATOR = string.rep("─", 46)
 -- swapfile によるクラッシュ復旧保護は不要。同じファイルを別ウィンドウで
 -- 既に編集中の場合の "swap file already exists" 警告や、(まれに)swapファイル
 -- 用ディレクトリ作成の競合を避けるため無効化しておく。
+-- #125: eventignore で BufReadPost/BufEnter を止めている以上、autocmds.lua が
+-- 管理対象バッファへ行う設定(autoread / undofile=false)もこのバッファには
+-- 一切かからない。特に undofile を残したままにすると、後でこのバッファが
+-- checktime でリロードされたとき Neovim が undo ファイルを書きに行き、
+-- 同じファイルを開いた他インスタンスと同一パスを奪い合って E828 になる。
+-- autocmd を抑制した側の責任として、ここで同じ設定を明示的に入れる。
+local function apply_managed_buf_opts(buf, filepath)
+	if not utils.is_gtodo_file(filepath) then
+		return
+	end
+	vim.bo[buf].autoread = true
+	vim.bo[buf].undofile = false
+end
+
 local function load_buf_quietly(filepath)
 	local buf = vim.fn.bufadd(filepath)
 	if vim.api.nvim_buf_is_loaded(buf) then
+		apply_managed_buf_opts(buf, filepath)
 		return buf
 	end
 
@@ -33,6 +48,8 @@ local function load_buf_quietly(filepath)
 	if not ok then
 		error(err, 0)
 	end
+
+	apply_managed_buf_opts(buf, filepath)
 	return buf
 end
 M._load_buf_quietly = load_buf_quietly

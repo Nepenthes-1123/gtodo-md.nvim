@@ -441,7 +441,21 @@ function M.write_lines(path, lines)
 		-- クリーンな状態のため、この checktime は内容の再読み込みを伴わず
 		-- サイレントに完了する(バッファ番号を明示指定するためカレントバッファの
 		-- 切り替えも発生しない)。
+		--
+		-- #125: ただし、この書き込みと直前の読み取りの間に他インスタンスが
+		-- 割り込んでいた場合は実際にリロードが起き、'undofile' が有効なら
+		-- Neovim が undo ファイルを書きに行く。undo ファイルはプロセス間で
+		-- ロックされないため、そこで E828 になりうる。自分が撃つ checktime の
+		-- 間だけ無効化して元に戻す。
+		--
+		-- io.lua は最下層で utils.is_gtodo_file を require できない(階層制約)。
+		-- 管理対象かどうかを判定できない以上、恒久的に落とすと管理外ファイルの
+		-- 永続 undo まで黙って壊すことになるため、退避・復元に留める。
+		-- 管理対象バッファを恒久的に無効化するのは autocmds.lua の責務。
+		local saved_undofile = vim.bo[buf].undofile
+		vim.bo[buf].undofile = false
 		pcall(vim.cmd, "silent! checktime " .. buf)
+		vim.bo[buf].undofile = saved_undofile
 	end
 
 	notify_write_observers(path)

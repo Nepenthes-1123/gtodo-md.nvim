@@ -82,4 +82,91 @@ describe("管理対象バッファの undofile", function()
 		local ok = pcall(require("gtodo-md.daily").reload_managed_bufs)
 		assert.is_true(ok)
 	end)
+
+	-- #125 追従: 対象判定がファイル名の末尾一致だったため、cancelled.md と
+	-- projects/*.md が reload_managed_bufs から漏れていた。
+	it("reload_managed_bufs は cancelled.md も対象にする", function()
+		local path = data_dir .. "/cancelled.md"
+		vim.fn.writefile({ "# Cancelled", "" }, path)
+		local buf = vim.fn.bufadd(path)
+		vim.fn.bufload(buf)
+		vim.bo[buf].undofile = true
+		vim.bo[buf].autoread = false
+
+		require("gtodo-md.daily").reload_managed_bufs()
+
+		assert.is_false(vim.bo[buf].undofile, "cancelled.md が対象から漏れている")
+		assert.is_true(vim.bo[buf].autoread)
+	end)
+
+	it("reload_managed_bufs は projects/*.md も対象にする", function()
+		local path = data_dir .. "/projects/foo.md"
+		vim.fn.writefile({ "---", "tag: foo", "---" }, path)
+		local buf = vim.fn.bufadd(path)
+		vim.fn.bufload(buf)
+		vim.bo[buf].undofile = true
+		vim.bo[buf].autoread = false
+
+		require("gtodo-md.daily").reload_managed_bufs()
+
+		assert.is_false(vim.bo[buf].undofile, "projects/*.md が対象から漏れている")
+		assert.is_true(vim.bo[buf].autoread)
+	end)
+
+	it("reload_managed_bufs は data_dir 外の同名ファイルを対象にしない", function()
+		local outside = vim.fn.tempname() .. "_todo.md"
+		vim.fn.writefile({ "# Todo" }, outside)
+		local buf = vim.fn.bufadd(outside)
+		vim.fn.bufload(buf)
+		vim.bo[buf].undofile = true
+
+		require("gtodo-md.daily").reload_managed_bufs()
+
+		assert.is_true(vim.bo[buf].undofile, "data_dir 外のファイルまで対象にしている")
+
+		pcall(vim.api.nvim_buf_delete, buf, { force = true })
+		vim.fn.delete(outside)
+	end)
+
+	-- #125 追従: Queue は eventignore で BufReadPost/BufEnter を止めて bufload
+	-- するため、autocmds.lua の設定が一切かからないバッファを作っていた。
+	it("Queue が quietly ロードしたバッファにも undofile=false が入る", function()
+		local todo_path = data_dir .. "/todo.md"
+		vim.fn.writefile({ "# Todo", "", "## Today", "" }, todo_path)
+
+		local buf = require("gtodo-md.ui.queue")._load_buf_quietly(todo_path)
+
+		assert.is_false(vim.bo[buf].undofile, "eventignore 経路で undofile が残っている")
+		assert.is_true(vim.bo[buf].autoread)
+	end)
+
+	it("Queue は data_dir 外のファイルの undofile を変更しない", function()
+		local outside = vim.fn.tempname() .. "_other.md"
+		vim.fn.writefile({ "x" }, outside)
+
+		local buf = require("gtodo-md.ui.queue")._load_buf_quietly(outside)
+
+		assert.is_true(vim.bo[buf].undofile, "管理対象外のファイルまで変更している")
+
+		pcall(vim.api.nvim_buf_delete, buf, { force = true })
+		vim.fn.delete(outside)
+	end)
+
+	-- #125 追従: write_lines が自分で撃つ checktime も、割り込みが起きていれば
+	-- リロードを誘発しうる。その間だけ undofile を落とし、必ず元へ戻す。
+	it("write_lines は checktime の前後で undofile を退避・復元する", function()
+		local outside = vim.fn.tempname() .. "_plain.md"
+		vim.fn.writefile({ "a" }, outside)
+		vim.cmd("edit " .. vim.fn.fnameescape(outside))
+		local buf = vim.api.nvim_get_current_buf()
+		vim.bo[buf].undofile = true
+
+		require("gtodo-md.io").write_lines(outside, { "a", "b" })
+
+		assert.is_true(vim.bo[buf].undofile, "管理対象外バッファの undofile を戻していない")
+		assert.are.same({ "a", "b" }, vim.fn.readfile(outside))
+
+		pcall(vim.api.nvim_buf_delete, buf, { force = true })
+		vim.fn.delete(outside)
+	end)
 end)
