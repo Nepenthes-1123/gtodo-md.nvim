@@ -55,16 +55,17 @@ function M.open_float(filepath, title)
 	vim.api.nvim_create_autocmd("WinLeave", {
 		buffer = file_buf,
 		callback = function()
-			-- フォーカスが外れたらまずは安全のために保存
-			vim.cmd("silent! write")
-
+			-- フォーカスが外れたらまずは安全のために保存。
+			--
 			-- #125: この `:write` は autocmd の中で実行されるため、autocmd が
-			-- 既定でネストしない仕様により **BufWritePost が発火しない**。
-			-- つまり autocmds.lua の記録契機を素通りし、ディスクだけが進んで
-			-- io.lua の世代スタンプが取り残される。その状態で自動処理が走ると
-			-- 「他のプロセスによって更新されています」と誤検知する。
-			-- 観測できない同期点なので、書いた側から明示的に記録する。
-			pcall(require("gtodo-md.io").record_stamp, vim.api.nvim_buf_get_name(file_buf))
+			-- 既定でネストしない仕様により BufWritePost が発火しない。つまり
+			-- autocmds.lua の記録契機を素通りし、ディスクだけが進んで io.lua の
+			-- 世代スタンプが取り残される。
+			-- ここで record_stamp を呼んで補ってはならない — `silent!` は失敗を
+			-- 握り潰すため、書き込みが失敗していた場合に「他インスタンスが書いた
+			-- 内容」を同期済みと刻印してしまい、並行更新検出を無効化する。
+			-- 取り残されたスタンプは io.lua の disk_matches_buffer が回収する。
+			vim.cmd("silent! write")
 
 			vim.schedule(function()
 				if not vim.api.nvim_win_is_valid(win) then

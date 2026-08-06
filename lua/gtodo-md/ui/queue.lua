@@ -29,6 +29,11 @@ local function apply_managed_buf_opts(buf, filepath)
 	end
 	vim.bo[buf].autoread = true
 	vim.bo[buf].undofile = false
+	-- 抑制した BufReadPost がもう一つ行っているのがスタンプの記録。ここを補わないと
+	-- read_stamps に載らないまま「read_lines がバッファ優先で読む対象」になり、
+	-- write_lines 直前の照合が recorded == nil で素通りして並行更新検出が丸ごと効かない。
+	-- bufload 直後はバッファとディスクが一致しているので、記録契機として正当。
+	require("gtodo-md.io").record_stamp(filepath)
 end
 
 local function load_buf_quietly(filepath)
