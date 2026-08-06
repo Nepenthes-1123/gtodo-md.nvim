@@ -151,4 +151,29 @@ describe("管理対象バッファの強制リロード", function()
 		assert.is_truthy(tostring(err):find("他のプロセスによって更新されています", 1, true))
 		assert.are.same({ "# Todo", "- [ ] a", "- [ ] 他インスタンス" }, vim.fn.readfile(path))
 	end)
+
+	-- スタンプを記録してよいのは bufload の直後だけ。既にロード済みのバッファは
+	-- いつの時点のディスクを写したものか分からないため、そこで今のディスクを刻印すると
+	-- 「古いバッファ＝新しいディスク」と誤って宣言し、検出が恒久的に素通りする。
+	it("Queue は既ロード済みバッファのスタンプを塗り替えない", function()
+		local path = data_dir .. "/todo.md"
+		vim.fn.writefile({ "# Todo", "- [ ] a" }, path)
+
+		-- 通常経路で開く(BufReadPost で autocmds.lua がスタンプを記録する)
+		vim.cmd("edit " .. vim.fn.fnameescape(path))
+
+		-- 他インスタンスが追記。この時点でスタンプは古くなっている
+		vim.fn.writefile({ "# Todo", "- [ ] a", "- [ ] 他インスタンス" }, path)
+
+		-- Queue を開く。既ロード済みなので bufload は走らない
+		require("gtodo-md.ui.queue")._load_buf_quietly(path)
+
+		local io_mod = require("gtodo-md.io")
+		local stale = io_mod.read_lines(path)
+		local ok, err = pcall(io_mod.write_lines, path, stale)
+
+		assert.is_false(ok, "既ロード済み経路でスタンプを塗り替え、検出を無効化している")
+		assert.is_truthy(tostring(err):find("他のプロセスによって更新されています", 1, true))
+		assert.are.same({ "# Todo", "- [ ] a", "- [ ] 他インスタンス" }, vim.fn.readfile(path))
+	end)
 end)
