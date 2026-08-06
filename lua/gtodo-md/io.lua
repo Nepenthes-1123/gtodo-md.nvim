@@ -66,6 +66,42 @@ end
 -- これは検出であって防止ではない。stat から rename までの窓に他インスタンスの
 -- 書き込みが挟まれば取り逃すし、スタンプが無いパス(read を経ずに書く経路)は
 -- 照合そのものを行わない。静かな消失を明示的な失敗に変えるのが目的。
+-- ディスクの内容が、そのパスのバッファと完全に一致しているかを見る。
+--
+-- スタンプは「同期点を観測できた」ときしか更新できないが、観測できない同期点が
+-- 現実に存在する。最たる例が **autocmd の中で実行される `:write`** で、
+-- autocmd は既定でネストしないため `BufWritePost` が発火せず、ディスクだけが
+-- 進んでスタンプが取り残される(`ui/float.lua` の WinLeave がこれに当たる)。
+--
+-- mtime/size が動いていても内容がバッファと一致しているなら、
+-- 「こちらが読んだ内容」を書き換えた者はいない。並行更新ではないので通してよい。
+-- 逆に内容が違えば、それは本物の並行更新である。
+local function disk_matches_buffer(path, buf)
+	local f = io.open(path, "r")
+	if not f then
+		return false
+	end
+	local disk = {}
+	for line in f:lines() do
+		if line:sub(-1) == "\r" then
+			line = line:sub(1, -2)
+		end
+		table.insert(disk, line)
+	end
+	f:close()
+
+	local buf_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+	if #disk ~= #buf_lines then
+		return false
+	end
+	for i = 1, #disk do
+		if disk[i] ~= buf_lines[i] then
+			return false
+		end
+	end
+	return true
+end
+
 local function assert_not_changed_since_read(path)
 	local recorded = read_stamps[norm_path(path)]
 	if not recorded then
@@ -79,6 +115,17 @@ local function assert_not_changed_since_read(path)
 	if current.sec == recorded.sec and current.nsec == recorded.nsec and current.size == recorded.size then
 		return
 	end
+
+	-- stat が食い違っていても、内容がバッファと同じなら並行更新ではない
+	-- (観測できなかった同期点)。スタンプを回収して書き込みを許す。
+	-- バッファが無い場合は比較対象が無いため救済しない — その場合の lines は
+	-- ディスクから読んだものであり、ディスクが動いていれば本物の並行更新である。
+	local buf = get_buf_by_name(path)
+	if buf and disk_matches_buffer(path, buf) then
+		read_stamps[norm_path(path)] = current
+		return
+	end
+
 	error(
 		string.format(
 			"[gtodo-md] %s は他のプロセスによって更新されています。書き込みを中止しました。\n"
@@ -441,7 +488,21 @@ function M.write_lines(path, lines)
 		-- クリーンな状態のため、この checktime は内容の再読み込みを伴わず
 		-- サイレントに完了する(バッファ番号を明示指定するためカレントバッファの
 		-- 切り替えも発生しない)。
+		--
+		-- #125: ただし、この書き込みと直前の読み取りの間に他インスタンスが
+		-- 割り込んでいた場合は実際にリロードが起き、'undofile' が有効なら
+		-- Neovim が undo ファイルを書きに行く。undo ファイルはプロセス間で
+		-- ロックされないため、そこで E828 になりうる。自分が撃つ checktime の
+		-- 間だけ無効化して元に戻す。
+		--
+		-- io.lua は最下層で utils.is_gtodo_file を require できない(階層制約)。
+		-- 管理対象かどうかを判定できない以上、恒久的に落とすと管理外ファイルの
+		-- 永続 undo まで黙って壊すことになるため、退避・復元に留める。
+		-- 管理対象バッファを恒久的に無効化するのは autocmds.lua の責務。
+		local saved_undofile = vim.bo[buf].undofile
+		vim.bo[buf].undofile = false
 		pcall(vim.cmd, "silent! checktime " .. buf)
+		vim.bo[buf].undofile = saved_undofile
 	end
 
 	notify_write_observers(path)

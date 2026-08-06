@@ -58,6 +58,14 @@ function M.open_float(filepath, title)
 			-- フォーカスが外れたらまずは安全のために保存
 			vim.cmd("silent! write")
 
+			-- #125: この `:write` は autocmd の中で実行されるため、autocmd が
+			-- 既定でネストしない仕様により **BufWritePost が発火しない**。
+			-- つまり autocmds.lua の記録契機を素通りし、ディスクだけが進んで
+			-- io.lua の世代スタンプが取り残される。その状態で自動処理が走ると
+			-- 「他のプロセスによって更新されています」と誤検知する。
+			-- 観測できない同期点なので、書いた側から明示的に記録する。
+			pcall(require("gtodo-md.io").record_stamp, vim.api.nvim_buf_get_name(file_buf))
+
 			vim.schedule(function()
 				if not vim.api.nvim_win_is_valid(win) then
 					return

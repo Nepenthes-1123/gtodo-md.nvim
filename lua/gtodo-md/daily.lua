@@ -74,11 +74,18 @@ end
 -- undofile をバッファローカルに落とすことで u_write_undo() 自体を発生させない
 -- (:w を介さずディスクを書き換える設計である以上、これらのファイルの永続 undo は
 -- そもそも成立していない。機能の切り捨てではなく整合性の回復)。
+--
+-- 対象判定は utils.is_gtodo_file に揃える。以前はファイル名の末尾一致
+-- (inbox.md / todo.md / done.md)で判定していたため、cancelled.md と
+-- projects/*.md がこの経路から漏れていた。漏れたバッファは、autocmd を
+-- 経ずにロードされた場合(ui/queue.lua の eventignore 経路など)に
+-- undofile が有効なまま残り、どこからも張り直されなかった。
+-- 他の対象判定はすべて is_gtodo_file を使っており、ここだけ別基準だった。
 function M.reload_managed_bufs()
+	local utils = require("gtodo-md.utils")
 	for _, buf in ipairs(vim.api.nvim_list_bufs()) do
 		if vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_is_loaded(buf) then
-			local bname = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t")
-			if bname == "inbox.md" or bname == "todo.md" or bname == "done.md" then
+			if utils.is_gtodo_file(vim.api.nvim_buf_get_name(buf)) then
 				vim.bo[buf].autoread = true
 				vim.bo[buf].undofile = false
 				-- :checktime はバッファ番号を引数に取れるので nvim_buf_call は不要
