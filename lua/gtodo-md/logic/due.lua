@@ -1,6 +1,7 @@
 local M = {}
 local config = require("gtodo-md.config")
 local io_mod = require("gtodo-md.io")
+local write_pair = require("gtodo-md.logic.write_pair")
 
 local mem_last_notify_time = 0
 local mem_last_notify_content = ""
@@ -44,7 +45,7 @@ function M.check_dues(inbox_path, todo_path)
 	local moved_count = 0
 	local auto_move_inbox = config.get("auto_move_inbox_to_today")
 
-	-- 1. inbox.md の dueチェック
+	-- 1. inbox.md の dueチェック(収集のみ。書き込みは todo.md への追記より後)
 	local inbox_data = io_mod.read_todo_file(inbox_path)
 	local inbox_warnings = {}
 	local inbox_changed = false
@@ -74,10 +75,6 @@ function M.check_dues(inbox_path, todo_path)
 			end
 		end
 		inbox_data.sections["default"] = remaining
-	end
-
-	if inbox_changed then
-		io_mod.write_todo_file(inbox_path, inbox_data)
 	end
 
 	local persist = config.get("due_notification_persist")
@@ -132,8 +129,21 @@ function M.check_dues(inbox_path, todo_path)
 		end
 	end
 
-	if todo_changed then
+	-- 3. 追記(todo.md) → (段間の同期) → 削除(inbox.md) の順で確定させる。
+	-- inbox から先に消すと、todo.md への追記が失敗したときタスクがどちらのファイルにも
+	-- 残らず消失する(logic/write_pair 参照)。inbox_changed が真なら items_to_move が
+	-- 空でないため todo_changed も必ず真であり、追記側は常に実体を持つ。
+	if inbox_changed then
+		write_pair.append_then_remove(function()
+			io_mod.write_todo_file(todo_path, todo_data)
+		end, function()
+			io_mod.write_todo_file(inbox_path, inbox_data)
+		end, config.get("data_dir"))
+	elseif todo_changed then
 		io_mod.write_todo_file(todo_path, todo_data)
+	end
+
+	if todo_changed then
 		vim.notify(string.format("Moved %d tasks to Today due to deadline.", moved_count), vim.log.levels.INFO)
 	end
 
