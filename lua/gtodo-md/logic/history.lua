@@ -13,25 +13,45 @@ function M.append_to_history(filepath, header_title, section_name, tasks)
 		table.insert(lines, "")
 	end
 
-	-- セクションがすでに存在するかチェック
-	local has_section = false
-	for _, line in ipairs(lines) do
-		if line == "## " .. section_name then
-			has_section = true
+	-- 対象セクションが「存在するか」だけでなく「どこにあるか」を見る。
+	-- 振り分けは completed_at の月で行うため、対象が必ずしも最後のセクションとは限らない
+	-- (月をまたいで放置された完了タスクは過去月の見出しへ入る)。位置を見ずに末尾へ
+	-- 足すと、実際の完了月とは違う見出しの配下に無警告で紛れ込む。
+	local header = "## " .. section_name
+	local section_start
+	for i, line in ipairs(lines) do
+		if line == header then
+			section_start = i
 			break
 		end
 	end
 
-	if not has_section then
+	-- 既定はファイル末尾。対象セクションが最後なら従来どおりここへ追記される。
+	local insert_at = #lines + 1
+
+	if section_start then
+		for i = section_start + 1, #lines do
+			if lines[i]:match("^## ") then
+				-- 後ろに別のセクションがある。その直前(= 対象セクションの末尾)へ入れる。
+				-- 見出し間の区切りの空行より前に置きたいので、空行の分だけ遡る。
+				insert_at = i
+				while insert_at - 1 > section_start and vim.trim(lines[insert_at - 1]) == "" do
+					insert_at = insert_at - 1
+				end
+				break
+			end
+		end
+	else
 		if #lines > 0 and lines[#lines] ~= "" then
 			table.insert(lines, "")
 		end
-		table.insert(lines, "## " .. section_name)
+		table.insert(lines, header)
 		table.insert(lines, "")
+		insert_at = #lines + 1
 	end
 
-	for _, t in ipairs(tasks) do
-		table.insert(lines, task_mod.serialize(t))
+	for offset, t in ipairs(tasks) do
+		table.insert(lines, insert_at + offset - 1, task_mod.serialize(t))
 	end
 
 	io_mod.write_lines(filepath, lines)

@@ -93,6 +93,47 @@ local function protected_write(fn, ...)
 	return ok
 end
 
+-- カレントバッファの1行を差し替える(replacement を渡す)か取り除いた(nil を渡す)結果を
+-- ファイルへ確定させる。書き込みに失敗した場合は error を投げる。
+--
+-- 生の `:write` を使ってはならない。io.lua を経由しないためアトミック置換も
+-- 並行更新検出も掛からず、さらに `pcall(vim.cmd, "write")` の戻り値を見ない実装が
+-- 失敗を握り潰していた(inbox 側の削除が失敗しても todo.md への追記が続行され、
+-- タスクが重複または消失していた)。
+--
+-- 行が既に存在しない場合は false を返す(呼び出し元が「追記済みだが削除できなかった」
+-- ことをユーザーへ伝えられるようにするため。ここで error にすると区別できない)。
+-- `expected_line` を渡すと、その行テキストで対象行を確認し直す。
+-- Waiting への移動は `vim.ui.input` で待ち先を尋ねる間 row をクロージャに抱えたまま
+-- 待機するが、その間にも自動処理や外部変更リロードは走るため行がずれうる。
+-- 確認しないと無関係な行を書き換える/削除することになる。
+local function locate_row(lines, row, expected_line)
+	if not expected_line or lines[row] == expected_line then
+		return row
+	end
+	for i, line in ipairs(lines) do
+		if line == expected_line then
+			return i
+		end
+	end
+	return nil
+end
+
+local function commit_current_buffer_line(path, row, replacement, expected_line)
+	local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+	local target = locate_row(lines, row, expected_line)
+	if not target or target < 1 or target > #lines then
+		return false
+	end
+	if replacement then
+		lines[target] = replacement
+	else
+		table.remove(lines, target)
+	end
+	io_mod.write_lines(path, lines)
+	return true
+end
+
 -- 戻り値: 成功なら true、失敗なら false と理由("notfound" / "write")。
 -- "write" の場合はこの関数が既に通知済みなので、呼び出し元は追加の通知をしない。
 local function update_task_in_todo(task, section, action_fn)
@@ -155,15 +196,13 @@ function M.toggle_complete()
 			task.completed_at = today
 		end
 		local newline = task_mod.serialize(task)
-		local buf = vim.api.nvim_get_current_buf()
-		local set_ok, err = pcall(vim.api.nvim_buf_set_lines, buf, row - 1, row, false, { newline })
-		if not set_ok then
-			vim.notify("Failed to update task line: " .. tostring(err), vim.log.levels.ERROR)
-			return
-		end
-		pcall(vim.api.nvim_buf_call, buf, function()
-			vim.cmd("write")
+		local found
+		local ok = protected_write(function()
+			found = commit_current_buffer_line(bufname, row, newline, task.original_line)
 		end)
+		if ok and not found then
+			vim.notify("Task line not found.", vim.log.levels.WARN)
+		end
 	end
 end
 
@@ -176,16 +215,6 @@ function M._execute_move(task, row, target_section)
 	local todo_path = data_dir .. "/todo.md"
 
 	if filename == "inbox.md" then
-		local buf = vim.api.nvim_get_current_buf()
-		local ok, err = pcall(vim.api.nvim_buf_set_lines, buf, row - 1, row, false, {})
-		if not ok then
-			vim.notify("Failed to remove task from inbox: " .. tostring(err), vim.log.levels.ERROR)
-			return
-		end
-		pcall(vim.api.nvim_buf_call, buf, function()
-			vim.cmd("write")
-		end)
-
 		local todo_data = io_mod.read_todo_file(todo_path)
 		if #todo_data.section_order == 0 then
 			todo_data.section_order =
@@ -196,7 +225,26 @@ function M._execute_move(task, row, target_section)
 		end
 		table.insert(todo_data.sections[target_section], { type = "task", task = task })
 		todo_data.sections[target_section] = logic_mod.sort_section_tasks(todo_data.sections[target_section])
-		if not protected_write(io_mod.write_todo_file, todo_path, todo_data) then
+
+		-- todo.md への追記が先、inbox.md からの削除が後(logic/write_pair 参照)。
+		-- 逆順だと、追記が失敗したときタスクがどちらのファイルにも残らず消える。
+		local removed
+		local ok = protected_write(logic_mod.append_then_remove, function()
+			io_mod.write_todo_file(todo_path, todo_data)
+		end, function()
+			removed = commit_current_buffer_line(bufname, row, nil, task.original_line)
+		end, data_dir)
+
+		if not ok then
+			return
+		end
+		if not removed then
+			-- 追記は済んでいるので消失はしていないが、元の行が残る(＝重複)。
+			vim.notify(
+				"Task was added to todo.md but the original line in inbox.md could not be found. "
+					.. "Please delete the remaining line manually.",
+				vim.log.levels.WARN
+			)
 			return
 		end
 		vim.notify(string.format("Moved task to todo.md [%s]", target_section), vim.log.levels.INFO)
@@ -318,11 +366,9 @@ function M.cancel_current_task()
 				removed_reason = reason
 			end
 		else
-			local buf = vim.api.nvim_get_current_buf()
-			vim.api.nvim_buf_set_lines(buf, row - 1, row, false, {})
-			vim.api.nvim_buf_call(buf, function()
-				vim.cmd("write")
-			end)
+			if not commit_current_buffer_line(bufname, row, nil, task.original_line) then
+				removed_reason = "notfound"
+			end
 		end
 	end, data_dir)
 
