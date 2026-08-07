@@ -31,11 +31,11 @@ local last_processed_date = ""
 -- handle_buf_enter より先に走ってmtime差分を消費してしまうため、
 -- 「保存直後にバッファへ入り直しても自前のdueチェック・ソートが実行されない」
 -- という形で表面化していた。用途ごとに独立したキャッシュを持つことで解消する。
-local external_change_mtimes = {
-	inbox = 0,
-	todo = 0,
-	done = 0,
-}
+-- 未取得のキーは nil のままにする。初期値を 0 にすると、実ファイルの mtime は
+-- 0 になり得ないため初回チェックが必ず「外部変更あり」と判定され、無意味な
+-- リロードが1回走る。リロードは未保存編集の破棄を伴うようになったため
+-- (autocmds.lua の FileChangedShell)、この誤検知は放置できない。
+local external_change_mtimes = {}
 
 -- キャッシュ取得用アクセサ。
 -- #98: テーブルの参照をそのまま返すと、呼び出し側が誤って書き換えた場合に
@@ -112,9 +112,11 @@ local function reload_if_externally_changed()
 	local changed = false
 	for key, path in pairs(paths) do
 		local mtime = vim.fn.getftime(path)
-		if mtime ~= external_change_mtimes[key] then
+		local previous = external_change_mtimes[key]
+		external_change_mtimes[key] = mtime
+		-- 初回はベースラインが無いだけで、外部変更が起きたわけではない。
+		if previous ~= nil and mtime ~= previous then
 			changed = true
-			external_change_mtimes[key] = mtime
 		end
 	end
 

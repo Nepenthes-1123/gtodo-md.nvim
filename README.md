@@ -160,5 +160,23 @@ If `use_default_keymaps = true`, the prefix is `<Leader>t`.
 - `:GtodoSort` - Manually sort tasks by due date and priority
 - `:GtodoQueue` - Open Queue view
 
+## Using multiple Neovim instances
+
+The same `data_dir` can be shared by several Neovim instances at once. To keep them in
+sync, gtodo-md treats **the file on disk as the source of truth** for the files it manages
+(`inbox.md`, `todo.md`, `done.md`, `cancelled.md`, `projects/*.md`). This has two
+consequences you should be aware of:
+
+- **Unsaved edits are discarded when the file changes on disk.** If another instance (or an
+  external tool such as a sync client or `git pull`) writes the file while you have unsaved
+  changes in it, the buffer is reloaded from disk without the usual
+  `[O]K, (L)oad File:` prompt. Press `u` to bring your edits back.
+- **Persistent undo (`'undofile'`) is disabled for these buffers.** Undo files are not
+  locked between processes, so multiple instances reloading the same file would fight over
+  the same undo file and raise `E828: Cannot open undo file for writing`. In-buffer undo is
+  unaffected.
+
+Neither applies to files outside `data_dir` — your own settings are left alone.
+
 ## License
 MIT License

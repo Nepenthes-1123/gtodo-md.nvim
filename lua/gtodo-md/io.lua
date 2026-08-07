@@ -59,19 +59,12 @@ function M.refresh_stamp_if_tracked(path)
 	end
 end
 
--- 書き込み直前に、読み取り時点からディスクが動いていないかを確認する。
--- 動いていれば、他インスタンス(またはユーザーの :w)が書いた内容を全行置換で
--- 潰すことになるため、一切書かずに中断する。
---
--- これは検出であって防止ではない。stat から rename までの窓に他インスタンスの
--- 書き込みが挟まれば取り逃すし、スタンプが無いパス(read を経ずに書く経路)は
--- 照合そのものを行わない。静かな消失を明示的な失敗に変えるのが目的。
 -- ディスクの内容が、そのパスのバッファと完全に一致しているかを見る。
 --
 -- スタンプは「同期点を観測できた」ときしか更新できないが、観測できない同期点が
 -- 現実に存在する。最たる例が **autocmd の中で実行される `:write`** で、
 -- autocmd は既定でネストしないため `BufWritePost` が発火せず、ディスクだけが
--- 進んでスタンプが取り残される(`ui/float.lua` の WinLeave がこれに当たる)。
+-- 進んでスタンプが取り残される。
 --
 -- mtime/size が動いていても内容がバッファと一致しているなら、
 -- 「こちらが読んだ内容」を書き換えた者はいない。並行更新ではないので通してよい。
@@ -102,6 +95,13 @@ local function disk_matches_buffer(path, buf)
 	return true
 end
 
+-- 書き込み直前に、読み取り時点からディスクが動いていないかを確認する。
+-- 動いていれば、他インスタンス(またはユーザーの :w)が書いた内容を全行置換で
+-- 潰すことになるため、一切書かずに中断する。
+--
+-- これは検出であって防止ではない。stat から rename までの窓に他インスタンスの
+-- 書き込みが挟まれば取り逃すし、スタンプが無いパス(read を経ずに書く経路)は
+-- 照合そのものを行わない。静かな消失を明示的な失敗に変えるのが目的。
 local function assert_not_changed_since_read(path)
 	local recorded = read_stamps[norm_path(path)]
 	if not recorded then
@@ -344,8 +344,35 @@ end
 -- 読み取りが空を返す・checktime が壊れた状態を拾う、といった事故につながる(#125)。
 -- uv.fs_rename は置換先を消さずに差し替える(POSIX: rename(2)、Windows:
 -- MoveFileExW の MOVEFILE_REPLACE_EXISTING)。
+-- 書こうとしている内容が、既にディスク上にあるものと1バイト違わないかを見る。
+-- サイズが違えば読むまでもないので stat で足切りする。
+local function content_unchanged(target, data)
+	local st = uv.fs_stat(target)
+	if not st or st.size ~= #data then
+		return false
+	end
+	local f = io.open(target, "rb")
+	if not f then
+		return false
+	end
+	local current = f:read("*a")
+	f:close()
+	return current == data
+end
+
 local function atomic_replace(path, data)
 	local target = resolve_link(path)
+
+	-- 内容が変わらないなら書かない。
+	-- 書けば mtime が動き、同じ data_dir を開いている全インスタンスが checktime で
+	-- リロードする。自動処理(sort_todo_file 等)は結果が同じでも毎回書きに来るため、
+	-- ここで止めないと「何も変わっていないのに全インスタンスが一斉にリロードする」
+	-- 状態が定期的に発生し、リロードに伴う副作用(未保存編集の破棄・スタンプのずれ・
+	-- rename の窓)を無意味に踏み続けることになる。
+	if content_unchanged(target, data) then
+		return true
+	end
+
 	local dir = vim.fn.fnamemodify(target, ":h")
 	local base = vim.fn.fnamemodify(target, ":t")
 
@@ -444,8 +471,11 @@ end
 --
 -- バッファが未保存(dirty)であっても常に反映・保存する。read_lines が
 -- ライブバッファの内容(未保存分を含む)を読み取った上でこの関数に渡される
--- 想定のため、自動処理による変更とユーザーの未保存編集はマージされて
--- 保存され、未保存編集が失われることはない。
+-- 想定のため、自動処理による変更とユーザーの未保存編集はマージされて保存される。
+-- ただしこれが成立するのは「読んでから書くまでの間にディスクが動いていない」
+-- 場合に限る。他インスタンスや外部ツールが先にディスクを書いていた場合、
+-- autocmds.lua の FileChangedShell がバッファをディスクの内容へ強制リロードするため、
+-- そこで未保存編集は破棄される(バッファ内 undo で復旧可)。
 --
 -- ディスクへの書き込みが失敗した場合は error を投げる。以前は失敗を黙殺していたが、
 -- 呼び出し元が成功と信じたまま処理を続けるため、何が失われたのか誰にも分からなかった。
@@ -485,9 +515,9 @@ function M.write_lines(path, lines)
 		-- 古い値で残ってしまう。これを放置すると、後で別の編集が加わった際に
 		-- Vimが(実際にはこのプラグイン自身が書いた)今回の変更を「外部での
 		-- 変更」と誤認し、W12/W13警告を誤って出してしまう。バッファは既に
-		-- クリーンな状態のため、この checktime は内容の再読み込みを伴わず
-		-- サイレントに完了する(バッファ番号を明示指定するためカレントバッファの
-		-- 切り替えも発生しない)。
+		-- クリーンな状態のため、この checktime は(内容が同じディスクを読み直す
+		-- だけで)画面上は何も起きずに完了する。バッファ番号を明示指定するため
+		-- カレントバッファの切り替えも発生しない。
 		--
 		-- #125: ただし、この書き込みと直前の読み取りの間に他インスタンスが
 		-- 割り込んでいた場合は実際にリロードが起き、'undofile' が有効なら
