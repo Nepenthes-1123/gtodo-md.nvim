@@ -118,17 +118,57 @@ local function sanitize_project_tag(tag)
 	return vim.fn.strcharpart(result, 0, 80)
 end
 
+-- `+tag` を「前後が空白か行端であるトークン」として置換・除去する。
+--
+-- **行末アンカー(`$`)を使ってはならない。** `task.lua` の serialize が定めるタグの
+-- 正本順序では `+project` は先頭寄りで、`id:` をはじめとする他のタグが必ずその後ろに付く。
+-- 行末を前提にすると、一度でも保存サイクルを経たタスク(＝実運用のほぼ全て)でパターンが
+-- 一切マッチせず、書き換えが黙って無視される。しかも split_current_task は
+-- acquire_split_entry が先に走って id: を末尾へ付与するため、手打ちタスクでも同じになる。
+--
+-- 行頭・行末の場合も同じパターンで扱えるよう、前後に番兵の空白を置いてから照合する。
+local function replace_project_token(line, existing_tag, replacement)
+	local pattern = "%s%+" .. escape_lua_pattern(existing_tag) .. "(%s)"
+	local padded, count = (" " .. line .. " "):gsub(pattern, function(trailing)
+		if replacement == "" then
+			-- タグと、その直前の空白ごと落とす
+			return trailing
+		end
+		return " +" .. replacement .. trailing
+	end, 1)
+	if count == 0 then
+		return line, 0
+	end
+	return padded:sub(2, -2), count
+end
+
 -- 親タスク行の `+project` タグを書き換える。existing_tag は行から抽出済みの
 -- 既存タグ(無ければ nil)、new_tag は正規化済みの新しいタグ(空文字なら除去)。
+--
+-- チェックボックス行として parse できる場合は task.lua に委ねる。タスク行の文法を
+-- 知ってよいのは task.lua だけであり、ここで正規表現を組み立て直すと今回のような
+-- 「タグ順序の前提が崩れて黙って失敗する」不具合を繰り返す。
+-- split の対象はチェックボックス行とは限らない(resolve_split_target は任意のリスト
+-- マーカーを通す。引用符付きの行もありうる)ため、parse できない行だけトークン置換で扱う。
 local function rewrite_project_tag(line, existing_tag, new_tag)
-	if existing_tag and new_tag == "" then
-		return (line:gsub("%s*%+" .. escape_lua_pattern(existing_tag) .. "%s*$", ""))
-	elseif existing_tag and new_tag ~= "" and existing_tag ~= new_tag then
-		return (line:gsub("%+" .. escape_lua_pattern(existing_tag) .. "(%s*)$", "+" .. new_tag .. "%1"))
-	elseif not existing_tag and new_tag ~= "" then
-		return line:gsub("%s*$", "") .. " +" .. new_tag
+	-- new_tag は「空文字＝タグ無し」という約束なので、比較のため nil へ寄せる。
+	local wanted = (new_tag ~= "" and new_tag) or nil
+	if existing_tag == wanted then
+		-- 変更が無いなら行に触れない。呼び出し元は new_parent_line ~= parent_line で
+		-- バッファ書き換えの要否を決めるため、無意味な正規化で書き換えを誘発しない。
+		return line
 	end
-	return line
+
+	local task = task_mod.parse(line)
+	if task then
+		task.project = wanted
+		return task_mod.serialize(task)
+	end
+
+	if existing_tag then
+		return (replace_project_token(line, existing_tag, wanted or ""))
+	end
+	return line:gsub("%s*$", "") .. " +" .. wanted
 end
 
 -- フロートウィンドウのタイトル用に、親タスク行から本文だけを取り出して要約する。
@@ -371,18 +411,38 @@ local function resolve_parent_row(source_buf, parent_extmark_id, parent_line)
 	return parent_row, current_parent_line
 end
 
+-- 親タスクから子タスクへ引き継いではいけないタグ。
+--
+-- `id:` は一意なタスク識別子であり、複製するとその一意性が壊れる。壊れると
+-- `editor._find_task_idx` が Primary の同定キーとして id の完全一致を最優先で使う設計上、
+-- 子タスクを操作したつもりで別の子タスクが操作される。
+-- `io.write_todo_file` の重複検知が保存時に解消してくれるが、`inbox.md` は
+-- `check_dues` が `inbox_changed` のときしか書き戻さないため、due の無いタスクでは
+-- 重複が無期限に残る(`:w` は write_todo_file を通らず dedup されない)。
+--
+-- 完了・キャンセルの記録も、親の状態を子が引き継ぐ意味が無いため除外する。
+local NON_INHERITABLE_TAGS = {
+	id = true,
+	completed_at = true,
+	done = true,
+	cancelled = true,
+}
+
 local function extract_metadata(line)
 	local metadata = {}
 	for word in line:gmatch("[%+@#][%w%-_/%.%(%):]+") do
 		table.insert(metadata, word)
 	end
 	for word in line:gmatch("[%w%-_]+:[%w%-_/%.%(%):]+") do
-		if not word:match("^https?:") then
+		if not word:match("^https?:") and not NON_INHERITABLE_TAGS[word:match("^([%w%-_]+):")] then
 			table.insert(metadata, word)
 		end
 	end
 	return metadata
 end
+
+-- テスト用に公開する(build_injection はバッファ操作を伴い単体テストできないため)
+M._extract_metadata = extract_metadata
 
 local function get_meta_prefix(meta)
 	return meta:match("^([%+@#][^%(%):]+)") or meta:match("^([^:]+:)") or meta
