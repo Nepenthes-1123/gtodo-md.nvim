@@ -731,7 +731,16 @@ function M.ensure_files()
 
 	for _, f in ipairs(files) do
 		if vim.fn.filereadable(f.path) == 0 then
-			atomic_replace(f.path, f.title .. "\n")
+			-- 作成失敗を握り潰すと、以降の読み取りが「空ファイル」と区別できないまま
+			-- 進み、原因の分からない不具合として表面化する。1件ずつ通知して続行する
+			-- (1つ失敗しても他のファイルは作れる可能性があるため中断はしない)。
+			local ok, err = atomic_replace(f.path, f.title .. "\n")
+			if not ok then
+				vim.notify(
+					string.format("[gtodo-md] failed to create %s: %s", f.path, tostring(err)),
+					vim.log.levels.ERROR
+				)
+			end
 		end
 	end
 

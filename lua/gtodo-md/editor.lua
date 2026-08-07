@@ -347,9 +347,17 @@ function M.cancel_current_task()
 
 	local bufname = vim.api.nvim_buf_get_name(0)
 	local filename = vim.fn.fnamemodify(bufname, ":t")
-	local current_month = os.date("%Y-%m")
+	local today = os.date("%Y-%m-%d")
+	local current_month = today:sub(1, 7)
 	local data_dir = config.get("data_dir")
 	local cancelled_path = data_dir .. "/cancelled.md"
+
+	-- キャンセル日を記録する。task.lua は `cancelled:` をパースもシリアライズもするが、
+	-- この値を設定する経路がどこにも無く、完了時の completed_at と非対称に情報が
+	-- 欠落したまま cancelled.md へ記録されていた。
+	-- 同定に使うのは id / original_line / content+created なので、ここでの変更が
+	-- 後段の _find_task_idx による削除対象の特定に影響することはない。
+	task.cancelled = today
 
 	-- cancelled.md への追記が先、元ファイルからの削除が後(logic/write_pair 参照)。
 	-- 逆順だと、追記が失敗したときタスクがどちらのファイルにも残らず消える。

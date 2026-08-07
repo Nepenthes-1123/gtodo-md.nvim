@@ -34,13 +34,56 @@ M.sections = vim.tbl_extend("force", {}, M.default_sections)
 -- setup() のたびに読み込む。
 M.last_sections = {}
 
+-- 使えないセクション名をデフォルトへ差し戻す。
+--
+-- 空文字や非文字列をそのまま通すと、`ensure_files` が `## ` という見出しの無い
+-- todo.md を作る一方で `section_aliases` はデフォルト名しか候補に返さないため、
+-- 必須セクションが永遠に見つからず**保存が恒久的にブロックされる**。しかも
+-- `missing_todo_sections` が組み立てるエラーメッセージも `## ` になるので、
+-- ユーザーには何が不足しているのか読み取れない。
+-- 設定ミスを黙って壊れた状態にせず、デフォルトへ戻したうえで理由を通知する。
+local function sanitize_sections(sections)
+	local sanitized = {}
+	local rejected = {}
+	for key, default_name in pairs(M.default_sections) do
+		local name = sections[key]
+		if type(name) ~= "string" or vim.trim(name) == "" then
+			table.insert(rejected, key)
+			sanitized[key] = default_name
+		else
+			sanitized[key] = vim.trim(name)
+		end
+	end
+	if #rejected > 0 then
+		table.sort(rejected)
+		vim.notify(
+			string.format(
+				"[gtodo-md] section names must be non-empty strings; falling back to defaults for: %s",
+				table.concat(rejected, ", ")
+			),
+			vim.log.levels.ERROR
+		)
+	end
+	return sanitized
+end
+
 function M.setup(opts)
 	opts = opts or {}
 	M.options = vim.tbl_deep_extend("force", M.defaults, opts)
-	-- ディレクトリが存在しない場合は作成
+	-- ディレクトリが存在しない場合は作成。
+	-- 失敗を握り潰してはならない — 作成できないまま進むと、以降あらゆる書き込みが
+	-- 失敗し続けるのに原因がどこにも表示されず、ユーザーには「保存が効かない」と
+	-- しか見えない。ここで一度だけ通知して原因を特定可能にする。
 	local projects_dir = M.options.data_dir .. "/projects"
 	if vim.fn.isdirectory(projects_dir) == 0 then
-		vim.fn.mkdir(projects_dir, "p")
+		-- mkdir() は失敗時に 0 を返すが、書き込み不可のパス等では例外も投げうる。
+		local ok, created = pcall(vim.fn.mkdir, projects_dir, "p")
+		if not ok or created == 0 then
+			vim.notify(
+				string.format("[gtodo-md] failed to create data directory: %s", projects_dir),
+				vim.log.levels.ERROR
+			)
+		end
 	end
 
 	-- #94: セクション名をカスタム化・変更した直後は、ファイル側の見出しが
@@ -50,7 +93,7 @@ function M.setup(opts)
 	local last = utils.read_last_sections()
 	M.last_sections = (type(last) == "table") and last or {}
 
-	M.sections = vim.tbl_deep_extend("force", M.default_sections, opts.sections or {})
+	M.sections = sanitize_sections(vim.tbl_deep_extend("force", M.default_sections, opts.sections or {}))
 
 	utils.write_last_sections(M.sections)
 end
