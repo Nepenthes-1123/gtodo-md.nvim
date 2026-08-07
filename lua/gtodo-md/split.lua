@@ -627,8 +627,12 @@ function M.split_current_task()
 		if new_tag ~= "" then
 			new_tag = sanitize_project_tag(new_tag)
 
-			-- 正規化の結果が空になった場合(記号のみの入力など)は分割を中断する
+			-- 正規化の結果が空になった場合(記号のみの入力など)は分割を中断する。
+			-- 中断する以上ロックも手放すこと — 解放し忘れると find_active_entry が
+			-- 以後ずっとこの残骸にヒットし、そのタスクの分割が Neovim 再起動まで
+			-- 「A split window is already active」で恒久的にブロックされる。
 			if new_tag == "" then
+				release_entry(source_buf, entry)
 				return
 			end
 

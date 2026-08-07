@@ -4,6 +4,10 @@ local config = require("gtodo-md.config")
 -- 現在開いているgtodoフローティングウィンドウ (1つだけ管理)
 local gtodo_float_win = nil
 
+-- open_float が張る WinLeave の置き場。clear=false で作る —
+-- clear=true にすると、別ファイルのフロートが張った登録まで巻き添えで消える。
+local float_augroup = vim.api.nvim_create_augroup("GtodoMdFloat", { clear = false })
+
 function M.close_current_float()
 	if gtodo_float_win and vim.api.nvim_win_is_valid(gtodo_float_win) then
 		vim.api.nvim_win_close(gtodo_float_win, true)
@@ -52,7 +56,15 @@ function M.open_float(filepath, title)
 	M.register_float_win(win)
 
 	-- 5. 賢いゾンビ化対策（自動保存＆条件付きクローズ）
+	--
+	-- augroup へ入れたうえで、同じバッファ向けの登録を毎回消してから張り直す。
+	-- open_float は同じファイルに対して繰り返し呼ばれる(キーマップを使うたび)ため、
+	-- 無条件登録のままだと WinLeave が1回発火するたびに :write とウィンドウクローズが
+	-- 開いた回数だけ実行される。augroup 自体は clear=false で作る — clear=true にすると
+	-- 別ファイルのフロートの登録まで巻き添えで消える。
+	vim.api.nvim_clear_autocmds({ group = float_augroup, buffer = file_buf })
 	vim.api.nvim_create_autocmd("WinLeave", {
+		group = float_augroup,
 		buffer = file_buf,
 		callback = function()
 			-- フォーカスが外れたらまずは安全のために保存。

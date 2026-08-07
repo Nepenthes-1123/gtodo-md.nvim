@@ -134,6 +134,10 @@ local function write_state(data)
 	end
 	local ok, content = pcall(vim.json.encode, data)
 	if not ok then
+		-- 握り潰すと .state.json への永続化が黙ってスキップされ、
+		-- 「設定したはずの内容が次回起動時に消えている」形で表面化する。
+		-- すぐ下の atomic_write 失敗と同じく通知する。
+		vim.notify(string.format("[gtodo-md] failed to encode %s: %s", path, tostring(content)), vim.log.levels.ERROR)
 		return
 	end
 	-- config.lua がこのモジュールを require するため、io.lua はここで遅延requireする
