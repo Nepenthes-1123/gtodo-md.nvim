@@ -111,17 +111,4 @@ function M.start_daily_rollover_timer()
 	)
 end
 
-function M.stop_timers()
-	if waiting_timer then
-		waiting_timer:stop()
-		waiting_timer:close()
-		waiting_timer = nil
-	end
-	if rollover_timer then
-		rollover_timer:stop()
-		rollover_timer:close()
-		rollover_timer = nil
-	end
-end
-
 return M
