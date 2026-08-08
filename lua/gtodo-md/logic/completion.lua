@@ -84,10 +84,18 @@ function M.move_completed_tasks(inbox_path, todo_path, done_path)
 	table.sort(month_order)
 
 	-- 4. 追記 → (段間の同期) → 削除 の順で確定させる
+	--
+	-- 複数月にまたがる場合、月ごとに read/write し直すと done.md の全文読み込みと
+	-- アトミック書き込み(fsync+rename)を月の数だけ繰り返すことになる。
+	-- ここでは1回だけ読み込み、月ごとの挿入(挿入位置の計算方法は
+	-- history._insert_tasks_into_lines へそのまま委譲)をインメモリで積み重ねてから、
+	-- 最後に1回だけ書き込む。
 	write_pair.append_then_remove(function()
+		local lines = io_mod.read_lines(done_path)
 		for _, month in ipairs(month_order) do
-			history.append_to_history(done_path, "Done", month, by_month[month])
+			history._insert_tasks_into_lines(lines, "Done", month, by_month[month])
 		end
+		io_mod.write_lines(done_path, lines)
 	end, function()
 		if inbox_changed then
 			io_mod.write_todo_file(inbox_path, inbox_data)
