@@ -33,13 +33,15 @@ function M.get_stats()
 		local stats = { today = 0, inbox = 0 }
 
 		-- todo.md から Today の未完了タスク数を高速カウント
+		-- config.sections.TODAY(#94のセクション名カスタマイズ)に追従させる
 		if vim.fn.filereadable(todo_path) == 1 then
+			local today_pat = "^## " .. vim.pesc(config.sections.TODAY)
 			local f = io.open(todo_path, "r")
 			if f then
 				local in_today = false
 				for line in f:lines() do
 					if line:match("^## ") then
-						if line:match("^## Today") then
+						if line:match(today_pat) then
 							in_today = true
 						else
 							in_today = false
