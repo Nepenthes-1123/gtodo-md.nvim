@@ -130,7 +130,14 @@ local function write_state(data)
 	local path = get_state_path()
 	local dir = vim.fn.fnamemodify(path, ":h")
 	if vim.fn.isdirectory(dir) == 0 then
-		vim.fn.mkdir(dir, "p")
+		-- mkdir() は失敗時に 0 を返すほか、パス上に同名のファイルがある等では
+		-- E739 を投げる。素通しにすると `setup()` の途中で例外が飛び、プラグイン全体の
+		-- 初期化がそこで止まる(しかもユーザーには原因が読み取れない)。
+		local ok, created = pcall(vim.fn.mkdir, dir, "p")
+		if not ok or created == 0 then
+			vim.notify(string.format("[gtodo-md] failed to create data directory: %s", dir), vim.log.levels.ERROR)
+			return
+		end
 	end
 	local ok, content = pcall(vim.json.encode, data)
 	if not ok then
@@ -208,7 +215,15 @@ function M.create_project_file(project_tag)
 	local projects_dir = data_dir .. "/projects"
 
 	if vim.fn.isdirectory(projects_dir) == 0 then
-		vim.fn.mkdir(projects_dir, "p")
+		-- write_state と同じ理由で pcall する(失敗時 0、パス上にファイルがあれば E739)。
+		local ok, created = pcall(vim.fn.mkdir, projects_dir, "p")
+		if not ok or created == 0 then
+			vim.notify(
+				string.format("[gtodo-md] failed to create projects directory: %s", projects_dir),
+				vim.log.levels.ERROR
+			)
+			return false
+		end
 	end
 
 	local proj_file = string.format("%s/%s.md", projects_dir, project_tag)
