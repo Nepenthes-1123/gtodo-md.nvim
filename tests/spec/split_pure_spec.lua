@@ -102,7 +102,25 @@ describe("split._rewrite_project_tag", function()
 		assert.are.same("- [ ] Task +work", rewrite("- [ ] Task +work", "work", "work"))
 	end)
 
-	it("Luaパターンの特殊文字を含む既存タグでもリテラルとして扱う", function()
+	-- チェックボックス行は task.lua の parse/serialize へ委譲され、Lua パターンを
+	-- 組み立てる処理(escape_lua_pattern / replace_project_token)には到達しない。
+	-- タグ値がパターンとして誤解釈されないことを実際に確かめられるのは、
+	-- **parse できない行**を渡したときだけである。
+	-- チェックボックス行だけでこの観点をテストしたつもりになると、エスケープ処理が
+	-- 完全に無検証のまま残る(実際にそうなっていた)。
+	it(
+		"Luaパターンの特殊文字を含む既存タグでもリテラルとして扱う(エスケープ経路)",
+		function()
+			assert.are.same("- 素の項目 +x trailing", rewrite("- 素の項目 +a.b-c trailing", "a.b-c", "x"))
+			assert.are.same("- 素の項目 trailing", rewrite("- 素の項目 +a.b-c trailing", "a.b-c", ""))
+			-- `%` は Lua パターンのエスケープ文字そのもの
+			assert.are.same("- 素の項目 +x trailing", rewrite("- 素の項目 +a%b-c trailing", "a%b-c", "x"))
+			-- `.` は「任意の1文字」。エスケープが漏れると `axbxc` 等にも誤ってマッチする
+			assert.are.same("- 素の項目 +axbxc trailing", rewrite("- 素の項目 +axbxc trailing", "a.b.c", "x"))
+		end
+	)
+
+	it("チェックボックス行でも特殊文字を含むタグを扱える(parse/serialize 経路)", function()
 		assert.are.same("- [ ] Task id:a1b2c3", rewrite("- [ ] Task +a.b-c id:a1b2c3", "a.b-c", ""))
 		assert.are.same("- [ ] Task +x id:a1b2c3", rewrite("- [ ] Task +a.b-c id:a1b2c3", "a.b-c", "x"))
 	end)
