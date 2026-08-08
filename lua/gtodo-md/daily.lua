@@ -31,8 +31,9 @@ local last_processed_date = ""
 -- handle_buf_enter より先に走ってmtime差分を消費してしまうため、
 -- 「保存直後にバッファへ入り直しても自前のdueチェック・ソートが実行されない」
 -- という形で表面化していた。用途ごとに独立したキャッシュを持つことで解消する。
--- 未取得のキーは nil のままにする。初期値を 0 にすると、実ファイルの mtime は
--- 0 になり得ないため初回チェックが必ず「外部変更あり」と判定され、無意味な
+-- reload_managed_bufs と同じ管理対象ファイル(inbox/todo/done/cancelled/projects/*.md)を
+-- パスをキーに持つ。未取得のキーは nil のままにする。初期値を 0 にすると、実ファイルの
+-- mtime は 0 になり得ないため初回チェックが必ず「外部変更あり」と判定され、無意味な
 -- リロードが1回走る。リロードは未保存編集の破棄を伴うようになったため
 -- (autocmds.lua の FileChangedShell)、この誤検知は放置できない。
 local external_change_mtimes = {}
@@ -48,13 +49,12 @@ end
 
 -- キャッシュ更新用アクセサ
 function M.update_cache(inbox_mtime, todo_mtime, done_mtime, inbox_size, todo_size, done_size)
-	local data_dir = config.get("data_dir")
 	last_processed_mtimes.inbox = inbox_mtime
 	last_processed_mtimes.todo = todo_mtime
-	last_processed_mtimes.done = done_mtime or vim.fn.getftime(data_dir .. "/done.md")
-	last_processed_sizes.inbox = inbox_size or vim.fn.getfsize(data_dir .. "/inbox.md")
-	last_processed_sizes.todo = todo_size or vim.fn.getfsize(data_dir .. "/todo.md")
-	last_processed_sizes.done = done_size or vim.fn.getfsize(data_dir .. "/done.md")
+	last_processed_mtimes.done = done_mtime
+	last_processed_sizes.inbox = inbox_size
+	last_processed_sizes.todo = todo_size
+	last_processed_sizes.done = done_size
 	last_processed_date = os.date("%Y-%m-%d")
 end
 
@@ -97,23 +97,46 @@ function M.reload_managed_bufs()
 	end
 end
 
+-- reload_managed_bufs と同じ管理対象ファイル一覧(is_gtodo_file が受理する集合)を
+-- ディスク走査で組み立てる。reload_managed_bufs はロード済みバッファを起点に
+-- 判定するのに対し、こちらは未ロードのファイルの外部変更も拾う必要があるため、
+-- data_dir を直接走査して候補を作り、is_gtodo_file で絞り込む。
+local function collect_managed_paths()
+	local utils = require("gtodo-md.utils")
+	local data_dir = config.get("data_dir")
+	local candidates = {
+		data_dir .. "/inbox.md",
+		data_dir .. "/todo.md",
+		data_dir .. "/done.md",
+		data_dir .. "/cancelled.md",
+	}
+	local projects_dir = data_dir .. "/projects"
+	if vim.fn.isdirectory(projects_dir) == 1 then
+		vim.list_extend(candidates, vim.fn.globpath(projects_dir, "*.md", false, true))
+	end
+
+	local paths = {}
+	for _, path in ipairs(candidates) do
+		if utils.is_gtodo_file(path) then
+			table.insert(paths, path)
+		end
+	end
+	return paths
+end
+
 -- mtime ベースの外部変更検知とリロード。
 -- 複数インスタンスのうち別インスタンスがロールオーバーを先に実行した場合、
 -- このインスタンスは check_daily_rollover を early return するため
 -- checktime が走らない。そのギャップを埋めるためにここで mtime を確認する。
+--
+-- 対象は inbox/todo/done の3ファイル決め打ちではなく、reload_managed_bufs と
+-- 同様に cancelled.md/projects/*.md も含めて一般化してある(パスをキーに管理)。
 local function reload_if_externally_changed()
-	local data_dir = config.get("data_dir")
-	local paths = {
-		inbox = data_dir .. "/inbox.md",
-		todo = data_dir .. "/todo.md",
-		done = data_dir .. "/done.md",
-	}
-
 	local changed = false
-	for key, path in pairs(paths) do
+	for _, path in ipairs(collect_managed_paths()) do
 		local mtime = vim.fn.getftime(path)
-		local previous = external_change_mtimes[key]
-		external_change_mtimes[key] = mtime
+		local previous = external_change_mtimes[path]
+		external_change_mtimes[path] = mtime
 		-- 初回はベースラインが無いだけで、外部変更が起きたわけではない。
 		if previous ~= nil and mtime ~= previous then
 			changed = true
@@ -184,9 +207,9 @@ function M.check_daily_rollover()
 		last_processed_sizes.inbox = vim.fn.getfsize(inbox_path)
 		last_processed_sizes.todo = vim.fn.getfsize(todo_path)
 		last_processed_sizes.done = vim.fn.getfsize(done_path)
-		external_change_mtimes.inbox = new_inbox_mtime
-		external_change_mtimes.todo = new_todo_mtime
-		external_change_mtimes.done = new_done_mtime
+		external_change_mtimes[inbox_path] = new_inbox_mtime
+		external_change_mtimes[todo_path] = new_todo_mtime
+		external_change_mtimes[done_path] = new_done_mtime
 		M.reload_managed_bufs()
 		last_processed_date = today
 		return true
