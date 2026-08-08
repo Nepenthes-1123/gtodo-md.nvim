@@ -149,6 +149,17 @@ function M.update_highlights(bufnr)
 			local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 			local today_time = utils.date_to_time(os.date("%Y-%m-%d"))
 
+			-- ロケール判定は1回の update_highlights 呼び出し内では不変なので、
+			-- due日付を持つ行ごとにループの内側で計算せずここで1回だけ行う。
+			local lang = type(vim.v.lang) == "string" and vim.v.lang or os.getenv("LANG") or ""
+			local time_lang = os.setlocale(nil, "time") or ""
+			local is_ja = string.match(lang, "^ja")
+			if string.match(time_lang, "^en") then
+				is_ja = false
+			elseif string.match(time_lang, "^ja") then
+				is_ja = true
+			end
+
 			for i, line in ipairs(lines) do
 				if utils.is_todo_line(line) or utils.is_done_line(line) then
 					-- 1. Project tag (+Project)
@@ -187,7 +198,19 @@ function M.update_highlights(bufnr)
 					end
 
 					-- 4. Due dates (due:YYYY-MM-DD)
-					local d_s, d_str = line:match("()(due:%d%d%d%d%-%d%d%-%d%d)")
+					-- 位置の特定は task.tag_ranges に委ねる。M._match_priority と同じ考え方で、
+					-- 無アンカーの独自正規表現による本文中の同型文字列の誤検出を避ける。
+					local d_s, d_str
+					for _, r in ipairs(task_mod.tag_ranges(line)) do
+						if r.key == "due" then
+							local raw = vim.trim(line:sub(r.start_col + 1, r.end_col))
+							if raw:match("^due:%d%d%d%d%-%d%d%-%d%d$") then
+								d_str = raw
+								d_s = r.end_col - #raw + 1
+							end
+							break
+						end
+					end
 					if d_s then
 						local date_val = d_str:sub(5)
 						local due_time = utils.date_to_time(date_val)
@@ -196,15 +219,6 @@ function M.update_highlights(bufnr)
 
 						if due_time then
 							local diff = math.floor((due_time - today_time) / 86400)
-							local lang = type(vim.v.lang) == "string" and vim.v.lang or os.getenv("LANG") or ""
-							local time_lang = os.setlocale(nil, "time") or ""
-							local is_ja = string.match(lang, "^ja")
-
-							if string.match(time_lang, "^en") then
-								is_ja = false
-							elseif string.match(time_lang, "^ja") then
-								is_ja = true
-							end
 
 							if diff < 0 then
 								hl = hl_groups.date_error
@@ -276,13 +290,27 @@ function M.attach(bufnr)
 	M.update_highlights(bufnr)
 
 	-- 文字入力などで変更されるたびにハイライトを更新する
-	local group = vim.api.nvim_create_augroup("GTodoHighlight_" .. bufnr, { clear = true })
+	local group_name = "GTodoHighlight_" .. bufnr
+	local group = vim.api.nvim_create_augroup(group_name, { clear = true })
 
 	vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
 		group = group,
 		buffer = bufnr,
 		callback = function()
 			M.update_highlights(bufnr)
+		end,
+	})
+
+	-- バッファが閉じて別番号で再度開かれるたびに空のaugroupが蓄積し続けるのを防ぐ。
+	-- autocmds.lua の original_history_sections/original_created_dates の
+	-- BufWipeout クリアと同じ考え方(#125等)。
+	vim.api.nvim_create_autocmd("BufWipeout", {
+		group = group,
+		buffer = bufnr,
+		once = true,
+		callback = function()
+			pending_updates[bufnr] = nil
+			pcall(vim.api.nvim_del_augroup_by_name, group_name)
 		end,
 	})
 end
