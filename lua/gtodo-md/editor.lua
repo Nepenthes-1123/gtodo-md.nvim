@@ -324,9 +324,10 @@ function M.move_current_task_to(target_section)
 			if input == nil then
 				return
 			end -- aborted
-			if vim.trim(input) ~= "" then
-				task.wait = vim.trim(input)
-			elseif input == "" then
+			local trimmed = vim.trim(input)
+			if trimmed ~= "" then
+				task.wait = trimmed
+			else
 				task.wait = nil
 			end
 			M._execute_move(task, row, target_section)
