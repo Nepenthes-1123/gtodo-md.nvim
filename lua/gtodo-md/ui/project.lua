@@ -2,6 +2,7 @@ local M = {}
 local config = require("gtodo-md.config")
 local float_ui = require("gtodo-md.ui.float")
 local io_mod = require("gtodo-md.io")
+local task_mod = require("gtodo-md.task")
 
 -- done.md のカウントキャッシュ
 local done_cache = {
@@ -31,7 +32,8 @@ local function get_done_project_counts(done_path)
 		-- 高速テキスト走査で完了タスクとプロジェクトタグをカウント
 		for line in content:gmatch("[^\r\n]+") do
 			if require("gtodo-md.utils").is_done_line(line) then
-				local tag = line:match("%+([%w%-_/%.]+)")
+				local task = task_mod.parse(line)
+				local tag = task and task.project
 				if tag then
 					counts[tag] = (counts[tag] or 0) + 1
 				end
@@ -47,7 +49,8 @@ end
 -- プロジェクトファイルへのジャンプ
 function M.jump_to_project()
 	local current_line = vim.api.nvim_get_current_line()
-	local project_tag = current_line:match("%+([%w%-_/%.]+)")
+	local task = task_mod.parse(current_line)
+	local project_tag = task and task.project
 
 	if not project_tag then
 		return
