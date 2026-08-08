@@ -41,6 +41,15 @@ Done）の軽量版を実現するためのTodo管理プラグインです。
       -- デフォルトキーマップの接頭辞（プレフィックス）
       keymap_prefix = "<Leader>t",
 
+      -- 'conceal' で隠す key:value 形式のタグ
+      -- 指定可能: id / created / due / wait / completed_at / done / cancelled / from
+      -- （`+project` と `@context` は key:value 形式ではないため隠せません）
+      -- ファイルの中身は一切変わりません。検索や grep はこれまで通り効きます。
+      -- 'concealcursor' を空にしているため、カーソルがその行にある間は
+      -- 自動的に見える状態に戻り、通常通り編集できます。
+      -- 存在しない名前を書いても何も起きません（検証しません）。
+      conceal_tags = { "id" },
+
       -- 期限切れ警告通知の最小間隔（秒）。デフォルト30分
       due_notification_cooldown = 1800,
 

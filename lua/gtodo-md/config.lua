@@ -12,6 +12,12 @@ M.defaults = {
 	enable_waiting_warning = true, -- Waitingタスクの期限警告通知を有効にするか
 	waiting_warning_interval = 3600, -- Waitingタスク警告のチェック間隔（秒）。デフォルト1時間
 	enable_project_progress = true, -- プロジェクトファイル最下部に進捗バーを表示するかどうか
+	-- conceal で隠す `key:value` 形式のタグ名。既定は `id` のみ(従来の挙動)。
+	-- 指定できるのは id / created / due / wait / completed_at / done / cancelled / from。
+	-- `+project`/`@context` は `key:value` 形式ではないため対象外。
+	-- 隠しても行の実体は変わらず、検索や grep はこれまで通り効く。
+	-- カーソルがその行にある間は concealcursor が空のため自動的に見える。
+	conceal_tags = { "id" },
 }
 
 M.options = {}

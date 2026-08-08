@@ -1,6 +1,23 @@
 local M = {}
 local ns = vim.api.nvim_create_namespace("gtodo_highlights")
 local utils = require("gtodo-md.utils")
+local task_mod = require("gtodo-md.task")
+
+-- conceal_tags(リスト)を検索しやすい集合へ直す。
+-- 未知のタグ名は単に一致せず何も起きない(意図的に検証しない)。
+local function build_conceal_set()
+	local set = {}
+	local configured = require("gtodo-md.config").get("conceal_tags")
+	if type(configured) ~= "table" then
+		return set
+	end
+	for _, name in ipairs(configured) do
+		if type(name) == "string" then
+			set[name] = true
+		end
+	end
+	return set
+end
 
 local pending_updates = {}
 
@@ -122,6 +139,9 @@ function M.update_highlights(bufnr)
 			return
 		end
 
+		-- 設定は setup() 後に変わりうるので、描画のたびに読み直す(行ごとではなく1回)。
+		local conceal_set = build_conceal_set()
+
 		local ok, err = pcall(function()
 			-- 既存のハイライトをクリア
 			vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
@@ -219,16 +239,23 @@ function M.update_highlights(bufnr)
 						end
 					end
 
-					-- 5. Task ID (id:xxxxxx): 内部識別用で人間が読む必要は無いため conceal で隠す。
+					-- 5. conceal_tags で指定された `key:value` タグを隠す。
+					-- 既定は `id` のみ(内部識別用で人間が読む必要が無いため)。
 					-- M.setup() で concealcursor を空にしているため、カーソルがその行にある間は
 					-- 自動的に見える状態に戻り、通常通り編集できる(バッファの中身は変更しない)。
-					local id_s, id_full = line:match("()(%s+id:%S+)%s*$")
-					if id_s then
-						vim.api.nvim_buf_set_extmark(bufnr, ns, i - 1, id_s - 1, {
-							end_col = id_s - 1 + #id_full,
-							conceal = "",
-							ephemeral = false,
-						})
+					--
+					-- 位置の特定は task.tag_ranges に委ねる。ここで正規表現を組み直すと、
+					-- task.lua がタグ順序を変えたときに黙って追従できなくなる。
+					if next(conceal_set) ~= nil then
+						for _, r in ipairs(task_mod.tag_ranges(line)) do
+							if conceal_set[r.key] then
+								vim.api.nvim_buf_set_extmark(bufnr, ns, i - 1, r.start_col, {
+									end_col = r.end_col,
+									conceal = "",
+									ephemeral = false,
+								})
+							end
+						end
 					end
 				end
 			end
