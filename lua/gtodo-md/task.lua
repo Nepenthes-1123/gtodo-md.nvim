@@ -13,6 +13,34 @@ function M._generate_id()
 	return string.format("%06x", (hr + pid) % 0x1000000)
 end
 
+-- タグ抽出のパターン。**タスク行の文法の正本はここだけ**であり、他のモジュールが
+-- 独自に正規表現を組み立ててはならない(そうして生まれた不具合は CLAUDE.md を参照)。
+--
+-- 値の文字種は自動生成される16進数を想定しているが、パース自体は
+-- (手編集等で非16進の値が入っていても)非空白文字列であれば受け付ける。
+-- ここを16進限定にすると、値が不正な場合に id: だけでなく後続の
+-- 全タグの抽出まで連鎖的に失敗する(各パターンが行末 $ に固定されているため)。
+local TAG_PATTERNS = {
+	{ key = "id", pat = "\\<id:\\S\\+\\s*$" },
+	{ key = "completed_at", pat = "\\<completed_at:\\d\\{4}-\\d\\{2}-\\d\\{2}\\s*$" },
+	{ key = "done", pat = "\\<done:\\d\\{4}-\\d\\{2}-\\d\\{2}\\s*$" },
+	{ key = "cancelled", pat = "\\<cancelled:\\d\\{4}-\\d\\{2}-\\d\\{2}\\s*$" },
+	{ key = "from", pat = "\\<from:\\w\\+\\s*$" },
+	{ key = "due", pat = "\\<due:[a-zA-Z0-9_/%+-]\\+\\s*$" },
+	{ key = "created", pat = "\\<created:\\d\\{4}-\\d\\{2}-\\d\\{2}\\s*$" },
+	{ key = "context", pat = "\\s\\+@[a-zA-Z0-9_/.-]\\+\\s*$" },
+	{ key = "project", pat = "\\s\\++[a-zA-Z0-9_/.-]\\+\\s*$" },
+	{ key = "wait", pat = "\\<wait:[^[:space:]　。、.,()（）]\\+\\s*$" },
+}
+
+-- `key:value` 形式のタグ名の集合。`+project`/`@context` は形が違うため含まない。
+local KEY_VALUE_TAGS = {}
+for _, p in ipairs(TAG_PATTERNS) do
+	if p.key ~= "project" and p.key ~= "context" then
+		KEY_VALUE_TAGS[p.key] = true
+	end
+end
+
 -- タスク行をパースしてテーブルにする
 -- タスクでない行は nil を返す
 function M.parse(line)
@@ -31,22 +59,7 @@ function M.parse(line)
 
 	local text = rest
 
-	local patterns = {
-		-- 値の文字種は自動生成される16進数を想定しているが、パース自体は
-		-- (手編集等で非16進の値が入っていても)非空白文字列であれば受け付ける。
-		-- ここを16進限定にすると、値が不正な場合に id: だけでなく後続の
-		-- 全タグの抽出まで連鎖的に失敗する(各パターンが行末 $ に固定されているため)。
-		{ key = "id", pat = "\\<id:\\S\\+\\s*$" },
-		{ key = "completed_at", pat = "\\<completed_at:\\d\\{4}-\\d\\{2}-\\d\\{2}\\s*$" },
-		{ key = "done", pat = "\\<done:\\d\\{4}-\\d\\{2}-\\d\\{2}\\s*$" },
-		{ key = "cancelled", pat = "\\<cancelled:\\d\\{4}-\\d\\{2}-\\d\\{2}\\s*$" },
-		{ key = "from", pat = "\\<from:\\w\\+\\s*$" },
-		{ key = "due", pat = "\\<due:[a-zA-Z0-9_/%+-]\\+\\s*$" },
-		{ key = "created", pat = "\\<created:\\d\\{4}-\\d\\{2}-\\d\\{2}\\s*$" },
-		{ key = "context", pat = "\\s\\+@[a-zA-Z0-9_/.-]\\+\\s*$" },
-		{ key = "project", pat = "\\s\\++[a-zA-Z0-9_/.-]\\+\\s*$" },
-		{ key = "wait", pat = "\\<wait:[^[:space:]　。、.,()（）]\\+\\s*$" },
-	}
+	local patterns = TAG_PATTERNS
 
 	-- 安全に行頭のタグも抽出できるように先頭にスペースを付与しておく
 	text = " " .. text
@@ -99,6 +112,70 @@ function M.parse(line)
 	end
 
 	return task
+end
+
+-- 行の中の `key:value` 形式タグの位置を返す。
+-- 戻り値: { { key = "id", start_col = <0-indexed>, end_col = <exclusive> }, ... }
+-- タスク行でなければ空リストを返す。
+--
+-- **表示側(conceal/ハイライト)が自前で正規表現を組まずに済むようにするための関数である。**
+-- タグの文法を各所で再実装すると、行末アンカーの前提が崩れて黙って失敗する・無差別な
+-- マッチで本文を巻き込む、といった不具合を生む(実際に3件生まれた。CLAUDE.md 参照)。
+-- ここは `M.parse` と同じ `TAG_PATTERNS` を同じ剥がし順で適用するため、
+-- パース結果と位置が食い違うことはない。
+--
+-- 範囲は**直前の空白を含み、後ろの空白は含まない**。
+-- 各パターンは末尾の `\s*` までマッチするが、それをそのまま範囲にすると隣り合う
+-- タグと1バイト重なって conceal の extmark が重複する。前寄せに統一すると範囲が
+-- 隙間なく並ぶうえ、途中のタグだけを隠しても二重空白にならず、全部隠したときに
+-- 末尾へ余分な空白も残らない。
+-- `+project`/`@context` は `key:value` 形式ではないので含まない。
+function M.tag_ranges(line)
+	local _, status, rest = line:match("^(%s*)%-%s*%[([ xX])%]%s*(.*)$")
+	if not status then
+		return {}
+	end
+
+	-- rest は line の末尾側の部分文字列なので、その開始バイト位置は差分で求まる。
+	local rest_offset = #line - #rest
+	-- parse と同じく、行頭のタグも拾えるよう先頭に番兵の空白を足す。
+	local text = " " .. rest
+
+	local ranges = {}
+	local matched_any = true
+	while matched_any do
+		matched_any = false
+		for _, p in ipairs(TAG_PATTERNS) do
+			local start_idx = vim.fn.match(text, p.pat)
+			if start_idx ~= -1 then
+				local end_idx = vim.fn.matchend(text, p.pat)
+				if KEY_VALUE_TAGS[p.key] then
+					-- 直前の空白まで前へ広げる
+					local s = start_idx
+					while s > 0 and text:sub(s, s):match("%s") do
+						s = s - 1
+					end
+					-- パターンが飲み込んだ末尾の空白を戻す
+					local e = end_idx
+					while e > start_idx and text:sub(e, e):match("%s") do
+						e = e - 1
+					end
+					-- 先頭に足した番兵の空白1バイト分を差し引いて元の行の座標へ戻す。
+					table.insert(ranges, {
+						key = p.key,
+						start_col = rest_offset + s - 1,
+						end_col = rest_offset + e - 1,
+					})
+				end
+				-- 末尾から剥がしていくので、既に記録した位置がずれることはない。
+				text = text:sub(1, start_idx)
+				matched_any = true
+				break
+			end
+		end
+	end
+
+	return ranges
 end
 
 -- タスクのテーブルから文字列表現を生成する

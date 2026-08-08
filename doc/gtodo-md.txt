@@ -41,6 +41,15 @@ The default options are as follows:
       -- Prefix for default keymaps
       keymap_prefix = "<Leader>t",
 
+      -- key:value tags to hide with 'conceal'
+      -- Available: id / created / due / wait / completed_at / done / cancelled / from
+      -- (`+project` and `@context` are not key:value and cannot be hidden)
+      -- The file content is never modified; search and grep still work as before.
+      -- 'concealcursor' is empty, so the tags become visible again while the
+      -- cursor is on that line, and you can edit them normally.
+      -- Unknown names are silently ignored.
+      conceal_tags = { "id" },
+
       -- Minimum cooldown for overdue warning notifications (in seconds)
       due_notification_cooldown = 1800,
 
