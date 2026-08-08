@@ -114,6 +114,18 @@ function M.parse(line)
 	return task
 end
 
+-- チェックボックスのマーカー部分だけを取り除いた残りの文字列を返す
+-- (タスク行でなければ nil)。優先度や `key:value` タグは除去しない — 検索結果の
+-- 表示など「タグ付きのままチェックボックス表記だけ外したい」呼び出し元向けの
+-- 薄いヘルパー。タグまで剥がしたい場合は M.parse の結果の task.content を使うこと。
+function M.strip_checkbox_marker(line)
+	local _, status, rest = line:match("^(%s*)%-%s*%[([ xX])%]%s*(.*)$")
+	if not status then
+		return nil
+	end
+	return rest
+end
+
 -- 行の中の `key:value` 形式タグの位置を返す。
 -- 戻り値: { { key = "id", start_col = <0-indexed>, end_col = <exclusive> }, ... }
 -- タスク行でなければ空リストを返す。
