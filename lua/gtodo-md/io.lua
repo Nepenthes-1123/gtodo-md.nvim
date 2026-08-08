@@ -59,6 +59,42 @@ function M.refresh_stamp_if_tracked(path)
 	end
 end
 
+-- ディスクの内容が、そのパスのバッファと完全に一致しているかを見る。
+--
+-- スタンプは「同期点を観測できた」ときしか更新できないが、観測できない同期点が
+-- 現実に存在する。最たる例が **autocmd の中で実行される `:write`** で、
+-- autocmd は既定でネストしないため `BufWritePost` が発火せず、ディスクだけが
+-- 進んでスタンプが取り残される。
+--
+-- mtime/size が動いていても内容がバッファと一致しているなら、
+-- 「こちらが読んだ内容」を書き換えた者はいない。並行更新ではないので通してよい。
+-- 逆に内容が違えば、それは本物の並行更新である。
+local function disk_matches_buffer(path, buf)
+	local f = io.open(path, "r")
+	if not f then
+		return false
+	end
+	local disk = {}
+	for line in f:lines() do
+		if line:sub(-1) == "\r" then
+			line = line:sub(1, -2)
+		end
+		table.insert(disk, line)
+	end
+	f:close()
+
+	local buf_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+	if #disk ~= #buf_lines then
+		return false
+	end
+	for i = 1, #disk do
+		if disk[i] ~= buf_lines[i] then
+			return false
+		end
+	end
+	return true
+end
+
 -- 書き込み直前に、読み取り時点からディスクが動いていないかを確認する。
 -- 動いていれば、他インスタンス(またはユーザーの :w)が書いた内容を全行置換で
 -- 潰すことになるため、一切書かずに中断する。
@@ -79,6 +115,17 @@ local function assert_not_changed_since_read(path)
 	if current.sec == recorded.sec and current.nsec == recorded.nsec and current.size == recorded.size then
 		return
 	end
+
+	-- stat が食い違っていても、内容がバッファと同じなら並行更新ではない
+	-- (観測できなかった同期点)。スタンプを回収して書き込みを許す。
+	-- バッファが無い場合は比較対象が無いため救済しない — その場合の lines は
+	-- ディスクから読んだものであり、ディスクが動いていれば本物の並行更新である。
+	local buf = get_buf_by_name(path)
+	if buf and disk_matches_buffer(path, buf) then
+		read_stamps[norm_path(path)] = current
+		return
+	end
+
 	error(
 		string.format(
 			"[gtodo-md] %s は他のプロセスによって更新されています。書き込みを中止しました。\n"
@@ -297,8 +344,35 @@ end
 -- 読み取りが空を返す・checktime が壊れた状態を拾う、といった事故につながる(#125)。
 -- uv.fs_rename は置換先を消さずに差し替える(POSIX: rename(2)、Windows:
 -- MoveFileExW の MOVEFILE_REPLACE_EXISTING)。
+-- 書こうとしている内容が、既にディスク上にあるものと1バイト違わないかを見る。
+-- サイズが違えば読むまでもないので stat で足切りする。
+local function content_unchanged(target, data)
+	local st = uv.fs_stat(target)
+	if not st or st.size ~= #data then
+		return false
+	end
+	local f = io.open(target, "rb")
+	if not f then
+		return false
+	end
+	local current = f:read("*a")
+	f:close()
+	return current == data
+end
+
 local function atomic_replace(path, data)
 	local target = resolve_link(path)
+
+	-- 内容が変わらないなら書かない。
+	-- 書けば mtime が動き、同じ data_dir を開いている全インスタンスが checktime で
+	-- リロードする。自動処理(sort_todo_file 等)は結果が同じでも毎回書きに来るため、
+	-- ここで止めないと「何も変わっていないのに全インスタンスが一斉にリロードする」
+	-- 状態が定期的に発生し、リロードに伴う副作用(未保存編集の破棄・スタンプのずれ・
+	-- rename の窓)を無意味に踏み続けることになる。
+	if content_unchanged(target, data) then
+		return true
+	end
+
 	local dir = vim.fn.fnamemodify(target, ":h")
 	local base = vim.fn.fnamemodify(target, ":t")
 
@@ -397,8 +471,11 @@ end
 --
 -- バッファが未保存(dirty)であっても常に反映・保存する。read_lines が
 -- ライブバッファの内容(未保存分を含む)を読み取った上でこの関数に渡される
--- 想定のため、自動処理による変更とユーザーの未保存編集はマージされて
--- 保存され、未保存編集が失われることはない。
+-- 想定のため、自動処理による変更とユーザーの未保存編集はマージされて保存される。
+-- ただしこれが成立するのは「読んでから書くまでの間にディスクが動いていない」
+-- 場合に限る。他インスタンスや外部ツールが先にディスクを書いていた場合、
+-- autocmds.lua の FileChangedShell がバッファをディスクの内容へ強制リロードするため、
+-- そこで未保存編集は破棄される(バッファ内 undo で復旧可)。
 --
 -- ディスクへの書き込みが失敗した場合は error を投げる。以前は失敗を黙殺していたが、
 -- 呼び出し元が成功と信じたまま処理を続けるため、何が失われたのか誰にも分からなかった。
@@ -438,10 +515,24 @@ function M.write_lines(path, lines)
 		-- 古い値で残ってしまう。これを放置すると、後で別の編集が加わった際に
 		-- Vimが(実際にはこのプラグイン自身が書いた)今回の変更を「外部での
 		-- 変更」と誤認し、W12/W13警告を誤って出してしまう。バッファは既に
-		-- クリーンな状態のため、この checktime は内容の再読み込みを伴わず
-		-- サイレントに完了する(バッファ番号を明示指定するためカレントバッファの
-		-- 切り替えも発生しない)。
+		-- クリーンな状態のため、この checktime は(内容が同じディスクを読み直す
+		-- だけで)画面上は何も起きずに完了する。バッファ番号を明示指定するため
+		-- カレントバッファの切り替えも発生しない。
+		--
+		-- #125: ただし、この書き込みと直前の読み取りの間に他インスタンスが
+		-- 割り込んでいた場合は実際にリロードが起き、'undofile' が有効なら
+		-- Neovim が undo ファイルを書きに行く。undo ファイルはプロセス間で
+		-- ロックされないため、そこで E828 になりうる。自分が撃つ checktime の
+		-- 間だけ無効化して元に戻す。
+		--
+		-- io.lua は最下層で utils.is_gtodo_file を require できない(階層制約)。
+		-- 管理対象かどうかを判定できない以上、恒久的に落とすと管理外ファイルの
+		-- 永続 undo まで黙って壊すことになるため、退避・復元に留める。
+		-- 管理対象バッファを恒久的に無効化するのは autocmds.lua の責務。
+		local saved_undofile = vim.bo[buf].undofile
+		vim.bo[buf].undofile = false
 		pcall(vim.cmd, "silent! checktime " .. buf)
+		vim.bo[buf].undofile = saved_undofile
 	end
 
 	notify_write_observers(path)
@@ -640,7 +731,16 @@ function M.ensure_files()
 
 	for _, f in ipairs(files) do
 		if vim.fn.filereadable(f.path) == 0 then
-			atomic_replace(f.path, f.title .. "\n")
+			-- 作成失敗を握り潰すと、以降の読み取りが「空ファイル」と区別できないまま
+			-- 進み、原因の分からない不具合として表面化する。1件ずつ通知して続行する
+			-- (1つ失敗しても他のファイルは作れる可能性があるため中断はしない)。
+			local ok, err = atomic_replace(f.path, f.title .. "\n")
+			if not ok then
+				vim.notify(
+					string.format("[gtodo-md] failed to create %s: %s", f.path, tostring(err)),
+					vim.log.levels.ERROR
+				)
+			end
 		end
 	end
 

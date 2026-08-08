@@ -78,6 +78,42 @@ describe("io の並行更新検出", function()
 		assert.is_true(ok, tostring(err))
 	end)
 
+	-- #125 回帰: autocmd は既定でネストしないため、autocmd の中で実行された
+	-- `:write` は BufWritePost を発火させない(ui/float.lua の WinLeave がこれ)。
+	-- スタンプだけが取り残されるが、内容がバッファと一致していれば
+	-- 並行更新ではないので通す。
+	it("BufWritePost を伴わない :write の後でも誤検知しない", function()
+		vim.fn.writefile({ "# Todo", "- [ ] a" }, path)
+		vim.cmd("edit " .. vim.fn.fnameescape(path))
+		local buf = vim.api.nvim_get_current_buf()
+		io_mod.record_stamp(path)
+
+		-- autocmd を発火させずに書く(autocmd 内の :write と同じ状況)
+		vim.api.nvim_buf_call(buf, function()
+			vim.cmd("silent! noautocmd write!")
+		end)
+
+		local ok, err = pcall(io_mod.write_lines, path, { "# Todo", "- [ ] a", "- [ ] b" })
+
+		assert.is_true(ok, tostring(err))
+		assert.are.same({ "# Todo", "- [ ] a", "- [ ] b" }, vim.fn.readfile(path))
+	end)
+
+	it("内容が違えば救済せず、きちんと検出する", function()
+		vim.fn.writefile({ "# Todo", "- [ ] a" }, path)
+		vim.cmd("edit " .. vim.fn.fnameescape(path))
+		io_mod.record_stamp(path)
+
+		-- バッファとは違う内容へ外部から書き換える(本物の並行更新)
+		vim.fn.writefile({ "# Todo", "- [ ] a", "- [ ] 他インスタンス" }, path)
+
+		local ok, err = pcall(io_mod.write_lines, path, { "# Todo", "- [ ] 自分" })
+
+		assert.is_false(ok)
+		assert.is_truthy(tostring(err):find("他のプロセスによって更新されています", 1, true))
+		assert.are.same({ "# Todo", "- [ ] a", "- [ ] 他インスタンス" }, vim.fn.readfile(path))
+	end)
+
 	it(
 		"バッファ優先で読んでもスタンプは更新されない(古いバッファでの上書きを検出できる)",
 		function()

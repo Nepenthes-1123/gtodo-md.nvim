@@ -16,23 +16,29 @@ function M.toggle_task_file_line(file, lnum)
 		return
 	end
 
-	local utils = require("gtodo-md.utils")
-	local is_todo = utils.is_todo_line(line)
-	local is_done = utils.is_done_line(line)
-
-	if is_todo then
-		line = line:gsub("%[%s%]", "[x]")
-		-- completed_at を付与
-		local today = os.date("%Y-%m-%d")
-		line = line .. " completed_at:" .. today
-	elseif is_done then
-		line = line:gsub("%[x%]", "[ ]")
-		line = line:gsub("%[X%]", "[ ]")
-		-- completed_at を削除
-		line = line:gsub(" completed_at:%S+", "")
+	-- タスク行の読み書きは task.lua に委ねる。
+	--
+	-- 以前はここで `utils.is_todo_line`/`is_done_line` (無アンカーの部分文字列検索)で
+	-- 判定し、`line:gsub("%[%s%]", "[x]")` で書き換えていた。Lua の gsub は件数を
+	-- 指定しなければ**全件置換**なので、本文中にチェックボックス記法を含むタスク
+	-- (例: `- [ ] Review checklist template: contains [ ] and [x] placeholders`)を
+	-- トグルすると本文まで無警告で書き換わっていた。この経路は io.write_lines で
+	-- ディスクへ確定するため、元の本文を戻す手段が実質無い。
+	local task_mod = require("gtodo-md.task")
+	local task = task_mod.parse(line)
+	if not task then
+		return
 	end
 
-	lines[lnum] = line
+	if task.status == "x" then
+		task.status = " "
+		task.completed_at = nil
+	else
+		task.status = "x"
+		task.completed_at = os.date("%Y-%m-%d")
+	end
+
+	lines[lnum] = task_mod.serialize(task)
 	local ok, err = pcall(io_mod.write_lines, file, lines)
 	if not ok then
 		vim.notify(tostring(err), vim.log.levels.ERROR)

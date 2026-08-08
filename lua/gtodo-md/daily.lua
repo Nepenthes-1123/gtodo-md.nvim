@@ -31,11 +31,11 @@ local last_processed_date = ""
 -- handle_buf_enter より先に走ってmtime差分を消費してしまうため、
 -- 「保存直後にバッファへ入り直しても自前のdueチェック・ソートが実行されない」
 -- という形で表面化していた。用途ごとに独立したキャッシュを持つことで解消する。
-local external_change_mtimes = {
-	inbox = 0,
-	todo = 0,
-	done = 0,
-}
+-- 未取得のキーは nil のままにする。初期値を 0 にすると、実ファイルの mtime は
+-- 0 になり得ないため初回チェックが必ず「外部変更あり」と判定され、無意味な
+-- リロードが1回走る。リロードは未保存編集の破棄を伴うようになったため
+-- (autocmds.lua の FileChangedShell)、この誤検知は放置できない。
+local external_change_mtimes = {}
 
 -- キャッシュ取得用アクセサ。
 -- #98: テーブルの参照をそのまま返すと、呼び出し側が誤って書き換えた場合に
@@ -74,11 +74,18 @@ end
 -- undofile をバッファローカルに落とすことで u_write_undo() 自体を発生させない
 -- (:w を介さずディスクを書き換える設計である以上、これらのファイルの永続 undo は
 -- そもそも成立していない。機能の切り捨てではなく整合性の回復)。
+--
+-- 対象判定は utils.is_gtodo_file に揃える。以前はファイル名の末尾一致
+-- (inbox.md / todo.md / done.md)で判定していたため、cancelled.md と
+-- projects/*.md がこの経路から漏れていた。漏れたバッファは、autocmd を
+-- 経ずにロードされた場合(ui/queue.lua の eventignore 経路など)に
+-- undofile が有効なまま残り、どこからも張り直されなかった。
+-- 他の対象判定はすべて is_gtodo_file を使っており、ここだけ別基準だった。
 function M.reload_managed_bufs()
+	local utils = require("gtodo-md.utils")
 	for _, buf in ipairs(vim.api.nvim_list_bufs()) do
 		if vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_is_loaded(buf) then
-			local bname = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t")
-			if bname == "inbox.md" or bname == "todo.md" or bname == "done.md" then
+			if utils.is_gtodo_file(vim.api.nvim_buf_get_name(buf)) then
 				vim.bo[buf].autoread = true
 				vim.bo[buf].undofile = false
 				-- :checktime はバッファ番号を引数に取れるので nvim_buf_call は不要
@@ -105,9 +112,11 @@ local function reload_if_externally_changed()
 	local changed = false
 	for key, path in pairs(paths) do
 		local mtime = vim.fn.getftime(path)
-		if mtime ~= external_change_mtimes[key] then
+		local previous = external_change_mtimes[key]
+		external_change_mtimes[key] = mtime
+		-- 初回はベースラインが無いだけで、外部変更が起きたわけではない。
+		if previous ~= nil and mtime ~= previous then
 			changed = true
-			external_change_mtimes[key] = mtime
 		end
 	end
 

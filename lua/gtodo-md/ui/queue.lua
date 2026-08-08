@@ -17,9 +17,42 @@ local SEPARATOR = string.rep("─", 46)
 -- swapfile によるクラッシュ復旧保護は不要。同じファイルを別ウィンドウで
 -- 既に編集中の場合の "swap file already exists" 警告や、(まれに)swapファイル
 -- 用ディレクトリ作成の競合を避けるため無効化しておく。
+-- #125: eventignore で BufReadPost/BufEnter を止めている以上、autocmds.lua が
+-- 管理対象バッファへ行う設定(autoread / undofile=false)もこのバッファには
+-- 一切かからない。特に undofile を残したままにすると、後でこのバッファが
+-- checktime でリロードされたとき Neovim が undo ファイルを書きに行き、
+-- 同じファイルを開いた他インスタンスと同一パスを奪い合って E828 になる。
+-- autocmd を抑制した側の責任として、ここで同じ設定を明示的に入れる。
+local function apply_managed_buf_opts(buf, filepath)
+	if not utils.is_gtodo_file(filepath) then
+		return
+	end
+	vim.bo[buf].autoread = true
+	vim.bo[buf].undofile = false
+end
+
+-- 抑制した BufReadPost がもう一つ行っているのがスタンプの記録。ここを補わないと
+-- read_stamps に載らないまま「read_lines がバッファ優先で読む対象」になり、
+-- write_lines 直前の照合が recorded == nil で素通りして並行更新検出が丸ごと効かない。
+--
+-- **記録してよいのは bufload の直後だけ**。そこは「今ディスクから読んだ内容が
+-- そのままバッファに入っている」と言い切れる唯一の瞬間である。既にロード済みの
+-- バッファは、いつ・どの時点のディスクを写したものか分からず、未保存編集を
+-- 抱えているかもしれない。そこで今のディスクの stat を刻印すると、古いバッファと
+-- 新しいディスクを「一致」と誤って宣言し、以降そのパスの並行更新検出が素通りする。
+local function record_stamp_if_managed(filepath)
+	if not utils.is_gtodo_file(filepath) then
+		return
+	end
+	require("gtodo-md.io").record_stamp(filepath)
+end
+
 local function load_buf_quietly(filepath)
 	local buf = vim.fn.bufadd(filepath)
 	if vim.api.nvim_buf_is_loaded(buf) then
+		-- 既ロード済み。bufload を経ていないのでスタンプは記録しない(上記参照)。
+		-- 通常経路で開かれたバッファなら autocmds.lua が既に記録している。
+		apply_managed_buf_opts(buf, filepath)
 		return buf
 	end
 
@@ -33,6 +66,9 @@ local function load_buf_quietly(filepath)
 	if not ok then
 		error(err, 0)
 	end
+
+	apply_managed_buf_opts(buf, filepath)
+	record_stamp_if_managed(filepath)
 	return buf
 end
 M._load_buf_quietly = load_buf_quietly

@@ -42,6 +42,14 @@ end
 -- 別インスタンスが処理中とみなし、今回は諦めて次回のトリガーに委ねる)。
 -- 取得できた場合は fn() を実行し、成否に関わらずロックを解放したうえで true を返す。
 -- fn() の実行中にエラーが発生した場合は通知したうえで揉み消す(呼び出し元には伝播しない)。
+--
+-- fn の実行前に必ず reload_managed_bufs() を通す。自動処理は io.read_lines 経由で
+-- 「ディスクよりバッファを優先して」読むため、他インスタンスが書いた後で古いバッファを
+-- 読むと、全行置換でその変更を潰す。ロックは自分以外の自動処理しか止められず、
+-- 他インスタンスのユーザー操作(editor.lua)・:w・Neovim 以外の書き手(同期ツール、
+-- git pull)は素通りするので、「書く者を1つに絞る」方向では塞がらない。
+-- 読む直前にディスクを取り込んで、古いバッファを読むこと自体を無くす。
+-- 呼び出し元ごとに書くと将来の追加経路で漏れるため、ロックの中へ閉じ込めてある。
 function M.with_write_lock(data_dir, fn)
 	local lock_path = data_dir .. "/.gtodo.lock"
 	cleanup_stale(lock_path)
@@ -54,7 +62,13 @@ function M.with_write_lock(data_dir, fn)
 	-- 残ると、取得失敗時は即諦める仕様(上記)と相まって、stale 判定される 60 秒間
 	-- 全インスタンスの自動処理が通知も無くスキップされる。書き込み失敗が続く状況
 	-- (ディスク満杯等)では自動処理が恒常的に間引かれ、日次ロールオーバーを取りこぼす。
-	local ok, err = pcall(fn)
+	-- 事前リロードも同じ pcall の内側に置く(外へ出すと、そこで例外が出た場合に
+	-- ロックが解放されないため)。
+	local ok, err = pcall(function()
+		-- daily は lock を require しているため、循環参照を避けて呼び出し時に遅延requireする。
+		require("gtodo-md.daily").reload_managed_bufs()
+		fn()
+	end)
 	release(lock_path)
 
 	if not ok then
