@@ -162,22 +162,23 @@ function M.update_highlights(bufnr)
 
 			for i, line in ipairs(lines) do
 				if utils.is_todo_line(line) or utils.is_done_line(line) then
-					-- 1. Project tag (+Project)
-					for s, tag in line:gmatch("()(%+[%w%-_/%.]+)") do
-						vim.api.nvim_buf_set_extmark(bufnr, ns, i - 1, s - 1, {
-							end_col = s - 1 + #tag,
-							hl_group = hl_groups.project,
-							ephemeral = false,
-						})
-					end
-
-					-- 2. Context (@context)
-					for s, ctx in line:gmatch("()(@[%w%-_/%.]+)") do
-						vim.api.nvim_buf_set_extmark(bufnr, ns, i - 1, s - 1, {
-							end_col = s - 1 + #ctx,
-							hl_group = hl_groups.context,
-							ephemeral = false,
-						})
+					-- 1・2. Project tag (+Project) / Context (@context)
+					-- 位置の特定は task.tag_ranges に委ねる(第2引数でproject/contextも含める)。
+					-- M._match_priority/due日付と同じ考え方で、無アンカーの独自正規表現による
+					-- 本文中の同型文字列(例: メールの `+work`/`@example.com`)の誤検出を避ける。
+					for _, r in ipairs(task_mod.tag_ranges(line, true)) do
+						if r.key == "project" or r.key == "context" then
+							-- tag_ranges の範囲は直前の空白を含むため、ハイライトが
+							-- タグ自体(+/@から)に始まるよう先頭の空白を読み飛ばす。
+							local raw = line:sub(r.start_col + 1, r.end_col)
+							local lead = raw:match("^%s*")
+							local tag_start = r.start_col + #lead
+							vim.api.nvim_buf_set_extmark(bufnr, ns, i - 1, tag_start, {
+								end_col = r.end_col,
+								hl_group = r.key == "project" and hl_groups.project or hl_groups.context,
+								ephemeral = false,
+							})
+						end
 					end
 
 					-- 3. Priority ((A), (B), (C))
