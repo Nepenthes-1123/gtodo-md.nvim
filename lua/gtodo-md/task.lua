@@ -13,6 +13,23 @@ function M._generate_id()
 	return string.format("%06x", (hr + pid) % 0x1000000)
 end
 
+-- タスク行かどうかの粗い判定(部分一致)。M.parse のように行全体の構造を
+-- 検証するのではなく、高速な走査パス(api.get_stats/ui.project の完了数
+-- カウント等)向けに「チェックボックスらしき部分文字列を含むか」だけを見る。
+function M.is_todo_line(line)
+	if type(line) ~= "string" then
+		return false
+	end
+	return line:match("%[%s%]") ~= nil
+end
+
+function M.is_done_line(line)
+	if type(line) ~= "string" then
+		return false
+	end
+	return line:match("%[x%]") ~= nil or line:match("%[X%]") ~= nil
+end
+
 -- タグ抽出のパターン。**タスク行の文法の正本はここだけ**であり、他のモジュールが
 -- 独自に正規表現を組み立ててはならない(そうして生まれた不具合は CLAUDE.md を参照)。
 --

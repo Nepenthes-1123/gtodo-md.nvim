@@ -127,8 +127,8 @@ describe("daily.check_daily_rollover (共有ロック経由)", function()
 			it(
 				"外部変更検知の実行は、handle_buf_enter用キャッシュ(get_cache)を変化させない",
 				function()
-					local utils = require("gtodo-md.utils")
-					utils.write_last_opened(os.date("%Y-%m-%d"))
+					local state_mod = require("gtodo-md.state")
+					state_mod.write_last_opened(os.date("%Y-%m-%d"))
 
 					-- 1回目の呼び出しで両キャッシュを初期化させる(同日パス)
 					daily_mod.check_daily_rollover()

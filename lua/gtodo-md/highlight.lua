@@ -161,7 +161,7 @@ function M.update_highlights(bufnr)
 			end
 
 			for i, line in ipairs(lines) do
-				if utils.is_todo_line(line) or utils.is_done_line(line) then
+				if task_mod.is_todo_line(line) or task_mod.is_done_line(line) then
 					-- 1・2. Project tag (+Project) / Context (@context)
 					-- 位置の特定は task.tag_ranges に委ねる(第2引数でproject/contextも含める)。
 					-- M._match_priority/due日付と同じ考え方で、無アンカーの独自正規表現による

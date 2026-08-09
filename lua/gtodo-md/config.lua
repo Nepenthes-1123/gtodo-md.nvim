@@ -41,7 +41,7 @@ M.section_order = { "TODAY", "NEXT", "WAITING", "SOMEDAY" }
 M.sections = vim.tbl_extend("force", {}, M.default_sections)
 
 -- 前回の setup() で使われていたセクション名(section_aliases が一時的な
--- エイリアスとして参照する)。utils.read_last_sections で永続化されたものを
+-- エイリアスとして参照する)。state.read_last_sections で永続化されたものを
 -- setup() のたびに読み込む。
 M.last_sections = {}
 
@@ -100,13 +100,13 @@ function M.setup(opts)
 	-- #94: セクション名をカスタム化・変更した直後は、ファイル側の見出しが
 	-- まだ前回の名前のままであることが多い。前回の名前を読み込んでおき、
 	-- section_aliases が一時的なエイリアスとして受理できるようにする。
-	local utils = require("gtodo-md.utils")
-	local last = utils.read_last_sections()
+	local state = require("gtodo-md.state")
+	local last = state.read_last_sections()
 	M.last_sections = (type(last) == "table") and last or {}
 
 	M.sections = sanitize_sections(vim.tbl_deep_extend("force", M.default_sections, opts.sections or {}))
 
-	utils.write_last_sections(M.sections)
+	state.write_last_sections(M.sections)
 end
 
 -- key(TODAY/NEXT/WAITING/SOMEDAY)に対応する、見出しとして現在有効な

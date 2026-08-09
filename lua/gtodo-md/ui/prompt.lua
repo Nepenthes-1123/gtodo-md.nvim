@@ -42,7 +42,7 @@ function M.prompt_task(initial_task, callback)
 	end
 
 	local function create_project_file(project_tag)
-		require("gtodo-md.utils").create_project_file(project_tag)
+		require("gtodo-md.ui.project").create_project_file(project_tag)
 	end
 
 	-- Step 1: 説明
