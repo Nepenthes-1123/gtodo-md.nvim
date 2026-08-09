@@ -40,13 +40,17 @@ describe("ui.template", function()
 		end)
 
 		it("*.md のみを対象に、mtime降順で名前(拡張子無し)を返す", function()
+			-- vim.fn.setftime は存在しない(Vim/Neovimに無い関数)。mtimeを明示的に
+			-- 前後させるには libuv の fs_utime を使う(lock.lua と同じ uv 取得パターン)。
+			local uv = vim.uv or vim.loop
 			vim.fn.mkdir(templates_dir, "p")
 			vim.fn.writefile({ "- [ ] a" }, templates_dir .. "/old.md")
 			vim.fn.writefile({ "not a template" }, templates_dir .. "/ignored.txt")
-			-- mtimeを確実に前後させるため異なる時刻を明示的に設定する
-			vim.fn.setftime(templates_dir .. "/old.md", os.time() - 100)
+			local old_time = os.time() - 100
+			uv.fs_utime(templates_dir .. "/old.md", old_time, old_time)
 			vim.fn.writefile({ "- [ ] b" }, templates_dir .. "/new.md")
-			vim.fn.setftime(templates_dir .. "/new.md", os.time())
+			local new_time = os.time()
+			uv.fs_utime(templates_dir .. "/new.md", new_time, new_time)
 
 			assert.are.same({ "new", "old" }, template_mod.list_templates())
 		end)
@@ -128,7 +132,9 @@ describe("ui.template", function()
 			local task_b = task_mod.parse(result[2])
 			assert.are.same("タスクA", task_a.content)
 			assert.are.same("project", task_a.project)
-			assert.are.same("context", task_a.context)
+			-- task.lua は context を "@" 付きで保持する(project とは非対称。
+			-- tests/spec/task_roundtrip_spec.lua の既存契約と同じ)
+			assert.are.same("@context", task_a.context)
 			assert.are.same("タスクB", task_b.content)
 			assert.are.same("2026-01-01", task_b.due)
 		end)
@@ -210,7 +216,7 @@ describe("ui.template", function()
 			assert.are.same("新規タスクA", task_a.content)
 			assert.are.same("new-project", task_a.project)
 			assert.are.same("新規タスクB", task_b.content)
-			assert.are.same("context", task_b.context)
+			assert.are.same("@context", task_b.context)
 		end)
 	end)
 end)
