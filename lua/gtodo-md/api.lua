@@ -1,5 +1,6 @@
 local M = {}
 local config = require("gtodo-md.config")
+local task_mod = require("gtodo-md.task")
 
 local cache = {
 	todo_mtime = 0,
@@ -47,7 +48,7 @@ function M.get_stats()
 							in_today = false
 						end
 					end
-					if in_today and require("gtodo-md.utils").is_todo_line(line) then
+					if in_today and task_mod.is_todo_line(line) then
 						stats.today = stats.today + 1
 					end
 				end
@@ -60,7 +61,7 @@ function M.get_stats()
 			local f = io.open(inbox_path, "r")
 			if f then
 				for line in f:lines() do
-					if require("gtodo-md.utils").is_todo_line(line) then
+					if task_mod.is_todo_line(line) then
 						stats.inbox = stats.inbox + 1
 					end
 				end
