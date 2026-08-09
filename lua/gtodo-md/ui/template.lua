@@ -3,14 +3,20 @@ local config = require("gtodo-md.config")
 local io_mod = require("gtodo-md.io")
 local task_mod = require("gtodo-md.task")
 
--- 親タスクから子タスクへ引き継いではいけないタグ。ui/split.lua の
--- NON_INHERITABLE_TAGS と同じ理由(id の複製が一意性を壊す、完了/キャンセルの
--- 記録を引き継ぐ意味が無い)による。split.lua のものは非公開のためここで別途定義する。
+-- テンプレートから挿入するタスクへ引き継いではいけないタグ。id/completed_at/done/
+-- cancelled は ui/split.lua の NON_INHERITABLE_TAGS と同じ理由(id の複製が一意性を
+-- 壊す、完了/キャンセルの記録を引き継ぐ意味が無い)による。split.lua のものは
+-- 非公開のためここで別途定義する。
+-- created は split.lua の子タスクでは意図的に継承されるが(CLAUDE.md参照)、
+-- テンプレートは時間を跨いで繰り返し使うものなので、実タスク行のコピペ等で
+-- created が紛れ込んでいた場合に古い日付を引きずるのは望ましくない。挿入された
+-- タスクは通常の新規タスク追加と同じく created 未設定の状態にする。
 local NON_INHERITABLE_TAGS = {
 	id = true,
 	completed_at = true,
 	done = true,
 	cancelled = true,
+	created = true,
 }
 
 -- 既存テンプレート一覧の取得(最近更新された順)。ui/prompt.lua の get_projects と同じ方式。

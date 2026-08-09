@@ -164,6 +164,20 @@ describe("ui.template", function()
 			assert.is_nil(task.cancelled)
 		end)
 
+		-- created: は split.lua の子タスクでは継承される(意図的、CLAUDE.md参照)が、
+		-- テンプレートは時間を跨いで繰り返し使うものなので、実タスク行のコピペ等で
+		-- created: が紛れ込んでいた場合に古い日付を引きずるのは望ましくない。
+		-- 挿入されたタスクは通常の新規タスク追加と同じく created: 未設定の状態にする。
+		it(
+			"created: も継承させない(実タスク行のコピペで古い日付を引きずらないため)",
+			function()
+				local lines = { "- [ ] 古い日付混入タスク created:2020-01-01" }
+				local result = template_mod.extract_task_lines(lines)
+				local task = task_mod.parse(result[1])
+				assert.is_nil(task.created)
+			end
+		)
+
 		it("空配列を渡された場合は空配列を返す", function()
 			assert.are.same({}, template_mod.extract_task_lines({}))
 		end)
