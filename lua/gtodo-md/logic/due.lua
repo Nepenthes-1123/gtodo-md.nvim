@@ -8,8 +8,8 @@ local mem_last_notify_content = ""
 
 local function get_last_notify_state(persist)
 	if persist then
-		local utils = require("gtodo-md.utils")
-		return utils.read_notify_state()
+		local state = require("gtodo-md.state")
+		return state.read_notify_state()
 	else
 		return mem_last_notify_time, mem_last_notify_content
 	end
@@ -17,8 +17,8 @@ end
 
 local function set_last_notify_state(persist, time, content)
 	if persist then
-		local utils = require("gtodo-md.utils")
-		utils.write_notify_state(time, content)
+		local state = require("gtodo-md.state")
+		state.write_notify_state(time, content)
 	else
 		mem_last_notify_time = time
 		mem_last_notify_content = content

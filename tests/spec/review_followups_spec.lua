@@ -133,7 +133,7 @@ describe("レビュー指摘の回帰テスト", function()
 			local circular = {}
 			circular.self = circular
 			-- luacheck: ignore
-			pcall(require("gtodo-md.utils").write_last_sections, circular)
+			pcall(require("gtodo-md.state").write_last_sections, circular)
 
 			vim.notify = saved_notify
 

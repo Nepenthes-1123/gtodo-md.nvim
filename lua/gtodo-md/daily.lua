@@ -159,7 +159,7 @@ function M.check_daily_rollover()
 		return false
 	end
 
-	local last_opened = require("gtodo-md.utils").read_last_opened()
+	local last_opened = require("gtodo-md.state").read_last_opened()
 	if last_opened ~= today then
 		local data_dir = config.get("data_dir")
 		local inbox_path = data_dir .. "/inbox.md"
@@ -175,7 +175,7 @@ function M.check_daily_rollover()
 			-- move_completed_tasks が変化していれば、check_dues自体に変化が無くても
 			-- sort_todo_fileを呼ぶ(always_sortとして渡す)。
 			logic_mod.check_dues_and_maybe_sort(inbox_path, todo_path, move_changed)
-			require("gtodo-md.utils").write_last_opened(today)
+			require("gtodo-md.state").write_last_opened(today)
 			rollover_ok = true
 		end)
 

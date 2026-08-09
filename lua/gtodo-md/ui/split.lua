@@ -210,7 +210,7 @@ M._rewrite_project_tag = rewrite_project_tag
 M._summarize_parent_text = summarize_parent_text
 
 local function create_project_file_if_missing(tag)
-	require("gtodo-md.utils").create_project_file(tag)
+	require("gtodo-md.ui.project").create_project_file(tag)
 end
 
 -- カーソル行が分割の対象になり得るかを判定する。対象外なら(必要に応じて通知した上で)

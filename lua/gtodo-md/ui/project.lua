@@ -46,6 +46,58 @@ local function get_done_project_counts(done_path)
 	return counts
 end
 
+-- プロジェクトタグに対応する projects/*.md を、無ければテンプレート付きで作成する。
+-- ジャンプ(jump_to_project)・分割時のプロジェクト昇格(ui/split.lua)・
+-- 新規タスク入力時のプロジェクト作成(ui/prompt.lua)の3箇所から呼ばれる。
+function M.create_project_file(project_tag)
+	local data_dir = config.get("data_dir")
+	local projects_dir = data_dir .. "/projects"
+
+	if vim.fn.isdirectory(projects_dir) == 0 then
+		-- mkdir() は失敗時に 0 を返すほか、パス上に同名のファイルがある等では
+		-- E739 を投げる。素通しにすると呼び出し元の処理がそこで止まる。
+		local ok, created = pcall(vim.fn.mkdir, projects_dir, "p")
+		if not ok or created == 0 then
+			vim.notify(
+				string.format("[gtodo-md] failed to create projects directory: %s", projects_dir),
+				vim.log.levels.ERROR
+			)
+			return false
+		end
+	end
+
+	local proj_file = string.format("%s/%s.md", projects_dir, project_tag)
+	if vim.fn.filereadable(proj_file) == 0 then
+		local today = os.date("%Y-%m-%d")
+		local template = {
+			"---",
+			"title:",
+			"tag: " .. project_tag,
+			"created: " .. today,
+			"due:",
+			"status: active",
+			"members: []",
+			"---",
+			"",
+			"## Overview",
+			"",
+			"## Notes",
+			"",
+			"## Reference",
+			"",
+		}
+
+		local written, err = io_mod.atomic_write(proj_file, table.concat(template, "\n") .. "\n")
+		if not written then
+			vim.notify(string.format("Failed to create project file: %s (%s)", proj_file, err), vim.log.levels.ERROR)
+			return false
+		end
+		vim.notify("Created new project file: " .. project_tag, vim.log.levels.INFO)
+		return true
+	end
+	return true
+end
+
 -- プロジェクトファイルへのジャンプ
 function M.jump_to_project()
 	local current_line = vim.api.nvim_get_current_line()
@@ -60,7 +112,7 @@ function M.jump_to_project()
 	local proj_file = string.format("%s/projects/%s.md", data_dir, project_tag)
 
 	if vim.fn.filereadable(proj_file) == 0 then
-		local ok = require("gtodo-md.utils").create_project_file(project_tag)
+		local ok = M.create_project_file(project_tag)
 		if not ok then
 			return
 		end

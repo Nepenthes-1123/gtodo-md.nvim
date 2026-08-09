@@ -117,14 +117,14 @@ describe("autoread and timer skip for project files", function()
 	it("handle_buf_enter は未保存(dirty)なバッファでも自動処理を実行し保存する", function()
 		local main_mod = require("gtodo-md")
 		local config = require("gtodo-md.config")
-		local utils_mod = require("gtodo-md.utils")
+		local state_mod = require("gtodo-md.state")
 
 		local data_dir = vim.fn.tempname()
 		vim.fn.mkdir(data_dir .. "/projects", "p")
 		config.setup({ data_dir = data_dir })
 
 		-- 日次ロールオーバー分岐に入らないよう、既に今日処理済みとしておく
-		utils_mod.write_last_opened(os.date("%Y-%m-%d"))
+		state_mod.write_last_opened(os.date("%Y-%m-%d"))
 
 		vim.fn.writefile({ "# Inbox", "" }, data_dir .. "/inbox.md")
 		vim.fn.writefile({
@@ -192,14 +192,14 @@ describe("autoread and timer skip for project files", function()
 		function()
 			local main_mod = require("gtodo-md")
 			local config = require("gtodo-md.config")
-			local utils_mod = require("gtodo-md.utils")
+			local state_mod = require("gtodo-md.state")
 			local daily_mod = require("gtodo-md.daily")
 			local uv = vim.uv or vim.loop
 
 			local data_dir = vim.fn.tempname()
 			vim.fn.mkdir(data_dir .. "/projects", "p")
 			config.setup({ data_dir = data_dir })
-			utils_mod.write_last_opened(os.date("%Y-%m-%d"))
+			state_mod.write_last_opened(os.date("%Y-%m-%d"))
 
 			local todo_path = data_dir .. "/todo.md"
 			vim.fn.writefile({ "# Inbox", "" }, data_dir .. "/inbox.md")
@@ -280,14 +280,14 @@ describe("autoread and timer skip for project files", function()
 		function()
 			local main_mod = require("gtodo-md")
 			local config = require("gtodo-md.config")
-			local utils_mod = require("gtodo-md.utils")
+			local state_mod = require("gtodo-md.state")
 			local daily_mod = require("gtodo-md.daily")
 			local uv = vim.uv or vim.loop
 
 			local data_dir = vim.fn.tempname()
 			vim.fn.mkdir(data_dir .. "/projects", "p")
 			config.setup({ data_dir = data_dir })
-			utils_mod.write_last_opened(os.date("%Y-%m-%d"))
+			state_mod.write_last_opened(os.date("%Y-%m-%d"))
 
 			local todo_path = data_dir .. "/todo.md"
 			vim.fn.writefile({ "# Inbox", "" }, data_dir .. "/inbox.md")

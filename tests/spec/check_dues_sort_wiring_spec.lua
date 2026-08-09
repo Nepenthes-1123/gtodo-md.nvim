@@ -52,10 +52,10 @@ describe("check_dues → sort_todo_file の配線パターン", function()
 		function()
 			local main_mod = require("gtodo-md")
 			local config = require("gtodo-md.config")
-			local utils_mod = require("gtodo-md.utils")
+			local state_mod = require("gtodo-md.state")
 
 			config.setup({ data_dir = data_dir })
-			utils_mod.write_last_opened(today)
+			state_mod.write_last_opened(today)
 
 			vim.fn.writefile({ "# Inbox", "", "- [ ] 昇格タスク due:" .. today }, inbox_path)
 			vim.fn.writefile({
@@ -101,10 +101,10 @@ describe("check_dues → sort_todo_file の配線パターン", function()
 	it("handle_buf_enter: todo.md表示中はcheck_duesの変化が無くても常にソートされる", function()
 		local main_mod = require("gtodo-md")
 		local config = require("gtodo-md.config")
-		local utils_mod = require("gtodo-md.utils")
+		local state_mod = require("gtodo-md.state")
 
 		config.setup({ data_dir = data_dir })
-		utils_mod.write_last_opened(today)
+		state_mod.write_last_opened(today)
 
 		-- inboxにdueタスクは無い(check_dues自体は何も変化させない)
 		vim.fn.writefile({ "# Inbox", "" }, inbox_path)
@@ -157,11 +157,11 @@ describe("check_dues → sort_todo_file の配線パターン", function()
 		function()
 			local daily_mod = require("gtodo-md.daily")
 			local config = require("gtodo-md.config")
-			local utils_mod = require("gtodo-md.utils")
+			local state_mod = require("gtodo-md.state")
 			local yesterday = os.date("%Y-%m-%d", os.time() - 86400)
 
 			config.options = { data_dir = data_dir }
-			utils_mod.write_last_opened(yesterday)
+			state_mod.write_last_opened(yesterday)
 
 			vim.fn.writefile({ "# Inbox", "", "- [ ] 昇格タスク due:" .. today }, inbox_path)
 			vim.fn.writefile({
@@ -201,10 +201,10 @@ describe("check_dues → sort_todo_file の配線パターン", function()
 	it("M.sort_and_check_dues: check_duesの変化が無くても常にtodo.mdをソートする", function()
 		local main_mod = require("gtodo-md")
 		local config = require("gtodo-md.config")
-		local utils_mod = require("gtodo-md.utils")
+		local state_mod = require("gtodo-md.state")
 
 		config.setup({ data_dir = data_dir })
-		utils_mod.write_last_opened(today)
+		state_mod.write_last_opened(today)
 
 		vim.fn.writefile({ "# Inbox", "" }, inbox_path)
 		vim.fn.writefile({
