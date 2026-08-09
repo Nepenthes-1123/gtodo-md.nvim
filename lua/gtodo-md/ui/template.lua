@@ -82,6 +82,7 @@ function M.ensure_template_file(name)
 			"<!--",
 			"記法メモ: - [ ] タスク内容 +project @context due:YYYY-MM-DD wait:理由",
 			"due: は due:+3d / due:today / due:mon のような相対指定も可能(挿入時に選ぶ基準日から解決されます)",
+			"+project/@context の代わりに {{project}}/{{context}} と書くと、挿入時に値を尋ねられます(複数プロジェクトで使い回すテンプレート向け)",
 			"優先度は内容の先頭に (A) のように付与 (例: - [ ] (A) 重要なタスク)",
 			"このコメント行は挿入時に自動で無視されます",
 			"-->",
