@@ -43,6 +43,14 @@ function M.setup_global()
 	vim.keymap.set("n", prefix .. "q", function()
 		ui_mod.open_queue()
 	end, { desc = "Open Queue view" })
+
+	-- テンプレート系
+	vim.keymap.set("n", prefix .. "T", function()
+		ui_mod.edit_template()
+	end, { desc = "Edit or create a task template" })
+	vim.keymap.set("n", prefix .. "A", function()
+		ui_mod.insert_template()
+	end, { desc = "Insert tasks from a template" })
 end
 
 -- バッファローカルなキーマップを設定する

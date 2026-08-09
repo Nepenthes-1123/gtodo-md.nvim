@@ -76,3 +76,34 @@ describe("utils.parse_due_date 相対日付 +Nm/+Ny の暦算 (#88)", function()
 		end)
 	end)
 end)
+
+-- タスクテンプレート機能(ui/template.lua)は「挿入時点の実日付」ではなく
+-- 「ユーザーが指定した基準日」から相対指定を解決したいため、第2引数で
+-- 基準日時を明示的に注入できるようにする。省略時は従来通り os.time()(実際の今)。
+describe("utils.parse_due_date 第2引数(base_time)による基準日の明示指定", function()
+	it(
+		"base_time を渡すと、相対指定はos.time()(実際の今)ではなくbase_time基準で解決される",
+		function()
+			local base_time = os.time({ year = 2024, month = 1, day = 10, hour = 12 })
+			assert.are.same("2024-01-13", utils.parse_due_date("+3d", base_time))
+			assert.are.same("2024-01-17", utils.parse_due_date("+1w", base_time))
+		end
+	)
+
+	it("base_time を渡しても today/tomorrow はその基準日を指す", function()
+		local base_time = os.time({ year = 2024, month = 1, day = 10, hour = 12 })
+		assert.are.same("2024-01-10", utils.parse_due_date("today", base_time))
+		assert.are.same("2024-01-11", utils.parse_due_date("tomorrow", base_time))
+	end)
+
+	it("絶対日付(YYYY-MM-DD)は base_time の値に関わらず変化しない", function()
+		local base_time = os.time({ year = 2024, month = 1, day = 10, hour = 12 })
+		assert.are.same("2026-08-20", utils.parse_due_date("2026-08-20", base_time))
+	end)
+
+	it("base_time を省略した場合は従来通り os.time()(実際の今)が使われる", function()
+		with_fixed_now(2024, 5, 1, 12, function()
+			assert.are.same("2024-05-04", utils.parse_due_date("+3d"))
+		end)
+	end)
+end)

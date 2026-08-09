@@ -20,4 +20,8 @@ M.render_project_tasks = require("gtodo-md.ui.project").render_project_tasks
 -- prompt_task
 M.prompt_task = require("gtodo-md.ui.prompt").prompt_task
 
+-- template.lua
+M.edit_template = require("gtodo-md.ui.template").edit_template
+M.insert_template = require("gtodo-md.ui.template").insert_template
+
 return M
