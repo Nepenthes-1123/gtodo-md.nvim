@@ -39,6 +39,14 @@ function M.setup(opts)
 	vim.api.nvim_create_user_command("GtodoQueue", function()
 		ui_mod.open_queue()
 	end, { desc = "Open Gtodo Queue view" })
+
+	vim.api.nvim_create_user_command("GtodoEditTemplate", function()
+		ui_mod.edit_template()
+	end, { desc = "Edit or create a Gtodo task template" })
+
+	vim.api.nvim_create_user_command("GtodoInsertTemplate", function()
+		ui_mod.insert_template()
+	end, { desc = "Insert tasks from a Gtodo task template" })
 end
 
 -- BufEnter時の自動処理
