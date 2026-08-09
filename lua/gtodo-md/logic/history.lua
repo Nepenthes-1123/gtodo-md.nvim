@@ -2,12 +2,11 @@ local M = {}
 local task_mod = require("gtodo-md.task")
 local io_mod = require("gtodo-md.io")
 
--- 履歴ファイル (done.md / cancelled.md) へタスクを追記する
--- バッファが開いている場合は io_mod.read_lines がその内容(未保存分を含む)を
--- 優先して返すため、ディスク直読みによる未保存編集の見落とし・上書きを避けられる
-function M.append_to_history(filepath, header_title, section_name, tasks)
-	local lines = io_mod.read_lines(filepath)
-
+-- 既に読み込み済みの lines へ、1セクション分のタスクを挿入する(純粋関数・ディスクI/Oなし)。
+-- 複数月にまたがる繰り込みを1回の read/write にまとめたい呼び出し元
+-- (completion.lua の move_completed_tasks)が、同じ lines へ月ごとに繰り返し
+-- 呼び出せるようにするための内部関数。挿入位置の計算方法は append_to_history と同一。
+function M._insert_tasks_into_lines(lines, header_title, section_name, tasks)
 	if #lines == 0 then
 		table.insert(lines, "# " .. header_title)
 		table.insert(lines, "")
@@ -53,7 +52,14 @@ function M.append_to_history(filepath, header_title, section_name, tasks)
 	for offset, t in ipairs(tasks) do
 		table.insert(lines, insert_at + offset - 1, task_mod.serialize(t))
 	end
+end
 
+-- 履歴ファイル (done.md / cancelled.md) へタスクを追記する
+-- バッファが開いている場合は io_mod.read_lines がその内容(未保存分を含む)を
+-- 優先して返すため、ディスク直読みによる未保存編集の見落とし・上書きを避けられる
+function M.append_to_history(filepath, header_title, section_name, tasks)
+	local lines = io_mod.read_lines(filepath)
+	M._insert_tasks_into_lines(lines, header_title, section_name, tasks)
 	io_mod.write_lines(filepath, lines)
 end
 

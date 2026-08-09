@@ -6,7 +6,15 @@ local M = {}
 
 local config = require("gtodo-md.config")
 
-local SECTION_KEYS = { "TODAY", "NEXT", "WAITING", "SOMEDAY" }
+-- 必須セクションのキー集合。config.default_sections(セクション名の正本)から
+-- 導出する(#96参考: 独自の重複リストを持たない)。pairs() の走査順は
+-- 実装依存で不定なため、missing_todo_sections が返すリストの順序を
+-- 安定させるために sort しておく。
+local SECTION_KEYS = {}
+for key, _ in pairs(config.default_sections) do
+	table.insert(SECTION_KEYS, key)
+end
+table.sort(SECTION_KEYS)
 
 -- 履歴ファイル(done.md/cancelled.md)の年月セクション見出しの正本
 local HISTORY_SECTION_PATTERN = "^##%s+(%d%d%d%d%-%d%d)$"
@@ -145,17 +153,17 @@ function M.validate_project_frontmatter(lines, proj_name, original_created)
 				end
 			end
 		end
+	end
 
-		local missing_keys = {}
-		for k, found in pairs(required_keys) do
-			if not found then
-				table.insert(missing_keys, k)
-			end
+	local missing_keys = {}
+	for k, found in pairs(required_keys) do
+		if not found then
+			table.insert(missing_keys, k)
 		end
+	end
 
-		if #missing_keys == 0 and tag_matches_filename and not created_changed then
-			valid_frontmatter = true
-		end
+	if end_idx and #missing_keys == 0 and tag_matches_filename and not created_changed then
+		valid_frontmatter = true
 	end
 
 	local errors = {}
@@ -170,12 +178,6 @@ function M.validate_project_frontmatter(lines, proj_name, original_created)
 		table.insert(errors, string.format("tag の値がファイル名 (%s) と一致していません", proj_name))
 	end
 
-	local missing_keys = {}
-	for k, found in pairs(required_keys) do
-		if not found then
-			table.insert(missing_keys, k)
-		end
-	end
 	if #missing_keys > 0 then
 		table.insert(errors, "必須項目が不足しています (" .. table.concat(missing_keys, ", ") .. ")")
 	end

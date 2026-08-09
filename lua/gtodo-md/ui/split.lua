@@ -247,10 +247,13 @@ end
 -- 手打ちタスク等)ならここで発行して行末へ埋め込む(id:はconcealされるため
 -- 見た目には影響しない)。他のタグ位置やフォーマットを崩さないよう、
 -- serializeで再構築せず末尾への追記に留める。
--- 返り値: entry, parent_line(idを発行した場合は付与後の行)
+-- ここで既に task_mod.parse 済みなので、既存の +project タグも合わせて返す
+-- (呼び出し元が改めて正規表現で抽出し直す必要をなくすため)。
+-- 返り値: entry, parent_line(idを発行した場合は付与後の行), project(無ければ nil)
 local function acquire_split_entry(source_buf, row, parent_line)
 	local entry = { row = row }
 	local task = task_mod.parse(parent_line)
+	local project = task and task.project
 	if task then
 		if not task.id or task.id == "" then
 			task.id = task_mod._generate_id()
@@ -263,7 +266,7 @@ local function acquire_split_entry(source_buf, row, parent_line)
 	active_splits[source_buf] = active_splits[source_buf] or {}
 	table.insert(active_splits[source_buf], entry)
 
-	return entry, parent_line
+	return entry, parent_line, project
 end
 
 -- commit時の親行追跡用と、#92のロック解決用の2つのextmarkを設置する。
@@ -611,10 +614,8 @@ function M.split_current_task()
 		return
 	end
 
-	local entry
-	entry, parent_line = acquire_split_entry(source_buf, row, parent_line)
-
-	local existing_tag = parent_line:match("%+([%w%-_/%.]+)")
+	local entry, existing_tag
+	entry, parent_line, existing_tag = acquire_split_entry(source_buf, row, parent_line)
 
 	vim.ui.input({ prompt = "Project tag (empty for plain split): ", default = existing_tag or "" }, function(input_tag)
 		if input_tag == nil then

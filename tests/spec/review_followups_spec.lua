@@ -187,7 +187,7 @@ describe("レビュー指摘の回帰テスト", function()
 				table.insert(notified, tostring(msg))
 			end
 
-			local split = require("gtodo-md.split")
+			local split = require("gtodo-md.ui.split")
 			split.split_current_task()
 			-- 2回目: ロックが漏れていれば "already active" で弾かれる
 			vim.api.nvim_win_set_cursor(0, { 5, 0 })

@@ -1,6 +1,7 @@
 local M = {}
 local config = require("gtodo-md.config")
 local float_ui = require("gtodo-md.ui.float")
+local io_mod = require("gtodo-md.io")
 
 -- AND絞り込み検索
 function M.search_tasks()
@@ -16,21 +17,14 @@ function M.search_tasks()
 
 	for _, filepath in ipairs(files) do
 		if vim.fn.filereadable(filepath) == 1 then
-			local lines = {}
-			local f = io.open(filepath, "r")
-			if f then
-				for line in f:lines() do
-					table.insert(lines, line)
-				end
-				f:close()
-			end
+			-- 開いているバッファがあれば未保存の編集内容も含めて優先的に読む
+			local lines = io_mod.read_lines(filepath)
 
 			for lnum, line in ipairs(lines) do
 				local task = task_mod.parse(line)
 				if task then
 					local fname = vim.fn.fnamemodify(filepath, ":t:r")
-					local _, _, clean_line = line:match("^(%s*)%-%s*%[([ xX])%]%s*(.*)$")
-					clean_line = clean_line or line
+					local clean_line = task_mod.strip_checkbox_marker(line) or line
 					local display_text = string.format("[%s] %s", fname:upper(), clean_line)
 					table.insert(items, {
 						text = display_text,

@@ -217,8 +217,9 @@ function M._execute_move(task, row, target_section)
 	if filename == "inbox.md" then
 		local todo_data = io_mod.read_todo_file(todo_path)
 		if #todo_data.section_order == 0 then
-			todo_data.section_order =
-				{ config.sections.TODAY, config.sections.NEXT, config.sections.WAITING, config.sections.SOMEDAY }
+			todo_data.section_order = vim.tbl_map(function(key)
+				return config.sections[key]
+			end, config.section_order)
 		end
 		if not todo_data.sections[target_section] then
 			todo_data.sections[target_section] = {}
@@ -324,9 +325,10 @@ function M.move_current_task_to(target_section)
 			if input == nil then
 				return
 			end -- aborted
-			if vim.trim(input) ~= "" then
-				task.wait = vim.trim(input)
-			elseif input == "" then
+			local trimmed = vim.trim(input)
+			if trimmed ~= "" then
+				task.wait = trimmed
+			else
 				task.wait = nil
 			end
 			M._execute_move(task, row, target_section)
@@ -400,7 +402,7 @@ function M.cancel_current_task()
 end
 
 function M.split_current_task()
-	require("gtodo-md.split").split_current_task()
+	require("gtodo-md.ui.split").split_current_task()
 end
 
 return M

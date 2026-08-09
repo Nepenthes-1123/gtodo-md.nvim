@@ -162,20 +162,6 @@ function M.read_lines(path)
 	end
 end
 
-function M.format_buffer(bufnr)
-	pcall(function()
-		if package.loaded["conform"] then
-			require("conform").format({ bufnr = bufnr, async = false })
-		elseif vim.fn.exists(":Neoformat") == 2 then
-			vim.cmd("Neoformat")
-		elseif vim.fn.exists(":Format") == 2 then
-			vim.cmd("Format")
-		else
-			vim.lsp.buf.format({ bufnr = bufnr, async = false })
-		end
-	end)
-end
-
 -- 差分のみを更新し、Extmarksの破壊を防ぐ
 local function update_lines_incrementally(buf, new_lines)
 	local old_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -717,12 +703,11 @@ function M.ensure_files()
 		{ path = data_dir .. "/inbox.md", title = "# Inbox\n" },
 		{
 			path = data_dir .. "/todo.md",
-			title = string.format(
-				"# Todo\n\n## %s\n\n## %s\n\n## %s\n\n## %s",
-				config.sections.TODAY,
-				config.sections.NEXT,
-				config.sections.WAITING,
-				config.sections.SOMEDAY
+			title = "# Todo\n\n## " .. table.concat(
+				vim.tbl_map(function(key)
+					return config.sections[key]
+				end, config.section_order),
+				"\n\n## "
 			),
 		},
 		{ path = data_dir .. "/done.md", title = "# Done\n" },

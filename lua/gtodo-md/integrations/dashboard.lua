@@ -39,7 +39,9 @@ function M.get_tasks_lines(limit)
 			local icon = "  [ ] "
 
 			-- 優先度によるハイライトの切り替え
-			local p_match = content:match("^%(([A-Z])%)")
+			-- task.lua の M.parse が既に priority を content から分離済みなので、
+			-- content を再パースせず task.priority を直接見る。
+			local p_match = task.priority
 			local hl = "Special"
 			if p_match == "A" then
 				hl = "DiagnosticError"

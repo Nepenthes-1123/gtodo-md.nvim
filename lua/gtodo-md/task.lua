@@ -114,6 +114,18 @@ function M.parse(line)
 	return task
 end
 
+-- チェックボックスのマーカー部分だけを取り除いた残りの文字列を返す
+-- (タスク行でなければ nil)。優先度や `key:value` タグは除去しない — 検索結果の
+-- 表示など「タグ付きのままチェックボックス表記だけ外したい」呼び出し元向けの
+-- 薄いヘルパー。タグまで剥がしたい場合は M.parse の結果の task.content を使うこと。
+function M.strip_checkbox_marker(line)
+	local _, status, rest = line:match("^(%s*)%-%s*%[([ xX])%]%s*(.*)$")
+	if not status then
+		return nil
+	end
+	return rest
+end
+
 -- 行の中の `key:value` 形式タグの位置を返す。
 -- 戻り値: { { key = "id", start_col = <0-indexed>, end_col = <exclusive> }, ... }
 -- タスク行でなければ空リストを返す。
@@ -129,8 +141,10 @@ end
 -- タグと1バイト重なって conceal の extmark が重複する。前寄せに統一すると範囲が
 -- 隙間なく並ぶうえ、途中のタグだけを隠しても二重空白にならず、全部隠したときに
 -- 末尾へ余分な空白も残らない。
--- `+project`/`@context` は `key:value` 形式ではないので含まない。
-function M.tag_ranges(line)
+-- `+project`/`@context` は `key:value` 形式ではないため、既定では含まない。
+-- 呼び出し側がこれらの位置も(誤検出を避けつつ)正本経由で取得したい場合は
+-- 第2引数に true を渡す(戻り値の形は変わらず、対象キーが増えるだけ)。
+function M.tag_ranges(line, include_project_context)
 	local _, status, rest = line:match("^(%s*)%-%s*%[([ xX])%]%s*(.*)$")
 	if not status then
 		return {}
@@ -149,7 +163,7 @@ function M.tag_ranges(line)
 			local start_idx = vim.fn.match(text, p.pat)
 			if start_idx ~= -1 then
 				local end_idx = vim.fn.matchend(text, p.pat)
-				if KEY_VALUE_TAGS[p.key] then
+				if KEY_VALUE_TAGS[p.key] or include_project_context then
 					-- 直前の空白まで前へ広げる
 					local s = start_idx
 					while s > 0 and text:sub(s, s):match("%s") do
