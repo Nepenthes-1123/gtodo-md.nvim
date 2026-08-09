@@ -169,6 +169,52 @@ describe("ui.template", function()
 		end)
 	end)
 
+	-- テンプレートは繰り返し使い回すものなので、due:+3d のような相対指定を
+	-- 「挿入したその瞬間の実日付」基準で固定してしまうと、基準日をユーザーが
+	-- 選べない。第2引数(base_time)でその挿入インスタンスの基準日を明示できる。
+	describe(
+		"extract_task_lines の base_time 引数(due:の相対指定をユーザー指定基準日で解決する)",
+		function()
+			it("due:の相対指定は実際の今日ではなくbase_time基準で解決される", function()
+				local base_time = os.time({ year = 2024, month = 1, day = 10, hour = 12 })
+				local result = template_mod.extract_task_lines({ "- [ ] タスク due:+3d" }, base_time)
+				local task = task_mod.parse(result[1])
+				assert.are.same("2024-01-13", task.due)
+			end)
+
+			it("due:を挟む前後の +project/@context タグは書き換えられない", function()
+				local base_time = os.time({ year = 2024, month = 1, day = 10, hour = 12 })
+				local result = template_mod.extract_task_lines({ "- [ ] タスク +proj due:+3d @ctx" }, base_time)
+				local task = task_mod.parse(result[1])
+				assert.are.same("proj", task.project)
+				assert.are.same("@ctx", task.context)
+				assert.are.same("2024-01-13", task.due)
+			end)
+
+			it("due:が絶対日付の場合はbase_timeに関わらず変化しない", function()
+				local base_time = os.time({ year = 2024, month = 1, day = 10, hour = 12 })
+				local result = template_mod.extract_task_lines({ "- [ ] タスク due:2026-08-20" }, base_time)
+				local task = task_mod.parse(result[1])
+				assert.are.same("2026-08-20", task.due)
+			end)
+
+			it("due:を持たない行はbase_timeの影響を受けない", function()
+				local base_time = os.time({ year = 2024, month = 1, day = 10, hour = 12 })
+				local result = template_mod.extract_task_lines({ "- [ ] due無しタスク" }, base_time)
+				local task = task_mod.parse(result[1])
+				assert.are.same("due無しタスク", task.content)
+				assert.is_nil(task.due)
+			end)
+
+			it("base_timeを省略した場合は従来通り実際の今日を基準に解決される", function()
+				local expected = os.date("%Y-%m-%d", os.time() + 3 * 24 * 3600)
+				local result = template_mod.extract_task_lines({ "- [ ] タスク due:+3d" })
+				local task = task_mod.parse(result[1])
+				assert.are.same(expected, task.due)
+			end)
+		end
+	)
+
 	describe("insert_template_tasks", function()
 		local inbox_path
 
@@ -218,5 +264,23 @@ describe("ui.template", function()
 			assert.are.same("新規タスクB", task_b.content)
 			assert.are.same("@context", task_b.context)
 		end)
+
+		it(
+			"base_timeを渡すと、相対due指定がその基準日から解決されてinbox.mdへ追記される",
+			function()
+				vim.fn.writefile({ "# Inbox", "" }, inbox_path)
+				vim.fn.writefile({
+					"- [ ] 基準日+2日タスク due:+2d",
+				}, templates_dir .. "/relative-due.md")
+
+				local base_time = os.time({ year = 2024, month = 1, day = 10, hour = 12 })
+				local ok = template_mod.insert_template_tasks("relative-due", base_time)
+				assert.is_true(ok)
+
+				local lines = io_mod.read_lines(inbox_path)
+				local task = task_mod.parse(lines[3])
+				assert.are.same("2024-01-12", task.due)
+			end
+		)
 	end)
 end)
