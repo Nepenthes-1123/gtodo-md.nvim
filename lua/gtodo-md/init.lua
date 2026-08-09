@@ -293,10 +293,7 @@ function M.sort_and_check_dues()
 	local data_dir = config.get("data_dir")
 	local inbox_path = data_dir .. "/inbox.md"
 	local todo_path = data_dir .. "/todo.md"
-	lock_mod.with_write_lock(data_dir, function()
-		logic_mod.check_dues(inbox_path, todo_path)
-		logic_mod.sort_todo_file(todo_path)
-	end)
+	check_dues_and_sort(data_dir, inbox_path, todo_path, true)
 end
 
 -- グローバルキーマップの設定 (実体は keymaps.lua)
