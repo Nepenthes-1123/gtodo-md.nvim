@@ -140,10 +140,7 @@ end
 local function check_dues_and_sort(data_dir, inbox_path, todo_path, always_sort)
 	local changed = false
 	lock_mod.with_write_lock(data_dir, function()
-		changed = logic_mod.check_dues(inbox_path, todo_path)
-		if always_sort or changed then
-			logic_mod.sort_todo_file(todo_path)
-		end
+		changed = logic_mod.check_dues_and_maybe_sort(inbox_path, todo_path, always_sort)
 	end)
 	return changed
 end
