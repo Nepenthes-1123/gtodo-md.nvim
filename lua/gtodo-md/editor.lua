@@ -83,7 +83,7 @@ function M._find_task_idx(sec_items, task)
 end
 
 -- io.write_lines は書き込み失敗時に error を投げる。キーマップ経由の操作は
--- lock.with_write_lock の外側で走るため誰も pcall しておらず、そのままでは
+-- lock.with_automation_lock の外側で走るため誰も pcall しておらず、そのままでは
 -- 生の例外がユーザーへ表面化してしまう。ここで捕まえて通知に変える。
 local function protected_write(fn, ...)
 	local ok, err = pcall(fn, ...)

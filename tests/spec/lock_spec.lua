@@ -1,7 +1,7 @@
 local lock_mod = require("gtodo-md.lock")
 local uv = vim.uv or vim.loop
 
-describe("lock.with_write_lock", function()
+describe("lock.with_automation_lock", function()
 	local data_dir
 	local lock_path
 
@@ -18,7 +18,7 @@ describe("lock.with_write_lock", function()
 
 	it("ロックを取得して fn を実行し、完了後にロックを解放する", function()
 		local called = false
-		local acquired = lock_mod.with_write_lock(data_dir, function()
+		local acquired = lock_mod.with_automation_lock(data_dir, function()
 			called = true
 		end)
 
@@ -33,7 +33,7 @@ describe("lock.with_write_lock", function()
 			vim.fn.writefile({ "12345" }, lock_path)
 
 			local called = false
-			local acquired = lock_mod.with_write_lock(data_dir, function()
+			local acquired = lock_mod.with_automation_lock(data_dir, function()
 				called = true
 			end)
 
@@ -47,7 +47,7 @@ describe("lock.with_write_lock", function()
 	it(
 		"fn がエラーを投げても、ロックは解放され呼び出し元にはエラーを伝播しない",
 		function()
-			local acquired = lock_mod.with_write_lock(data_dir, function()
+			local acquired = lock_mod.with_automation_lock(data_dir, function()
 				error("boom")
 			end)
 
@@ -63,7 +63,7 @@ describe("lock.with_write_lock", function()
 		uv.fs_utime(lock_path, t, t)
 
 		local called = false
-		local acquired = lock_mod.with_write_lock(data_dir, function()
+		local acquired = lock_mod.with_automation_lock(data_dir, function()
 			called = true
 		end)
 
@@ -77,7 +77,7 @@ describe("lock.with_write_lock", function()
 		uv.fs_utime(lock_path, t, t)
 
 		local called = false
-		local acquired = lock_mod.with_write_lock(data_dir, function()
+		local acquired = lock_mod.with_automation_lock(data_dir, function()
 			called = true
 		end)
 
