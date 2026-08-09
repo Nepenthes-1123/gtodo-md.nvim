@@ -402,7 +402,7 @@ function M.cancel_current_task()
 end
 
 function M.split_current_task()
-	require("gtodo-md.split").split_current_task()
+	require("gtodo-md.ui.split").split_current_task()
 end
 
 return M

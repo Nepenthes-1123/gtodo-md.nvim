@@ -2,7 +2,7 @@
 -- これらはバッファやウィンドウに触れず、入出力が文字列だけで決まるため
 -- split_current_task() 全体を起動せずに検証できる。
 
-local split_mod = require("gtodo-md.split")
+local split_mod = require("gtodo-md.ui.split")
 
 describe("split._sanitize_project_tag", function()
 	local sanitize = split_mod._sanitize_project_tag

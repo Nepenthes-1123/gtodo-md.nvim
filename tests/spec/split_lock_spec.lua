@@ -10,7 +10,7 @@
 -- extmark発行後はextmarkの現在位置を正として解決する。ロック解放もBufWipeoutと
 -- WinClosedの両方から行う。
 
-local split_mod = require("gtodo-md.split")
+local split_mod = require("gtodo-md.ui.split")
 
 describe("split.split_current_task のロック機構 (#92)", function()
 	local buf, original_win, original_ui_input
