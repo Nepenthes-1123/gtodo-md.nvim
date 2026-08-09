@@ -22,4 +22,16 @@ function M.check_dues_and_maybe_sort(inbox_path, todo_path, always_sort)
 	return changed
 end
 
+-- check_dues を実行するが、sort_todo_file を呼ぶかどうかは check_dues自身が
+-- 変化を起こしたかを見ず、呼び出し元が渡した条件だけで決める
+-- (check_dues_and_maybe_sort とは判定基準が異なる)。handle_buf_enter が
+-- 「todo.mdを開いているかどうか」だけでsortの要否を決めたい場合に使う。
+-- 呼び出し元が既に排他ロックを保持している前提で、ここではロックを取得しない。
+function M.check_dues_then_sort_if(inbox_path, todo_path, should_sort)
+	M.check_dues(inbox_path, todo_path)
+	if should_sort then
+		M.sort_todo_file(todo_path)
+	end
+end
+
 return M
