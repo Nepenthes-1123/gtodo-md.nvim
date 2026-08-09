@@ -703,12 +703,11 @@ function M.ensure_files()
 		{ path = data_dir .. "/inbox.md", title = "# Inbox\n" },
 		{
 			path = data_dir .. "/todo.md",
-			title = string.format(
-				"# Todo\n\n## %s\n\n## %s\n\n## %s\n\n## %s",
-				config.sections.TODAY,
-				config.sections.NEXT,
-				config.sections.WAITING,
-				config.sections.SOMEDAY
+			title = "# Todo\n\n## " .. table.concat(
+				vim.tbl_map(function(key)
+					return config.sections[key]
+				end, config.section_order),
+				"\n\n## "
 			),
 		},
 		{ path = data_dir .. "/done.md", title = "# Done\n" },

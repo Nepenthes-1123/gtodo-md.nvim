@@ -33,6 +33,11 @@ M.default_sections = {
 	SOMEDAY = "Someday",
 }
 
+-- todo.md 内でのセクションの表示・走査順の正本。M.default_sections はキーが
+-- 名前を指す連想テーブルで順序を持たないため、順序が必要な箇所(初期テンプレート
+-- 生成・フォールバックのsection_order・繰り込み時の走査順)はここから導出する。
+M.section_order = { "TODAY", "NEXT", "WAITING", "SOMEDAY" }
+
 M.sections = vim.tbl_extend("force", {}, M.default_sections)
 
 -- 前回の setup() で使われていたセクション名(section_aliases が一時的な

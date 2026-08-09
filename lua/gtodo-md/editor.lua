@@ -217,8 +217,9 @@ function M._execute_move(task, row, target_section)
 	if filename == "inbox.md" then
 		local todo_data = io_mod.read_todo_file(todo_path)
 		if #todo_data.section_order == 0 then
-			todo_data.section_order =
-				{ config.sections.TODAY, config.sections.NEXT, config.sections.WAITING, config.sections.SOMEDAY }
+			todo_data.section_order = vim.tbl_map(function(key)
+				return config.sections[key]
+			end, config.section_order)
 		end
 		if not todo_data.sections[target_section] then
 			todo_data.sections[target_section] = {}

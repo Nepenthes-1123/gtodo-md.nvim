@@ -34,12 +34,11 @@ function M.move_completed_tasks(inbox_path, todo_path, done_path)
 	-- 2. todo.md から完了タスクを抽出する(この時点では書き込まない)
 	local todo_data = io_mod.read_todo_file(todo_path)
 	local todo_changed = false
-	for _, sec in ipairs({
-		config.sections.TODAY,
-		config.sections.NEXT,
-		config.sections.WAITING,
-		config.sections.SOMEDAY,
-	}) do
+	for _, sec in
+		ipairs(vim.tbl_map(function(key)
+			return config.sections[key]
+		end, config.section_order))
+	do
 		if todo_data.sections[sec] then
 			local sec_items = todo_data.sections[sec]
 			local remaining = {}
