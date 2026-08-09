@@ -32,13 +32,16 @@ function M.date_to_time(date_str)
 	})
 end
 
-function M.parse_due_date(str)
+-- base_time(epoch秒)を省略した場合は従来通り os.time()(実際の今)を基準にする。
+-- テンプレート機能(ui/template.lua)が「挿入時点の実日付」ではなく
+-- 「ユーザーが指定した基準日」から相対指定を解決するために利用する。
+function M.parse_due_date(str, base_time)
 	if not str or str == "" then
 		return nil
 	end
 	str = vim.trim(str):lower()
 
-	local today = os.time()
+	local today = base_time or os.time()
 
 	-- today, tomorrow, etc.
 	if str == "today" or str == "t" then

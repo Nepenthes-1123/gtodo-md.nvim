@@ -75,6 +75,7 @@ function M.ensure_template_file(name)
 		local template = {
 			"<!--",
 			"記法メモ: - [ ] タスク内容 +project @context due:YYYY-MM-DD wait:理由",
+			"due: は due:+3d / due:today / due:mon のような相対指定も可能(挿入時に選ぶ基準日から解決されます)",
 			"優先度は内容の先頭に (A) のように付与 (例: - [ ] (A) 重要なタスク)",
 			"このコメント行は挿入時に自動で無視されます",
 			"-->",
@@ -94,10 +95,35 @@ function M.ensure_template_file(name)
 end
 
 -- タスク行だけを抽出し、テンプレートから継承させないタグを外した上で再serializeする。
-function M.extract_task_lines(lines)
+--
+-- テンプレートは繰り返し使い回すものなので、due:の相対指定(due:+3d 等)を
+-- 「挿入した瞬間の実日付」ではなく base_time(省略時は従来通り実際の今日) 基準で
+-- 解決したい。しかし task_mod.parse は内部で utils.parse_due_date を base_time無しで
+-- 呼ぶため、base_time を注入する余地が無い(task.lua の parse/serialize 契約は
+-- テンプレート機能のためだけに変更できない)。そこでここで先に due: タグの位置を
+-- task_mod.tag_ranges で特定し、生の相対指定を base_time 基準の絶対日付へ
+-- 置換してから task_mod.parse へ渡す(以降は通常の絶対日付として素直にパースされる)。
+function M.extract_task_lines(lines, base_time)
+	local utils_mod = require("gtodo-md.utils")
 	local result = {}
 	for _, line in ipairs(lines) do
-		local task = task_mod.parse(line)
+		local resolved_line = line
+		for _, r in ipairs(task_mod.tag_ranges(line)) do
+			if r.key == "due" then
+				-- tag_ranges の範囲は直前の空白を含む(highlight.lua の due日付ハイライトと同じ剥がし方)。
+				local raw = line:sub(r.start_col + 1, r.end_col)
+				local lead = raw:match("^%s*")
+				local raw_value = raw:sub(#lead + 1):match("^due:(.*)$")
+				local resolved = raw_value and utils_mod.parse_due_date(raw_value, base_time)
+				if resolved and resolved ~= raw_value then
+					local tag_start = r.start_col + #lead
+					resolved_line = line:sub(1, tag_start) .. "due:" .. resolved .. line:sub(r.end_col + 1)
+				end
+				break
+			end
+		end
+
+		local task = task_mod.parse(resolved_line)
 		if task then
 			for key in pairs(NON_INHERITABLE_TAGS) do
 				task[key] = nil
@@ -109,7 +135,7 @@ function M.extract_task_lines(lines)
 end
 
 -- テンプレートのタスク行を inbox.md 末尾へ追記する。
-function M.insert_template_tasks(name)
+function M.insert_template_tasks(name, base_time)
 	local data_dir = config.get("data_dir")
 	local file = string.format("%s/templates/%s.md", data_dir, name)
 
@@ -119,7 +145,7 @@ function M.insert_template_tasks(name)
 	end
 
 	local lines = io_mod.read_lines(file)
-	local tasks = M.extract_task_lines(lines)
+	local tasks = M.extract_task_lines(lines, base_time)
 	if #tasks == 0 then
 		vim.notify(string.format("[gtodo-md] no tasks found in template: %s", name), vim.log.levels.WARN)
 		return false
@@ -180,14 +206,35 @@ function M.insert_template()
 		if not choice then
 			return
 		end
-		-- 失敗時(テンプレ不在/タスク0件)は insert_template_tasks 側で通知済みのため、
-		-- ここでは成功時のみ通知する。
-		if M.insert_template_tasks(choice) then
-			vim.notify(
-				string.format("[gtodo-md] Inserted tasks from template '%s' into inbox.md", choice),
-				vim.log.levels.INFO
-			)
-		end
+
+		-- テンプレートは繰り返し使い回すため、due:の相対指定を「挿入した瞬間の実日付」
+		-- ではなくユーザーが選んだ基準日から解決したい。この入力自体は常に実際の今日を
+		-- 基準に解決する(基準日を選ぶための入力に、さらに別の基準日は無い)。
+		vim.ui.input({ prompt = "Base Date (today, +3d, 2026-08-20, ...): ", default = "today" }, function(input)
+			if not input then
+				return
+			end
+			local trimmed = vim.trim(input)
+			if trimmed == "" then
+				trimmed = "today"
+			end
+			local utils_mod = require("gtodo-md.utils")
+			local resolved_date = utils_mod.parse_due_date(trimmed)
+			if not resolved_date then
+				vim.notify("[gtodo-md] Invalid base date: " .. input, vim.log.levels.ERROR)
+				return
+			end
+			local base_time = utils_mod.date_to_time(resolved_date)
+
+			-- 失敗時(テンプレ不在/タスク0件)は insert_template_tasks 側で通知済みのため、
+			-- ここでは成功時のみ通知する。
+			if M.insert_template_tasks(choice, base_time) then
+				vim.notify(
+					string.format("[gtodo-md] Inserted tasks from template '%s' into inbox.md", choice),
+					vim.log.levels.INFO
+				)
+			end
+		end)
 	end)
 end
 
