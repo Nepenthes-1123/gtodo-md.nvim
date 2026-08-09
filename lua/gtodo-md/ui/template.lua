@@ -103,14 +103,19 @@ end
 
 -- 行中の{{名前}}トークン(名前は[%w_]+、値の自由度とは別物の識別子)を出現順・重複無しで
 -- 拾う純関数。タグ境界の判定は一切行わない(境界の判定は resolve_placeholders 側の責務)。
+-- タスク行として解釈できない行(記法メモの<!-- -->や見出し等)は対象外とする —
+-- ensure_template_file が生成する説明文自体に "{{project}}/{{context}}" という
+-- 文字列が含まれるため、task_mod.parse で判定しないと説明文まで拾ってしまう。
 function M.list_placeholder_names(lines)
 	local names = {}
 	local seen = {}
 	for _, line in ipairs(lines) do
-		for name in line:gmatch("{{([%w_]+)}}") do
-			if not seen[name] then
-				seen[name] = true
-				table.insert(names, name)
+		if task_mod.parse(line) then
+			for name in line:gmatch("{{([%w_]+)}}") do
+				if not seen[name] then
+					seen[name] = true
+					table.insert(names, name)
+				end
 			end
 		end
 	end
@@ -121,9 +126,14 @@ end
 -- 値が非空ならトークンをそのまま "+value"/"@value" へ置換する(周囲の空白には触れない)。
 -- 値が空/未回答(valuesにキーが無い場合も同じ扱い)なら、タグごと消すと同時に周囲の
 -- 空白も畳んで単一の半角スペースに揃える(二重空白/ゼロ空白を防ぐ)。
+-- gsub の第3引数(置換文字列)にユーザー入力をそのまま渡すと、値に "%" が含まれた
+-- 場合に Lua の置換文字列の仕様(%1-%9はキャプチャ参照、%%のみ単一の%、それ以外は
+-- エラー)に巻き込まれる。関数を渡せば戻り値はパターン解釈されずそのまま挿入される。
 local function resolve_reserved_tag(line, name, prefix, value)
 	if value and value ~= "" then
-		return (line:gsub("{{" .. name .. "}}", prefix .. value))
+		return (line:gsub("{{" .. name .. "}}", function()
+			return prefix .. value
+		end))
 	end
 	return (line:gsub("%s*{{" .. name .. "}}%s*", " "))
 end
@@ -144,7 +154,10 @@ function M.resolve_placeholders(lines, values)
 				elseif name == "context" then
 					resolved = resolve_reserved_tag(resolved, "context", "@", values.context)
 				else
-					resolved = resolved:gsub("{{" .. name .. "}}", values[name] or "")
+					local value = values[name] or ""
+					resolved = resolved:gsub("{{" .. name .. "}}", function()
+						return value
+					end)
 				end
 			end
 		end
@@ -200,16 +213,20 @@ function M.extract_task_lines(lines, base_time, placeholder_values)
 end
 
 -- テンプレートのタスク行を inbox.md 末尾へ追記する。
-function M.insert_template_tasks(name, base_time, placeholder_values)
+-- lines が渡された場合は、既に読み込み済みの内容としてそれをそのまま使い、ディスクからの
+-- 再読み込み(filereadableのチェックを含む)を一切行わない(省略時は従来通りディスクから読む)。
+function M.insert_template_tasks(name, base_time, placeholder_values, lines)
 	local data_dir = config.get("data_dir")
-	local file = string.format("%s/templates/%s.md", data_dir, name)
 
-	if vim.fn.filereadable(file) == 0 then
-		vim.notify(string.format("[gtodo-md] template not found: %s", name), vim.log.levels.ERROR)
-		return false
+	if not lines then
+		local file = string.format("%s/templates/%s.md", data_dir, name)
+		if vim.fn.filereadable(file) == 0 then
+			vim.notify(string.format("[gtodo-md] template not found: %s", name), vim.log.levels.ERROR)
+			return false
+		end
+		lines = io_mod.read_lines(file)
 	end
 
-	local lines = io_mod.read_lines(file)
 	local tasks = M.extract_task_lines(lines, base_time, placeholder_values)
 	if #tasks == 0 then
 		vim.notify(string.format("[gtodo-md] no tasks found in template: %s", name), vim.log.levels.WARN)
@@ -219,7 +236,12 @@ function M.insert_template_tasks(name, base_time, placeholder_values)
 	local inbox_path = data_dir .. "/inbox.md"
 	local inbox_lines = io_mod.read_lines(inbox_path)
 	vim.list_extend(inbox_lines, tasks)
-	io_mod.write_lines(inbox_path, inbox_lines)
+
+	local ok, err = pcall(io_mod.write_lines, inbox_path, inbox_lines)
+	if not ok then
+		vim.notify(string.format("[gtodo-md] failed to write inbox.md: %s (%s)", inbox_path, err), vim.log.levels.ERROR)
+		return false
+	end
 
 	return true
 end
@@ -299,7 +321,9 @@ function M.insert_template()
 
 				-- 失敗時(テンプレ不在/タスク0件)は insert_template_tasks 側で通知済みのため、
 				-- ここでは成功時のみ通知する。
-				if M.insert_template_tasks(choice, base_time, values) then
+				-- lines は既にこの関数の冒頭で読み込み済みのため、ここで渡してディスクの
+				-- 二重読み込みを避ける(バグ2)。
+				if M.insert_template_tasks(choice, base_time, values, lines) then
 					vim.notify(
 						string.format("[gtodo-md] Inserted tasks from template '%s' into inbox.md", choice),
 						vim.log.levels.INFO
