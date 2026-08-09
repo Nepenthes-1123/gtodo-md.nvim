@@ -229,6 +229,98 @@ describe("ui.template", function()
 		end
 	)
 
+	-- {{project}}/{{context}}のような予約プレースホルダートークン。
+	-- 同じテンプレートを複数プロジェクトで使い回したいケースに対応する。
+	-- {{project}}/{{context}} はタグ全体を表す予約語(トークン自体が +/@ を意味するので
+	-- テンプレートには +{{project}} ではなく {{project}} 単体を書く)。それ以外の名前は
+	-- 単純な文字列置換(本文への自由埋め込み用、タグ境界の判定は行わない)。
+	describe("list_placeholder_names", function()
+		it("行中の{{名前}}を出現順・重複無しで返す", function()
+			local names = template_mod.list_placeholder_names({
+				"- [ ] {{project}}のタスク {{context}}",
+				"- [ ] 別行 {{project}} {{client}}",
+			})
+			assert.are.same({ "project", "context", "client" }, names)
+		end)
+
+		it("プレースホルダーが無ければ空配列を返す", function()
+			assert.are.same({}, template_mod.list_placeholder_names({ "- [ ] 通常タスク" }))
+		end)
+	end)
+
+	describe("resolve_placeholders", function()
+		it("{{project}}に値があれば+付きタグへ置換する", function()
+			local result = template_mod.resolve_placeholders(
+				{ "- [ ] 提案書作成 {{project}} @30" },
+				{ project = "acme" }
+			)
+			local task = task_mod.parse(result[1])
+			assert.are.same("提案書作成", task.content)
+			assert.are.same("acme", task.project)
+			assert.are.same("@30", task.context)
+		end)
+
+		it("{{context}}に値があれば@付きタグへ置換する", function()
+			local result = template_mod.resolve_placeholders({ "- [ ] タスク {{context}}" }, { context = "office" })
+			local task = task_mod.parse(result[1])
+			assert.are.same("@office", task.context)
+		end)
+
+		it("{{project}}が空文字なら周囲の空白を含めてタグごと綺麗に消える", function()
+			local result = template_mod.resolve_placeholders(
+				{ "- [ ] 提案書作成 {{project}} @30" },
+				{ project = "" }
+			)
+			assert.are.same("- [ ] 提案書作成 @30", result[1])
+			local task = task_mod.parse(result[1])
+			assert.is_nil(task.project)
+			assert.are.same("提案書作成", task.content)
+		end)
+
+		it("valuesにキーが無い(未回答)場合も空文字と同じ扱いで消える", function()
+			local result = template_mod.resolve_placeholders({ "- [ ] 提案書作成 {{project}} @30" }, {})
+			assert.are.same("- [ ] 提案書作成 @30", result[1])
+		end)
+
+		it(
+			"project/context以外の名前は単純な文字列置換になる(本文への自由埋め込み)",
+			function()
+				local result = template_mod.resolve_placeholders(
+					{ "- [ ] {{client}}への提案書作成" },
+					{ client = "ACME" }
+				)
+				local task = task_mod.parse(result[1])
+				assert.are.same("ACMEへの提案書作成", task.content)
+			end
+		)
+
+		it("プレースホルダーを含まない行はそのまま返す", function()
+			local result = template_mod.resolve_placeholders({ "- [ ] 通常タスク +proj" }, { project = "other" })
+			assert.are.same("- [ ] 通常タスク +proj", result[1])
+		end)
+	end)
+
+	describe("extract_task_lines の第3引数(placeholder_values)", function()
+		it("{{project}}を解決してからNON_INHERITABLE_TAGSの除去とserializeが行われる", function()
+			local result = template_mod.extract_task_lines({ "- [ ] タスク {{project}}" }, nil, { project = "acme" })
+			local task = task_mod.parse(result[1])
+			assert.are.same("acme", task.project)
+			assert.is_not_nil(task.id)
+		end)
+
+		it("placeholder_valuesとbase_time(due:相対指定)は独立して両方効く", function()
+			local base_time = os.time({ year = 2024, month = 1, day = 10, hour = 12 })
+			local result = template_mod.extract_task_lines(
+				{ "- [ ] タスク {{project}} due:+3d" },
+				base_time,
+				{ project = "acme" }
+			)
+			local task = task_mod.parse(result[1])
+			assert.are.same("acme", task.project)
+			assert.are.same("2024-01-13", task.due)
+		end)
+	end)
+
 	describe("insert_template_tasks", function()
 		local inbox_path
 
@@ -296,5 +388,19 @@ describe("ui.template", function()
 				assert.are.same("2024-01-12", task.due)
 			end
 		)
+
+		it("placeholder_valuesを渡すと{{project}}が解決されてinbox.mdへ追記される", function()
+			vim.fn.writefile({ "# Inbox", "" }, inbox_path)
+			vim.fn.writefile({
+				"- [ ] 提案書作成 {{project}}",
+			}, templates_dir .. "/with-project.md")
+
+			local ok = template_mod.insert_template_tasks("with-project", nil, { project = "acme" })
+			assert.is_true(ok)
+
+			local lines = io_mod.read_lines(inbox_path)
+			local task = task_mod.parse(lines[3])
+			assert.are.same("acme", task.project)
+		end)
 	end)
 end)
