@@ -50,7 +50,7 @@ end
 -- git pull)は素通りするので、「書く者を1つに絞る」方向では塞がらない。
 -- 読む直前にディスクを取り込んで、古いバッファを読むこと自体を無くす。
 -- 呼び出し元ごとに書くと将来の追加経路で漏れるため、ロックの中へ閉じ込めてある。
-function M.with_write_lock(data_dir, fn)
+function M.with_automation_lock(data_dir, fn)
 	local lock_path = data_dir .. "/.gtodo.lock"
 	cleanup_stale(lock_path)
 

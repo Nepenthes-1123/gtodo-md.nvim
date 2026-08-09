@@ -170,7 +170,7 @@ function M.check_daily_rollover()
 		-- rollover_ok が false のままになり、以降の状態更新をスキップして
 		-- 次回呼び出しでのリトライを許可できる
 		local rollover_ok = false
-		local acquired = lock_mod.with_write_lock(data_dir, function()
+		local acquired = lock_mod.with_automation_lock(data_dir, function()
 			local move_changed = logic_mod.move_completed_tasks(inbox_path, todo_path, done_path)
 			-- move_completed_tasks が変化していれば、check_dues自体に変化が無くても
 			-- sort_todo_fileを呼ぶ(always_sortとして渡す)。
