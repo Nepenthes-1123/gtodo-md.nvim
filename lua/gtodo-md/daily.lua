@@ -171,13 +171,10 @@ function M.check_daily_rollover()
 		-- 次回呼び出しでのリトライを許可できる
 		local rollover_ok = false
 		local acquired = lock_mod.with_write_lock(data_dir, function()
-			local todo_changed = logic_mod.move_completed_tasks(inbox_path, todo_path, done_path)
-			if logic_mod.check_dues(inbox_path, todo_path) then
-				todo_changed = true
-			end
-			if todo_changed then
-				logic_mod.sort_todo_file(todo_path)
-			end
+			local move_changed = logic_mod.move_completed_tasks(inbox_path, todo_path, done_path)
+			-- move_completed_tasks が変化していれば、check_dues自体に変化が無くても
+			-- sort_todo_fileを呼ぶ(always_sortとして渡す)。
+			logic_mod.check_dues_and_maybe_sort(inbox_path, todo_path, move_changed)
 			require("gtodo-md.utils").write_last_opened(today)
 			rollover_ok = true
 		end)

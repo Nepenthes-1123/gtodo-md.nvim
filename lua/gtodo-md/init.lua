@@ -99,10 +99,7 @@ function M.handle_buf_enter(bufnr)
 	-- バッファが未保存(dirty)でも常に実行・保存する。read_lines がライブバッファの
 	-- 内容(未保存分を含む)を読み取るため、ユーザーの未保存編集は失われない。
 	lock_mod.with_write_lock(data_dir, function()
-		logic_mod.check_dues(inbox_path, todo_path)
-		if filename == "todo.md" then
-			logic_mod.sort_todo_file(todo_path)
-		end
+		logic_mod.check_dues_then_sort_if(inbox_path, todo_path, filename == "todo.md")
 	end)
 
 	-- バッファローカルキーマップを登録
@@ -140,10 +137,7 @@ end
 local function check_dues_and_sort(data_dir, inbox_path, todo_path, always_sort)
 	local changed = false
 	lock_mod.with_write_lock(data_dir, function()
-		changed = logic_mod.check_dues(inbox_path, todo_path)
-		if always_sort or changed then
-			logic_mod.sort_todo_file(todo_path)
-		end
+		changed = logic_mod.check_dues_and_maybe_sort(inbox_path, todo_path, always_sort)
 	end)
 	return changed
 end
@@ -293,10 +287,7 @@ function M.sort_and_check_dues()
 	local data_dir = config.get("data_dir")
 	local inbox_path = data_dir .. "/inbox.md"
 	local todo_path = data_dir .. "/todo.md"
-	lock_mod.with_write_lock(data_dir, function()
-		logic_mod.check_dues(inbox_path, todo_path)
-		logic_mod.sort_todo_file(todo_path)
-	end)
+	check_dues_and_sort(data_dir, inbox_path, todo_path, true)
 end
 
 -- グローバルキーマップの設定 (実体は keymaps.lua)
