@@ -155,4 +155,81 @@ describe("daily.check_daily_rollover (共有ロック経由)", function()
 			)
 		end
 	)
+
+	-- 回帰テスト: check_daily_rollover が「同日で早期return」の分岐に入るたびに
+	-- reload_if_externally_changed → collect_managed_paths が呼ばれ、
+	-- collect_managed_paths は毎回 vim.fn.globpath(projects_dir, "*.md", ...) という
+	-- 実ファイルシステムの全件列挙を行っていた(以前は projects/*.md を含まない
+	-- 固定3エントリのテーブルで、この経路にI/Oは一切無かった)。
+	-- 修正後の契約: projects/ ディレクトリの内容(mtime)に変化が無い限り、
+	-- 2回目以降の呼び出しではglobpathを再度呼ばないこと。変化があれば再スキャンし、
+	-- 新しいファイルを見落とさないこと。
+	describe("collect_managed_pathsのキャッシュ(projects/*.mdの再列挙抑制)", function()
+		local uv = vim.uv or vim.loop
+
+		it("projects/ に変化が無ければ2回目以降のglobpath呼び出しは発生しない", function()
+			-- 1回目: ロールオーバーを実行させる
+			daily_mod.check_daily_rollover()
+			-- 2回目: 同日の早期return分岐に入り、collect_managed_pathsの初回スキャンで
+			-- キャッシュを温める
+			daily_mod.check_daily_rollover()
+
+			local call_count = 0
+			local original_globpath = vim.fn.globpath
+			vim.fn.globpath = function(...)
+				call_count = call_count + 1
+				return original_globpath(...)
+			end
+
+			-- さらに複数回呼び出す。projects/に変化が無ければキャッシュが効き、
+			-- globpathは一度も呼ばれないはず
+			daily_mod.check_daily_rollover()
+			daily_mod.check_daily_rollover()
+			daily_mod.check_daily_rollover()
+
+			vim.fn.globpath = original_globpath
+
+			assert.are.same(0, call_count, "projects/に変化が無いのにglobpathが再度呼ばれた")
+		end)
+
+		it(
+			"projects/ ディレクトリの内容(mtime)が変化すれば再スキャンし、新しいファイルを見落とさない",
+			function()
+				-- キャッシュを温める(1回目でロールオーバー実行、2回目で初回スキャン)
+				daily_mod.check_daily_rollover()
+				daily_mod.check_daily_rollover()
+
+				-- 新しいプロジェクトファイルを作成する
+				vim.fn.writefile({
+					"---",
+					"title: Foo",
+					"tag: foo",
+					"created: 2025-01-01",
+					"due:",
+					"status: active",
+					"members: []",
+					"---",
+				}, data_dir .. "/projects/foo.md")
+
+				-- mtimeの秒精度による偽陰性(同一秒内の書き込みだと変化を検知できない)を
+				-- 避けるため、projects/自体のmtimeを明示的に未来へ進める
+				-- (tests/spec/template_spec.lua の list_templates テストと同じパターン)
+				local future = os.time() + 100
+				uv.fs_utime(data_dir .. "/projects", future, future)
+
+				local call_count = 0
+				local original_globpath = vim.fn.globpath
+				vim.fn.globpath = function(...)
+					call_count = call_count + 1
+					return original_globpath(...)
+				end
+
+				daily_mod.check_daily_rollover()
+
+				vim.fn.globpath = original_globpath
+
+				assert.is_true(call_count >= 1, "projects/の変化があったのにglobpathが呼ばれなかった")
+			end
+		)
+	end)
 end)
