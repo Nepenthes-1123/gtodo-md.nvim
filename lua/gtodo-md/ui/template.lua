@@ -2,46 +2,38 @@ local M = {}
 local config = require("gtodo-md.config")
 local io_mod = require("gtodo-md.io")
 local task_mod = require("gtodo-md.task")
+local utils_mod = require("gtodo-md.utils")
+
+-- テンプレート関連のパス組み立てをここへ集約する。
+local function templates_dir(data_dir)
+	return data_dir .. "/templates"
+end
+
+local function template_path(data_dir, name)
+	return string.format("%s/%s.md", templates_dir(data_dir), name)
+end
+
+-- 予約プレースホルダー名 → タグの接頭辞。resolve_placeholders がこのテーブルを
+-- ルックアップして resolve_reserved_tag を呼び分ける(if/elseif の決め打ちを避けるため)。
+local RESERVED_PLACEHOLDER_PREFIXES = { project = "+", context = "@" }
 
 -- テンプレートから挿入するタスクへ引き継いではいけないタグ。id/completed_at/done/
--- cancelled は ui/split.lua の NON_INHERITABLE_TAGS と同じ理由(id の複製が一意性を
--- 壊す、完了/キャンセルの記録を引き継ぐ意味が無い)による。split.lua のものは
--- 非公開のためここで別途定義する。
+-- cancelled は task.lua の M.NON_INHERITABLE_TAGS(ui/split.lua の子タスクと同じ基準)
+-- による。共有テーブルを直接汚染しないよう、ここではコピーへ created を追加する。
 -- created は split.lua の子タスクでは意図的に継承されるが(CLAUDE.md参照)、
 -- テンプレートは時間を跨いで繰り返し使うものなので、実タスク行のコピペ等で
 -- created が紛れ込んでいた場合に古い日付を引きずるのは望ましくない。挿入された
 -- タスクは通常の新規タスク追加と同じく created 未設定の状態にする。
-local NON_INHERITABLE_TAGS = {
-	id = true,
-	completed_at = true,
-	done = true,
-	cancelled = true,
-	created = true,
-}
+local TEMPLATE_NON_INHERITABLE_TAGS = {}
+for k, v in pairs(task_mod.NON_INHERITABLE_TAGS) do
+	TEMPLATE_NON_INHERITABLE_TAGS[k] = v
+end
+TEMPLATE_NON_INHERITABLE_TAGS.created = true
 
 -- 既存テンプレート一覧の取得(最近更新された順)。ui/prompt.lua の get_projects と同じ方式。
 function M.list_templates()
-	local list = {}
 	local data_dir = config.get("data_dir")
-	local templates_dir = data_dir .. "/templates"
-	if vim.fn.isdirectory(templates_dir) == 0 then
-		return list
-	end
-
-	local files = vim.fn.globpath(templates_dir, "*.md", false, true)
-	local temp = {}
-	for _, file in ipairs(files) do
-		local name = vim.fn.fnamemodify(file, ":t:r")
-		local mtime = vim.fn.getftime(file)
-		table.insert(temp, { name = name, mtime = mtime })
-	end
-	table.sort(temp, function(a, b)
-		return a.mtime > b.mtime
-	end)
-	for _, item in ipairs(temp) do
-		table.insert(list, item.name)
-	end
-	return list
+	return io_mod.list_md_basenames_by_mtime(templates_dir(data_dir))
 end
 
 -- テンプレート名は後で data_dir/templates/<name>.md へそのまま埋め込まれるため、
@@ -61,22 +53,16 @@ function M.ensure_template_file(name)
 	end
 
 	local data_dir = config.get("data_dir")
-	local templates_dir = data_dir .. "/templates"
 
-	if vim.fn.isdirectory(templates_dir) == 0 then
-		-- mkdir() は失敗時に 0 を返すほか、パス上に同名のファイルがある等では
-		-- E739 を投げる。素通しにすると呼び出し元の処理がそこで止まる。
-		local ok, created = pcall(vim.fn.mkdir, templates_dir, "p")
-		if not ok or created == 0 then
-			vim.notify(
-				string.format("[gtodo-md] failed to create templates directory: %s", templates_dir),
-				vim.log.levels.ERROR
-			)
-			return false
-		end
+	if not utils_mod.ensure_dir(templates_dir(data_dir)) then
+		vim.notify(
+			string.format("[gtodo-md] failed to create templates directory: %s", templates_dir(data_dir)),
+			vim.log.levels.ERROR
+		)
+		return false
 	end
 
-	local file = string.format("%s/%s.md", templates_dir, name)
+	local file = template_path(data_dir, name)
 	if vim.fn.filereadable(file) == 0 then
 		local template = {
 			"<!--",
@@ -149,10 +135,9 @@ function M.resolve_placeholders(lines, values)
 		for name in line:gmatch("{{([%w_]+)}}") do
 			if not seen[name] then
 				seen[name] = true
-				if name == "project" then
-					resolved = resolve_reserved_tag(resolved, "project", "+", values.project)
-				elseif name == "context" then
-					resolved = resolve_reserved_tag(resolved, "context", "@", values.context)
+				local prefix = RESERVED_PLACEHOLDER_PREFIXES[name]
+				if prefix then
+					resolved = resolve_reserved_tag(resolved, name, prefix, values[name])
 				else
 					local value = values[name] or ""
 					resolved = resolved:gsub("{{" .. name .. "}}", function()
@@ -203,7 +188,7 @@ function M.extract_task_lines(lines, base_time, placeholder_values)
 
 		local task = task_mod.parse(resolved_line)
 		if task then
-			for key in pairs(NON_INHERITABLE_TAGS) do
+			for key in pairs(TEMPLATE_NON_INHERITABLE_TAGS) do
 				task[key] = nil
 			end
 			table.insert(result, task_mod.serialize(task))
@@ -219,7 +204,7 @@ function M.insert_template_tasks(name, base_time, placeholder_values, lines)
 	local data_dir = config.get("data_dir")
 
 	if not lines then
-		local file = string.format("%s/templates/%s.md", data_dir, name)
+		local file = template_path(data_dir, name)
 		if vim.fn.filereadable(file) == 0 then
 			vim.notify(string.format("[gtodo-md] template not found: %s", name), vim.log.levels.ERROR)
 			return false
@@ -270,13 +255,13 @@ function M.edit_template()
 				if not M.ensure_template_file(name) then
 					return
 				end
-				local path = string.format("%s/templates/%s.md", data_dir, name)
+				local path = template_path(data_dir, name)
 				require("gtodo-md.ui.float").open_float(path, "Template: " .. name)
 			end)
 			return
 		end
 
-		local path = string.format("%s/templates/%s.md", data_dir, choice)
+		local path = template_path(data_dir, choice)
 		require("gtodo-md.ui.float").open_float(path, "Template: " .. choice)
 	end)
 end
@@ -295,7 +280,7 @@ function M.insert_template()
 		end
 
 		local data_dir = config.get("data_dir")
-		local path = string.format("%s/templates/%s.md", data_dir, choice)
+		local path = template_path(data_dir, choice)
 		local lines = io_mod.read_lines(path)
 		local placeholder_names = M.list_placeholder_names(lines)
 
