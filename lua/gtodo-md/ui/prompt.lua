@@ -20,25 +20,9 @@ function M.prompt_task(initial_task, callback)
 
 	-- 既存プロジェクト一覧の取得 (最近更新された順)
 	local function get_projects()
-		local proj_list = {}
 		local data_dir = require("gtodo-md.config").options.data_dir
 		local projects_dir = data_dir .. "/projects"
-		if vim.fn.isdirectory(projects_dir) == 1 then
-			local files = vim.fn.globpath(projects_dir, "*.md", false, true)
-			local temp = {}
-			for _, file in ipairs(files) do
-				local name = vim.fn.fnamemodify(file, ":t:r")
-				local mtime = vim.fn.getftime(file)
-				table.insert(temp, { name = name, mtime = mtime })
-			end
-			table.sort(temp, function(a, b)
-				return a.mtime > b.mtime
-			end)
-			for _, item in ipairs(temp) do
-				table.insert(proj_list, item.name)
-			end
-		end
-		return proj_list
+		return require("gtodo-md.io").list_md_basenames_by_mtime(projects_dir)
 	end
 
 	local function create_project_file(project_tag)
