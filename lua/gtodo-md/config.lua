@@ -86,15 +86,9 @@ function M.setup(opts)
 	-- 失敗し続けるのに原因がどこにも表示されず、ユーザーには「保存が効かない」と
 	-- しか見えない。ここで一度だけ通知して原因を特定可能にする。
 	local projects_dir = M.options.data_dir .. "/projects"
-	if vim.fn.isdirectory(projects_dir) == 0 then
-		-- mkdir() は失敗時に 0 を返すが、書き込み不可のパス等では例外も投げうる。
-		local ok, created = pcall(vim.fn.mkdir, projects_dir, "p")
-		if not ok or created == 0 then
-			vim.notify(
-				string.format("[gtodo-md] failed to create data directory: %s", projects_dir),
-				vim.log.levels.ERROR
-			)
-		end
+	-- mkdir() は失敗時に 0 を返すが、書き込み不可のパス等では例外も投げうる。
+	if not require("gtodo-md.utils").ensure_dir(projects_dir) then
+		vim.notify(string.format("[gtodo-md] failed to create data directory: %s", projects_dir), vim.log.levels.ERROR)
 	end
 
 	-- #94: セクション名をカスタム化・変更した直後は、ファイル側の見出しが
