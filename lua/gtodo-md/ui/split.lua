@@ -414,22 +414,12 @@ local function resolve_parent_row(source_buf, parent_extmark_id, parent_line)
 	return parent_row, current_parent_line
 end
 
--- 親タスクから子タスクへ引き継いではいけないタグ。
---
--- `id:` は一意なタスク識別子であり、複製するとその一意性が壊れる。壊れると
--- `editor._find_task_idx` が Primary の同定キーとして id の完全一致を最優先で使う設計上、
--- 子タスクを操作したつもりで別の子タスクが操作される。
+-- 親タスクから子タスクへ引き継いではいけないタグ。`task.lua` の
+-- `M.NON_INHERITABLE_TAGS`(id/completed_at/done/cancelled)をそのまま使う。
 -- `io.write_todo_file` の重複検知が保存時に解消してくれるが、`inbox.md` は
 -- `check_dues` が `inbox_changed` のときしか書き戻さないため、due の無いタスクでは
 -- 重複が無期限に残る(`:w` は write_todo_file を通らず dedup されない)。
---
--- 完了・キャンセルの記録も、親の状態を子が引き継ぐ意味が無いため除外する。
-local NON_INHERITABLE_TAGS = {
-	id = true,
-	completed_at = true,
-	done = true,
-	cancelled = true,
-}
+local NON_INHERITABLE_TAGS = task_mod.NON_INHERITABLE_TAGS
 
 local function extract_metadata(line)
 	local metadata = {}
