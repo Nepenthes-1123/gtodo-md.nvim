@@ -13,6 +13,17 @@ local function template_path(data_dir, name)
 	return string.format("%s/%s.md", templates_dir(data_dir), name)
 end
 
+-- アーカイブ関連のパス組み立て。projects/*.md と違いテンプレートはfrontmatterを
+-- 持たないため、templates/<name>.md <-> templates/archive/<name>.md の「移動」
+-- 自体がアーカイブ/復元操作になる。
+local function archive_dir(data_dir)
+	return templates_dir(data_dir) .. "/archive"
+end
+
+local function archived_template_path(data_dir, name)
+	return string.format("%s/%s.md", archive_dir(data_dir), name)
+end
+
 -- 予約プレースホルダー名 → タグの接頭辞。resolve_placeholders がこのテーブルを
 -- ルックアップして resolve_reserved_tag を呼び分ける(if/elseif の決め打ちを避けるため)。
 local RESERVED_PLACEHOLDER_PREFIXES = { project = "+", context = "@" }
@@ -34,6 +45,13 @@ TEMPLATE_NON_INHERITABLE_TAGS.created = true
 function M.list_templates()
 	local data_dir = config.get("data_dir")
 	return io_mod.list_md_basenames_by_mtime(templates_dir(data_dir))
+end
+
+-- アーカイブ済みテンプレート一覧の取得。list_templates と同じ方式で、
+-- templates/archive/ が無ければ list_md_basenames_by_mtime 自身が空配列を返す。
+function M.list_archived_templates()
+	local data_dir = config.get("data_dir")
+	return io_mod.list_md_basenames_by_mtime(archive_dir(data_dir))
 end
 
 -- テンプレート名は後で data_dir/templates/<name>.md へそのまま埋め込まれるため、
@@ -228,6 +246,54 @@ function M.insert_template_tasks(name, base_time, placeholder_values, lines)
 	end
 
 	return true
+end
+
+-- edit_template が open_float 経由で開いたバッファが生きたまま移動先だけを変えると、
+-- 次に WinLeave が発火した際バッファスコープの自動 :write が旧パスへファイルを
+-- 復活させてしまう(CLAUDE.md の ui/float.lua の項参照)。移動前にバッファを解放する。
+-- 未保存の変更(dirty)があれば nvim_buf_delete(force=false)がVim標準の挙動として
+-- 自然に失敗するため、dirty判定を自前実装する必要はない。バッファが無ければ
+-- 何もせず成功扱いにする。
+local function release_template_buffer(path)
+	local buf = io_mod.find_buf(path)
+	if not buf then
+		return true
+	end
+	local ok = pcall(vim.api.nvim_buf_delete, buf, { force = false })
+	return ok
+end
+
+-- archive_template_file/restore_template_file共通の「衝突チェック→フロートバッファ
+-- 解放→移動」。src/dstどちらの方向かは呼び出し元がパスとして決める。
+-- 衝突チェック(移動先に既にファイルが存在するか)は move_file を呼ぶ前に行う —
+-- move_file自体は無条件でdstを上書きする契約のため。
+local function move_template_file(src, dst)
+	if vim.fn.filereadable(src) == 0 then
+		return false
+	end
+	if vim.fn.filereadable(dst) ~= 0 then
+		return false
+	end
+	if not release_template_buffer(src) then
+		return false
+	end
+	if not utils_mod.ensure_dir(vim.fn.fnamemodify(dst, ":h")) then
+		return false
+	end
+	local ok = io_mod.move_file(src, dst)
+	return ok == true
+end
+
+-- テンプレートをアーカイブする(templates/<name>.md -> templates/archive/<name>.md)。
+function M.archive_template_file(name)
+	local data_dir = config.get("data_dir")
+	return move_template_file(template_path(data_dir, name), archived_template_path(data_dir, name))
+end
+
+-- アーカイブ済みテンプレートを復元する。archive_template_file と対称の操作。
+function M.restore_template_file(name)
+	local data_dir = config.get("data_dir")
+	return move_template_file(archived_template_path(data_dir, name), template_path(data_dir, name))
 end
 
 -- テンプレートの新規作成/既存編集(フロートウィンドウでファイルを開く)。
