@@ -17,6 +17,11 @@ local function get_buf_by_name(path)
 	return nil
 end
 
+-- get_buf_by_name の公開ラッパー。指定パスにロード済みバッファがあればその番号を返す。
+function M.find_buf(path)
+	return get_buf_by_name(path)
+end
+
 -- 並行更新(lost update)検出用のスタンプ表。
 -- key: 正規化した絶対パス, value: { sec, nsec, size }
 local read_stamps = {}
@@ -431,6 +436,13 @@ end
 -- 呼び出し元の失敗時の振る舞いがそれぞれ異なるため判断を委ねる)。
 function M.atomic_write(path, data)
 	return atomic_replace(path, data)
+end
+
+-- rename_with_retry の公開ラッパー。src を dst へ移動する。成功なら true、
+-- 失敗なら(srcが存在しない場合を含め) nil とエラー文字列を返す(error は投げない)。
+-- dst に既存ファイルがあっても確認なしに無条件で上書きする(衝突防止はこの関数の責務ではない)。
+function M.move_file(src, dst)
+	return rename_with_retry(src, dst)
 end
 
 -- 残留した一時ファイルを掃除する。判定は mtime だけで行い、ファイル名に含まれる
