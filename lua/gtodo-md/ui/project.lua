@@ -436,4 +436,71 @@ function M.restore_project_file(project_tag)
 	return M.set_project_status(project_tag, "active")
 end
 
+local function notify_status_failure(action, project_tag, reason)
+	if reason == "notfound" then
+		vim.notify(string.format("[gtodo-md] project not found: %s", project_tag), vim.log.levels.ERROR)
+	elseif reason == "no_status_field" then
+		vim.notify(
+			string.format("[gtodo-md] project '%s' frontmatter has no status: field", project_tag),
+			vim.log.levels.ERROR
+		)
+	else
+		vim.notify(
+			string.format("[gtodo-md] failed to %s project '%s': %s", action, project_tag, tostring(reason)),
+			vim.log.levels.ERROR
+		)
+	end
+end
+
+-- プロジェクトを選んでアーカイブする。vim.ui.select を使う対話的オーケストレーションのため
+-- 無テスト(edit_template/insert_templateと同じ既存の慣習)。
+function M.archive_project()
+	local tags = M.list_active_project_tags()
+	if #tags == 0 then
+		vim.notify("[gtodo-md] No projects found.", vim.log.levels.WARN)
+		return
+	end
+
+	vim.ui.select(tags, { prompt = "Archive Project:" }, function(choice)
+		if not choice then
+			return
+		end
+		local ok, reason = M.archive_project_file(choice)
+		if not ok then
+			notify_status_failure("archive", choice, reason)
+			return
+		end
+		if reason == "noop" then
+			vim.notify(string.format("[gtodo-md] project '%s' is already archived", choice), vim.log.levels.WARN)
+			return
+		end
+		vim.notify(string.format("[gtodo-md] Archived project '%s'", choice), vim.log.levels.INFO)
+	end)
+end
+
+-- アーカイブ済みプロジェクトを選んで復元する。無テストの理由はarchive_projectと同じ。
+function M.restore_project()
+	local tags = M.list_archived_project_tags()
+	if #tags == 0 then
+		vim.notify("[gtodo-md] No archived projects found.", vim.log.levels.WARN)
+		return
+	end
+
+	vim.ui.select(tags, { prompt = "Restore Project:" }, function(choice)
+		if not choice then
+			return
+		end
+		local ok, reason = M.restore_project_file(choice)
+		if not ok then
+			notify_status_failure("restore", choice, reason)
+			return
+		end
+		if reason == "noop" then
+			vim.notify(string.format("[gtodo-md] project '%s' is already active", choice), vim.log.levels.WARN)
+			return
+		end
+		vim.notify(string.format("[gtodo-md] Restored project '%s'", choice), vim.log.levels.INFO)
+	end)
+end
+
 return M
