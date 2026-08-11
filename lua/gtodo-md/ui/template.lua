@@ -2,46 +2,38 @@ local M = {}
 local config = require("gtodo-md.config")
 local io_mod = require("gtodo-md.io")
 local task_mod = require("gtodo-md.task")
+local utils_mod = require("gtodo-md.utils")
+
+-- テンプレート関連のパス組み立てをここへ集約する。
+local function templates_dir(data_dir)
+	return data_dir .. "/templates"
+end
+
+local function template_path(data_dir, name)
+	return string.format("%s/%s.md", templates_dir(data_dir), name)
+end
+
+-- 予約プレースホルダー名 → タグの接頭辞。resolve_placeholders がこのテーブルを
+-- ルックアップして resolve_reserved_tag を呼び分ける(if/elseif の決め打ちを避けるため)。
+local RESERVED_PLACEHOLDER_PREFIXES = { project = "+", context = "@" }
 
 -- テンプレートから挿入するタスクへ引き継いではいけないタグ。id/completed_at/done/
--- cancelled は ui/split.lua の NON_INHERITABLE_TAGS と同じ理由(id の複製が一意性を
--- 壊す、完了/キャンセルの記録を引き継ぐ意味が無い)による。split.lua のものは
--- 非公開のためここで別途定義する。
+-- cancelled は task.lua の M.NON_INHERITABLE_TAGS(ui/split.lua の子タスクと同じ基準)
+-- による。共有テーブルを直接汚染しないよう、ここではコピーへ created を追加する。
 -- created は split.lua の子タスクでは意図的に継承されるが(CLAUDE.md参照)、
 -- テンプレートは時間を跨いで繰り返し使うものなので、実タスク行のコピペ等で
 -- created が紛れ込んでいた場合に古い日付を引きずるのは望ましくない。挿入された
 -- タスクは通常の新規タスク追加と同じく created 未設定の状態にする。
-local NON_INHERITABLE_TAGS = {
-	id = true,
-	completed_at = true,
-	done = true,
-	cancelled = true,
-	created = true,
-}
+local TEMPLATE_NON_INHERITABLE_TAGS = {}
+for k, v in pairs(task_mod.NON_INHERITABLE_TAGS) do
+	TEMPLATE_NON_INHERITABLE_TAGS[k] = v
+end
+TEMPLATE_NON_INHERITABLE_TAGS.created = true
 
 -- 既存テンプレート一覧の取得(最近更新された順)。ui/prompt.lua の get_projects と同じ方式。
 function M.list_templates()
-	local list = {}
 	local data_dir = config.get("data_dir")
-	local templates_dir = data_dir .. "/templates"
-	if vim.fn.isdirectory(templates_dir) == 0 then
-		return list
-	end
-
-	local files = vim.fn.globpath(templates_dir, "*.md", false, true)
-	local temp = {}
-	for _, file in ipairs(files) do
-		local name = vim.fn.fnamemodify(file, ":t:r")
-		local mtime = vim.fn.getftime(file)
-		table.insert(temp, { name = name, mtime = mtime })
-	end
-	table.sort(temp, function(a, b)
-		return a.mtime > b.mtime
-	end)
-	for _, item in ipairs(temp) do
-		table.insert(list, item.name)
-	end
-	return list
+	return io_mod.list_md_basenames_by_mtime(templates_dir(data_dir))
 end
 
 -- テンプレート名は後で data_dir/templates/<name>.md へそのまま埋め込まれるため、
@@ -61,22 +53,16 @@ function M.ensure_template_file(name)
 	end
 
 	local data_dir = config.get("data_dir")
-	local templates_dir = data_dir .. "/templates"
 
-	if vim.fn.isdirectory(templates_dir) == 0 then
-		-- mkdir() は失敗時に 0 を返すほか、パス上に同名のファイルがある等では
-		-- E739 を投げる。素通しにすると呼び出し元の処理がそこで止まる。
-		local ok, created = pcall(vim.fn.mkdir, templates_dir, "p")
-		if not ok or created == 0 then
-			vim.notify(
-				string.format("[gtodo-md] failed to create templates directory: %s", templates_dir),
-				vim.log.levels.ERROR
-			)
-			return false
-		end
+	if not utils_mod.ensure_dir(templates_dir(data_dir)) then
+		vim.notify(
+			string.format("[gtodo-md] failed to create templates directory: %s", templates_dir(data_dir)),
+			vim.log.levels.ERROR
+		)
+		return false
 	end
 
-	local file = string.format("%s/%s.md", templates_dir, name)
+	local file = template_path(data_dir, name)
 	if vim.fn.filereadable(file) == 0 then
 		local template = {
 			"<!--",
@@ -103,14 +89,19 @@ end
 
 -- 行中の{{名前}}トークン(名前は[%w_]+、値の自由度とは別物の識別子)を出現順・重複無しで
 -- 拾う純関数。タグ境界の判定は一切行わない(境界の判定は resolve_placeholders 側の責務)。
+-- タスク行として解釈できない行(記法メモの<!-- -->や見出し等)は対象外とする —
+-- ensure_template_file が生成する説明文自体に "{{project}}/{{context}}" という
+-- 文字列が含まれるため、task_mod.parse で判定しないと説明文まで拾ってしまう。
 function M.list_placeholder_names(lines)
 	local names = {}
 	local seen = {}
 	for _, line in ipairs(lines) do
-		for name in line:gmatch("{{([%w_]+)}}") do
-			if not seen[name] then
-				seen[name] = true
-				table.insert(names, name)
+		if task_mod.parse(line) then
+			for name in line:gmatch("{{([%w_]+)}}") do
+				if not seen[name] then
+					seen[name] = true
+					table.insert(names, name)
+				end
 			end
 		end
 	end
@@ -121,9 +112,14 @@ end
 -- 値が非空ならトークンをそのまま "+value"/"@value" へ置換する(周囲の空白には触れない)。
 -- 値が空/未回答(valuesにキーが無い場合も同じ扱い)なら、タグごと消すと同時に周囲の
 -- 空白も畳んで単一の半角スペースに揃える(二重空白/ゼロ空白を防ぐ)。
+-- gsub の第3引数(置換文字列)にユーザー入力をそのまま渡すと、値に "%" が含まれた
+-- 場合に Lua の置換文字列の仕様(%1-%9はキャプチャ参照、%%のみ単一の%、それ以外は
+-- エラー)に巻き込まれる。関数を渡せば戻り値はパターン解釈されずそのまま挿入される。
 local function resolve_reserved_tag(line, name, prefix, value)
 	if value and value ~= "" then
-		return (line:gsub("{{" .. name .. "}}", prefix .. value))
+		return (line:gsub("{{" .. name .. "}}", function()
+			return prefix .. value
+		end))
 	end
 	return (line:gsub("%s*{{" .. name .. "}}%s*", " "))
 end
@@ -139,12 +135,14 @@ function M.resolve_placeholders(lines, values)
 		for name in line:gmatch("{{([%w_]+)}}") do
 			if not seen[name] then
 				seen[name] = true
-				if name == "project" then
-					resolved = resolve_reserved_tag(resolved, "project", "+", values.project)
-				elseif name == "context" then
-					resolved = resolve_reserved_tag(resolved, "context", "@", values.context)
+				local prefix = RESERVED_PLACEHOLDER_PREFIXES[name]
+				if prefix then
+					resolved = resolve_reserved_tag(resolved, name, prefix, values[name])
 				else
-					resolved = resolved:gsub("{{" .. name .. "}}", values[name] or "")
+					local value = values[name] or ""
+					resolved = resolved:gsub("{{" .. name .. "}}", function()
+						return value
+					end)
 				end
 			end
 		end
@@ -168,7 +166,6 @@ end
 -- 中括弧が無い)ため、tag_ranges が動く時点で既に本物の +value/@value タグになって
 -- いなければならない。
 function M.extract_task_lines(lines, base_time, placeholder_values)
-	local utils_mod = require("gtodo-md.utils")
 	local resolved_lines = placeholder_values and M.resolve_placeholders(lines, placeholder_values) or lines
 	local result = {}
 	for _, line in ipairs(resolved_lines) do
@@ -190,7 +187,7 @@ function M.extract_task_lines(lines, base_time, placeholder_values)
 
 		local task = task_mod.parse(resolved_line)
 		if task then
-			for key in pairs(NON_INHERITABLE_TAGS) do
+			for key in pairs(TEMPLATE_NON_INHERITABLE_TAGS) do
 				task[key] = nil
 			end
 			table.insert(result, task_mod.serialize(task))
@@ -200,16 +197,20 @@ function M.extract_task_lines(lines, base_time, placeholder_values)
 end
 
 -- テンプレートのタスク行を inbox.md 末尾へ追記する。
-function M.insert_template_tasks(name, base_time, placeholder_values)
+-- lines が渡された場合は、既に読み込み済みの内容としてそれをそのまま使い、ディスクからの
+-- 再読み込み(filereadableのチェックを含む)を一切行わない(省略時は従来通りディスクから読む)。
+function M.insert_template_tasks(name, base_time, placeholder_values, lines)
 	local data_dir = config.get("data_dir")
-	local file = string.format("%s/templates/%s.md", data_dir, name)
 
-	if vim.fn.filereadable(file) == 0 then
-		vim.notify(string.format("[gtodo-md] template not found: %s", name), vim.log.levels.ERROR)
-		return false
+	if not lines then
+		local file = template_path(data_dir, name)
+		if vim.fn.filereadable(file) == 0 then
+			vim.notify(string.format("[gtodo-md] template not found: %s", name), vim.log.levels.ERROR)
+			return false
+		end
+		lines = io_mod.read_lines(file)
 	end
 
-	local lines = io_mod.read_lines(file)
 	local tasks = M.extract_task_lines(lines, base_time, placeholder_values)
 	if #tasks == 0 then
 		vim.notify(string.format("[gtodo-md] no tasks found in template: %s", name), vim.log.levels.WARN)
@@ -219,7 +220,12 @@ function M.insert_template_tasks(name, base_time, placeholder_values)
 	local inbox_path = data_dir .. "/inbox.md"
 	local inbox_lines = io_mod.read_lines(inbox_path)
 	vim.list_extend(inbox_lines, tasks)
-	io_mod.write_lines(inbox_path, inbox_lines)
+
+	local ok, err = pcall(io_mod.write_lines, inbox_path, inbox_lines)
+	if not ok then
+		vim.notify(string.format("[gtodo-md] failed to write inbox.md: %s (%s)", inbox_path, err), vim.log.levels.ERROR)
+		return false
+	end
 
 	return true
 end
@@ -248,13 +254,13 @@ function M.edit_template()
 				if not M.ensure_template_file(name) then
 					return
 				end
-				local path = string.format("%s/templates/%s.md", data_dir, name)
+				local path = template_path(data_dir, name)
 				require("gtodo-md.ui.float").open_float(path, "Template: " .. name)
 			end)
 			return
 		end
 
-		local path = string.format("%s/templates/%s.md", data_dir, choice)
+		local path = template_path(data_dir, choice)
 		require("gtodo-md.ui.float").open_float(path, "Template: " .. choice)
 	end)
 end
@@ -273,7 +279,7 @@ function M.insert_template()
 		end
 
 		local data_dir = config.get("data_dir")
-		local path = string.format("%s/templates/%s.md", data_dir, choice)
+		local path = template_path(data_dir, choice)
 		local lines = io_mod.read_lines(path)
 		local placeholder_names = M.list_placeholder_names(lines)
 
@@ -289,7 +295,6 @@ function M.insert_template()
 				if trimmed == "" then
 					trimmed = "today"
 				end
-				local utils_mod = require("gtodo-md.utils")
 				local resolved_date = utils_mod.parse_due_date(trimmed)
 				if not resolved_date then
 					vim.notify("[gtodo-md] Invalid base date: " .. input, vim.log.levels.ERROR)
@@ -299,7 +304,9 @@ function M.insert_template()
 
 				-- 失敗時(テンプレ不在/タスク0件)は insert_template_tasks 側で通知済みのため、
 				-- ここでは成功時のみ通知する。
-				if M.insert_template_tasks(choice, base_time, values) then
+				-- lines は既にこの関数の冒頭で読み込み済みのため、ここで渡してディスクの
+				-- 二重読み込みを避ける(バグ2)。
+				if M.insert_template_tasks(choice, base_time, values, lines) then
 					vim.notify(
 						string.format("[gtodo-md] Inserted tasks from template '%s' into inbox.md", choice),
 						vim.log.levels.INFO

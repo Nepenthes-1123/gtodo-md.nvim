@@ -105,6 +105,17 @@ function M.parse_due_date(str, base_time)
 	return nil
 end
 
+-- 指定ディレクトリが無ければ再帰的に作成する。mkdir()は失敗時に0を返すほか、
+-- パス上に同名のファイルがある等ではE739を投げるため、pcallで包んで真偽値として返す。
+-- 通知メッセージは呼び出し元ごとに文言が異なるため、ここでは行わない(呼び出し元の責務)。
+function M.ensure_dir(path)
+	if vim.fn.isdirectory(path) == 1 then
+		return true
+	end
+	local ok, created = pcall(vim.fn.mkdir, path, "p")
+	return ok and created ~= 0
+end
+
 function M.is_gtodo_file(bufname)
 	if not bufname or bufname == "" then
 		return false

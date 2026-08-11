@@ -30,6 +30,20 @@ function M.is_done_line(line)
 	return line:match("%[x%]") ~= nil or line:match("%[X%]") ~= nil
 end
 
+-- 親タスクから子タスクへ、またはテンプレートから挿入先のタスクへ引き継いではいけない
+-- タグの基本セット。`id` は一意なタスク識別子であり、複製するとその一意性が壊れる
+-- (`editor._find_task_idx` が Primary の同定キーとして id の完全一致を最優先で使う設計上、
+-- 子タスクを操作したつもりで別の子タスクが操作される)。完了・キャンセルの記録も、
+-- 継承元の状態を引き継ぐ意味が無いため除外する。呼び出し元ごとに `created` の要否が
+-- 異なるため(`ui/split.lua` の子タスクは継承、`ui/template.lua` の挿入は非継承)、
+-- ここには含めない。
+M.NON_INHERITABLE_TAGS = {
+	id = true,
+	completed_at = true,
+	done = true,
+	cancelled = true,
+}
+
 -- タグ抽出のパターン。**タスク行の文法の正本はここだけ**であり、他のモジュールが
 -- 独自に正規表現を組み立ててはならない(そうして生まれた不具合は CLAUDE.md を参照)。
 --

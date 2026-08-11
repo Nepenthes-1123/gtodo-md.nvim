@@ -3,6 +3,7 @@ local config = require("gtodo-md.config")
 local float_ui = require("gtodo-md.ui.float")
 local io_mod = require("gtodo-md.io")
 local task_mod = require("gtodo-md.task")
+local utils_mod = require("gtodo-md.utils")
 
 -- done.md のカウントキャッシュ
 local done_cache = {
@@ -53,17 +54,14 @@ function M.create_project_file(project_tag)
 	local data_dir = config.get("data_dir")
 	local projects_dir = data_dir .. "/projects"
 
-	if vim.fn.isdirectory(projects_dir) == 0 then
-		-- mkdir() は失敗時に 0 を返すほか、パス上に同名のファイルがある等では
-		-- E739 を投げる。素通しにすると呼び出し元の処理がそこで止まる。
-		local ok, created = pcall(vim.fn.mkdir, projects_dir, "p")
-		if not ok or created == 0 then
-			vim.notify(
-				string.format("[gtodo-md] failed to create projects directory: %s", projects_dir),
-				vim.log.levels.ERROR
-			)
-			return false
-		end
+	-- mkdir() は失敗時に 0 を返すほか、パス上に同名のファイルがある等では
+	-- E739 を投げる。素通しにすると呼び出し元の処理がそこで止まる。
+	if not utils_mod.ensure_dir(projects_dir) then
+		vim.notify(
+			string.format("[gtodo-md] failed to create projects directory: %s", projects_dir),
+			vim.log.levels.ERROR
+		)
+		return false
 	end
 
 	local proj_file = string.format("%s/%s.md", projects_dir, project_tag)

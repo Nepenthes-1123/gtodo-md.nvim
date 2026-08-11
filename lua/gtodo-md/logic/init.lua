@@ -27,7 +27,7 @@ end
 -- (check_dues_and_maybe_sort とは判定基準が異なる)。handle_buf_enter が
 -- 「todo.mdを開いているかどうか」だけでsortの要否を決めたい場合に使う。
 -- 呼び出し元が既に排他ロックを保持している前提で、ここではロックを取得しない。
-function M.check_dues_then_sort_if(inbox_path, todo_path, should_sort)
+function M.check_dues_and_sort_when_requested(inbox_path, todo_path, should_sort)
 	M.check_dues(inbox_path, todo_path)
 	if should_sort then
 		M.sort_todo_file(todo_path)

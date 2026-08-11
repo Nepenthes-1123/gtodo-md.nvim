@@ -107,7 +107,7 @@ function M.handle_buf_enter(bufnr)
 	-- バッファが未保存(dirty)でも常に実行・保存する。read_lines がライブバッファの
 	-- 内容(未保存分を含む)を読み取るため、ユーザーの未保存編集は失われない。
 	lock_mod.with_automation_lock(data_dir, function()
-		logic_mod.check_dues_then_sort_if(inbox_path, todo_path, filename == "todo.md")
+		logic_mod.check_dues_and_sort_when_requested(inbox_path, todo_path, filename == "todo.md")
 	end)
 
 	-- バッファローカルキーマップを登録

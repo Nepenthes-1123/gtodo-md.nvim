@@ -248,6 +248,36 @@ describe("ui.template", function()
 		end)
 	end)
 
+	-- バグ4: list_placeholder_names がテンプレートの説明コメント(<!-- ... -->)内の
+	-- 文字列まで{{name}}として拾ってしまう不具合。ensure_template_file が生成する
+	-- 雛形の説明文自体に "{{project}}/{{context}}" という文字列が含まれるため、
+	-- タスク行として解釈できる行(task_mod.parse(line) ~= nil)だけを対象にすべき。
+	describe("list_placeholder_names はタスク行以外の{{name}}を無視する(バグ4)", function()
+		it("コメント行(task.parseできない行)に含まれる{{name}}は対象外", function()
+			local names = template_mod.list_placeholder_names({
+				"<!-- {{project}}/{{context}} と書くと挿入時に値を尋ねます -->",
+				"- [ ] 通常タスク +proj",
+			})
+			assert.are.same({}, names)
+		end)
+
+		it("見出し行に含まれる{{name}}も対象外", function()
+			local names = template_mod.list_placeholder_names({
+				"### {{heading}} セクション",
+				"- [ ] タスク {{client}}",
+			})
+			assert.are.same({ "client" }, names)
+		end)
+
+		it("タスク行の{{name}}のみを出現順・重複無しで拾う(コメント行と混在)", function()
+			local names = template_mod.list_placeholder_names({
+				"<!-- {{project}}/{{context}} と書くと挿入時に値を尋ねます -->",
+				"- [ ] {{client}}のタスク",
+			})
+			assert.are.same({ "client" }, names)
+		end)
+	end)
+
 	describe("resolve_placeholders", function()
 		it("{{project}}に値があれば+付きタグへ置換する", function()
 			local result = template_mod.resolve_placeholders(
@@ -298,6 +328,59 @@ describe("ui.template", function()
 			local result = template_mod.resolve_placeholders({ "- [ ] 通常タスク +proj" }, { project = "other" })
 			assert.are.same("- [ ] 通常タスク +proj", result[1])
 		end)
+	end)
+
+	-- バグ1: {{name}}プレースホルダーの値に"%"が含まれると、内部でgsubの置換引数に
+	-- ユーザー入力をそのまま渡している場合クラッシュ/文字化けする(Luaのgsub置換文字列は
+	-- %1-%9をキャプチャ参照として、%%のみを単一の%として解釈し、それ以外の%Xはエラーになる)。
+	-- 修正後は値に含まれる%が常にそのまま1文字として結果に現れ、エラーも起きてはいけない。
+	describe("resolve_placeholders の値に%が含まれる場合(バグ1)", function()
+		it(
+			"予約プレースホルダー{{project}}の値に%が含まれてもエラーにならず、そのまま1文字として現れる",
+			function()
+				local result
+				assert.has_no.errors(function()
+					result = template_mod.resolve_placeholders(
+						{ "- [ ] タスク {{project}}" },
+						{ project = "50%off" }
+					)
+				end)
+				assert.is_not_nil(result[1]:find("+50%off", 1, true), vim.inspect(result[1]))
+			end
+		)
+
+		it(
+			"予約プレースホルダー{{context}}の値に%が含まれてもエラーにならず、そのまま1文字として現れる",
+			function()
+				local result
+				assert.has_no.errors(function()
+					result = template_mod.resolve_placeholders({ "- [ ] タスク {{context}}" }, { context = "100%" })
+				end)
+				assert.is_not_nil(result[1]:find("@100%", 1, true), vim.inspect(result[1]))
+			end
+		)
+
+		it(
+			"project/context以外の{{name}}(本文への単純置換)の値に%が含まれてもエラーにならない",
+			function()
+				local result
+				assert.has_no.errors(function()
+					result = template_mod.resolve_placeholders({ "- [ ] {{note}}タスク" }, { note = "進捗50%" })
+				end)
+				assert.is_not_nil(result[1]:find("進捗50%タスク", 1, true), vim.inspect(result[1]))
+			end
+		)
+
+		it(
+			"値がgsubのキャプチャ参照として解釈されうる文字列(%1)でもエラーにならず、そのまま現れる",
+			function()
+				local result
+				assert.has_no.errors(function()
+					result = template_mod.resolve_placeholders({ "- [ ] {{note}}タスク" }, { note = "%1" })
+				end)
+				assert.is_not_nil(result[1]:find("%1タスク", 1, true), vim.inspect(result[1]))
+			end
+		)
 	end)
 
 	describe("extract_task_lines の第3引数(placeholder_values)", function()
@@ -401,6 +484,82 @@ describe("ui.template", function()
 			local lines = io_mod.read_lines(inbox_path)
 			local task = task_mod.parse(lines[3])
 			assert.are.same("acme", task.project)
+		end)
+
+		-- バグ2: 呼び出し元が既に読み込み済みの行を第4引数(lines)として渡せるように
+		-- したい(将来の呼び出し元がテンプレートファイルを二重に読み込まないようにするため)。
+		-- lines が渡された場合はディスクを一切読まずにその行から処理し、省略時は
+		-- 従来通りディスクから読む(後方互換)。
+		describe(
+			"insert_template_tasks の第4引数(lines)でディスクを再読み込みしない(バグ2)",
+			function()
+				it(
+					"lines を渡すと、ディスク上にテンプレートファイルが無くてもそのlinesから処理される",
+					function()
+						vim.fn.writefile({ "# Inbox", "" }, inbox_path)
+
+						local ok = template_mod.insert_template_tasks(
+							"does-not-exist-on-disk",
+							nil,
+							nil,
+							{ "- [ ] linesから来たタスク" }
+						)
+						assert.is_true(ok)
+
+						local lines = io_mod.read_lines(inbox_path)
+						local task = task_mod.parse(lines[3])
+						assert.are.same("linesから来たタスク", task.content)
+					end
+				)
+
+				it(
+					"lines を渡すと、同名のテンプレートファイルがディスクにあってもその内容は使われない",
+					function()
+						vim.fn.writefile({ "# Inbox", "" }, inbox_path)
+						vim.fn.writefile({ "- [ ] ディスク上のタスク" }, templates_dir .. "/dup-check.md")
+
+						local ok = template_mod.insert_template_tasks(
+							"dup-check",
+							nil,
+							nil,
+							{ "- [ ] 引数で渡したタスク" }
+						)
+						assert.is_true(ok)
+
+						local lines = io_mod.read_lines(inbox_path)
+						local task = task_mod.parse(lines[3])
+						assert.are.same("引数で渡したタスク", task.content)
+					end
+				)
+			end
+		)
+
+		-- バグ3: 内部で呼ぶ io_mod.write_lines が失敗(error()を投げる)した場合、
+		-- そのエラーが insert_template_tasks の外まで無捕捉のまま伝播してしまう。
+		-- 修正後は失敗してもエラーを外へ伝播させず、falseを返すべき。
+		describe("insert_template_tasks の書き込み失敗時の挙動(バグ3)", function()
+			it("io_mod.write_lines が失敗してもエラーを伝播させずfalseを返す", function()
+				vim.fn.writefile({ "# Inbox", "" }, inbox_path)
+				vim.fn.writefile({ "- [ ] 新規タスク" }, templates_dir .. "/write-fail.md")
+
+				local original_write_lines = io_mod.write_lines
+				io_mod.write_lines = function()
+					error("simulated write failure")
+				end
+
+				local pcall_ok, result = pcall(function()
+					return template_mod.insert_template_tasks("write-fail")
+				end)
+
+				-- 何が起きてもモンキーパッチは必ず元へ戻す
+				io_mod.write_lines = original_write_lines
+
+				assert.is_true(
+					pcall_ok,
+					"insert_template_tasks がエラーを外へ伝播させた: " .. tostring(result)
+				)
+				assert.is_false(result)
+			end)
 		end)
 	end)
 end)

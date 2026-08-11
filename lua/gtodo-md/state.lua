@@ -30,15 +30,12 @@ end
 local function write_state(data)
 	local path = get_state_path()
 	local dir = vim.fn.fnamemodify(path, ":h")
-	if vim.fn.isdirectory(dir) == 0 then
-		-- mkdir() は失敗時に 0 を返すほか、パス上に同名のファイルがある等では
-		-- E739 を投げる。素通しにすると `setup()` の途中で例外が飛び、プラグイン全体の
-		-- 初期化がそこで止まる(しかもユーザーには原因が読み取れない)。
-		local ok, created = pcall(vim.fn.mkdir, dir, "p")
-		if not ok or created == 0 then
-			vim.notify(string.format("[gtodo-md] failed to create data directory: %s", dir), vim.log.levels.ERROR)
-			return
-		end
+	-- mkdir() は失敗時に 0 を返すほか、パス上に同名のファイルがある等では
+	-- E739 を投げる。素通しにすると `setup()` の途中で例外が飛び、プラグイン全体の
+	-- 初期化がそこで止まる(しかもユーザーには原因が読み取れない)。
+	if not require("gtodo-md.utils").ensure_dir(dir) then
+		vim.notify(string.format("[gtodo-md] failed to create data directory: %s", dir), vim.log.levels.ERROR)
+		return
 	end
 	local ok, content = pcall(vim.json.encode, data)
 	if not ok then
