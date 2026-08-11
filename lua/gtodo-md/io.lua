@@ -162,6 +162,32 @@ function M.read_lines(path)
 	end
 end
 
+-- 指定ディレクトリ直下の `*.md` を、更新日時(mtime)の降順で拡張子無しの
+-- ファイル名一覧として返す。ディレクトリが存在しなければ空配列を返す。
+-- テンプレート一覧(ui/template.lua)・プロジェクト一覧(ui/prompt.lua)双方が
+-- 同じ「ディレクトリ内のmdを新しい順に列挙する」処理を必要とするための共通ヘルパー。
+function M.list_md_basenames_by_mtime(dir)
+	local names = {}
+	if vim.fn.isdirectory(dir) == 0 then
+		return names
+	end
+
+	local files = vim.fn.globpath(dir, "*.md", false, true)
+	local temp = {}
+	for _, file in ipairs(files) do
+		local name = vim.fn.fnamemodify(file, ":t:r")
+		local mtime = vim.fn.getftime(file)
+		table.insert(temp, { name = name, mtime = mtime })
+	end
+	table.sort(temp, function(a, b)
+		return a.mtime > b.mtime
+	end)
+	for _, item in ipairs(temp) do
+		table.insert(names, item.name)
+	end
+	return names
+end
+
 -- 差分のみを更新し、Extmarksの破壊を防ぐ
 local function update_lines_incrementally(buf, new_lines)
 	local old_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)

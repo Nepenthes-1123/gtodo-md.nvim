@@ -2,10 +2,10 @@
 -- status/members フィールドに不要な末尾スペースが含まれていた。
 -- フォーマッタとの相性問題や可読性低下の原因になっていた。
 
-local utils = require("gtodo-md.utils")
+local project_mod = require("gtodo-md.ui.project")
 local config = require("gtodo-md.config")
 
-describe("utils.create_project_file テンプレート (#97)", function()
+describe("ui.project.create_project_file テンプレート (#97)", function()
 	local data_dir
 
 	before_each(function()
@@ -19,7 +19,7 @@ describe("utils.create_project_file テンプレート (#97)", function()
 	end)
 
 	it("生成されるテンプレートのどの行にも末尾の空白が含まれない", function()
-		utils.create_project_file("my_project")
+		project_mod.create_project_file("my_project")
 
 		local lines = vim.fn.readfile(data_dir .. "/projects/my_project.md")
 		for i, line in ipairs(lines) do

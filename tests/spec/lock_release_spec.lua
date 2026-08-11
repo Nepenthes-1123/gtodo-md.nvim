@@ -1,4 +1,4 @@
--- with_write_lock が例外通過時にもロックを解放することを固定する。
+-- with_automation_lock が例外通過時にもロックを解放することを固定する。
 --
 -- write_lines が失敗時に error を投げるようになったため、この不変条件が破れると
 -- 書き込み失敗のたびにロックがリークする。ロックは取得失敗時に待機・リトライせず
@@ -8,7 +8,7 @@
 local lock_mod = require("gtodo-md.lock")
 local uv = vim.uv or vim.loop
 
-describe("lock.with_write_lock", function()
+describe("lock.with_automation_lock", function()
 	local dir
 	local lock_path
 
@@ -23,7 +23,7 @@ describe("lock.with_write_lock", function()
 	end)
 
 	it("本体が error を投げてもロックファイルが残らない", function()
-		local acquired = lock_mod.with_write_lock(dir, function()
+		local acquired = lock_mod.with_automation_lock(dir, function()
 			error("boom", 0)
 		end)
 
@@ -32,12 +32,12 @@ describe("lock.with_write_lock", function()
 	end)
 
 	it("例外の直後でも同じロックを取得できる", function()
-		lock_mod.with_write_lock(dir, function()
+		lock_mod.with_automation_lock(dir, function()
 			error("boom", 0)
 		end)
 
 		local ran = false
-		local acquired = lock_mod.with_write_lock(dir, function()
+		local acquired = lock_mod.with_automation_lock(dir, function()
 			ran = true
 		end)
 
@@ -47,7 +47,7 @@ describe("lock.with_write_lock", function()
 	end)
 
 	it("正常終了時もロックファイルが残らない", function()
-		local acquired = lock_mod.with_write_lock(dir, function() end)
+		local acquired = lock_mod.with_automation_lock(dir, function() end)
 
 		assert.is_true(acquired)
 		assert.is_nil(uv.fs_stat(lock_path))

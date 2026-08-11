@@ -111,7 +111,7 @@ describe("管理対象バッファの強制リロード", function()
 	-- 「書く者を1つに絞る」方向では、他インスタンスのユーザー操作・:w・Neovim 以外の
 	-- 書き手が素通りするため塞がらない。読む直前にディスクを取り込んで、
 	-- 古いバッファを読むこと自体を無くす。
-	it("with_write_lock は fn の実行前に管理対象バッファをリロードする", function()
+	it("with_automation_lock は fn の実行前に管理対象バッファをリロードする", function()
 		local path = data_dir .. "/todo.md"
 		vim.fn.writefile({ "# Todo", "- [ ] a" }, path)
 		vim.cmd("edit " .. vim.fn.fnameescape(path))
@@ -119,7 +119,7 @@ describe("管理対象バッファの強制リロード", function()
 		write_externally(path, { "# Todo", "- [ ] a", "- [ ] 他インスタンス" })
 
 		local seen
-		local acquired = require("gtodo-md.lock").with_write_lock(data_dir, function()
+		local acquired = require("gtodo-md.lock").with_automation_lock(data_dir, function()
 			-- read_lines はバッファ優先で読む。事前リロードが無ければ古い内容が返る。
 			seen = require("gtodo-md.io").read_lines(path)
 		end)

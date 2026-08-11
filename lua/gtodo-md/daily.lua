@@ -38,6 +38,17 @@ local last_processed_date = ""
 -- (autocmds.lua の FileChangedShell)、この誤検知は放置できない。
 local external_change_mtimes = {}
 
+-- collect_managed_paths のキャッシュ。projects/ ディレクトリの mtime が
+-- 変化していない限り globpath による全件列挙をやり直さない。
+-- last_processed_mtimes/external_change_mtimes と同じ「モジュールローカル
+-- テーブルでキャッシュを持つ」流儀に合わせる。未取得時は nil のままにする
+-- (external_change_mtimes と同じ理由で、実ファイルの mtime は 0 になり
+-- 得ないため初期値を 0 にすると初回が誤って「変化あり」になる)。
+local managed_paths_cache = {
+	projects_mtime = nil,
+	paths = nil,
+}
+
 -- キャッシュ取得用アクセサ。
 -- #98: テーブルの参照をそのまま返すと、呼び出し側が誤って書き換えた場合に
 -- 内部キャッシュが汚染されてしまうため、シャローコピーを返す。
@@ -101,6 +112,11 @@ end
 -- ディスク走査で組み立てる。reload_managed_bufs はロード済みバッファを起点に
 -- 判定するのに対し、こちらは未ロードのファイルの外部変更も拾う必要があるため、
 -- data_dir を直接走査して候補を作り、is_gtodo_file で絞り込む。
+--
+-- projects/*.md の列挙(globpath)はディレクトリ丸ごとの全件走査でコストが掛かる。
+-- reload_if_externally_changed 経由で check_daily_rollover のたびに(=同日の
+-- 早期returnのたびに)呼ばれるため、projects/ ディレクトリの mtime が変化して
+-- いなければ globpath を呼ばずキャッシュ済みの一覧を再利用する。
 local function collect_managed_paths()
 	local utils = require("gtodo-md.utils")
 	local data_dir = config.get("data_dir")
@@ -112,7 +128,12 @@ local function collect_managed_paths()
 	}
 	local projects_dir = data_dir .. "/projects"
 	if vim.fn.isdirectory(projects_dir) == 1 then
-		vim.list_extend(candidates, vim.fn.globpath(projects_dir, "*.md", false, true))
+		local projects_mtime = vim.fn.getftime(projects_dir)
+		if managed_paths_cache.paths == nil or managed_paths_cache.projects_mtime ~= projects_mtime then
+			managed_paths_cache.paths = vim.fn.globpath(projects_dir, "*.md", false, true)
+			managed_paths_cache.projects_mtime = projects_mtime
+		end
+		vim.list_extend(candidates, managed_paths_cache.paths)
 	end
 
 	local paths = {}
@@ -159,7 +180,7 @@ function M.check_daily_rollover()
 		return false
 	end
 
-	local last_opened = require("gtodo-md.utils").read_last_opened()
+	local last_opened = require("gtodo-md.state").read_last_opened()
 	if last_opened ~= today then
 		local data_dir = config.get("data_dir")
 		local inbox_path = data_dir .. "/inbox.md"
@@ -170,15 +191,12 @@ function M.check_daily_rollover()
 		-- rollover_ok が false のままになり、以降の状態更新をスキップして
 		-- 次回呼び出しでのリトライを許可できる
 		local rollover_ok = false
-		local acquired = lock_mod.with_write_lock(data_dir, function()
-			local todo_changed = logic_mod.move_completed_tasks(inbox_path, todo_path, done_path)
-			if logic_mod.check_dues(inbox_path, todo_path) then
-				todo_changed = true
-			end
-			if todo_changed then
-				logic_mod.sort_todo_file(todo_path)
-			end
-			require("gtodo-md.utils").write_last_opened(today)
+		local acquired = lock_mod.with_automation_lock(data_dir, function()
+			local move_changed = logic_mod.move_completed_tasks(inbox_path, todo_path, done_path)
+			-- move_completed_tasks が変化していれば、check_dues自体に変化が無くても
+			-- sort_todo_fileを呼ぶ(always_sortとして渡す)。
+			logic_mod.check_dues_and_maybe_sort(inbox_path, todo_path, move_changed)
+			require("gtodo-md.state").write_last_opened(today)
 			rollover_ok = true
 		end)
 

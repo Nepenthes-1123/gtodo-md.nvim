@@ -39,6 +39,14 @@ function M.setup(opts)
 	vim.api.nvim_create_user_command("GtodoQueue", function()
 		ui_mod.open_queue()
 	end, { desc = "Open Gtodo Queue view" })
+
+	vim.api.nvim_create_user_command("GtodoEditTemplate", function()
+		ui_mod.edit_template()
+	end, { desc = "Edit or create a Gtodo task template" })
+
+	vim.api.nvim_create_user_command("GtodoInsertTemplate", function()
+		ui_mod.insert_template()
+	end, { desc = "Insert tasks from a Gtodo task template" })
 end
 
 -- BufEnter時の自動処理
@@ -98,11 +106,8 @@ function M.handle_buf_enter(bufnr)
 	-- 2. dueチェック・自動移動・自動ソート（todo.mdのみ）を排他ロック配下で実行
 	-- バッファが未保存(dirty)でも常に実行・保存する。read_lines がライブバッファの
 	-- 内容(未保存分を含む)を読み取るため、ユーザーの未保存編集は失われない。
-	lock_mod.with_write_lock(data_dir, function()
-		logic_mod.check_dues(inbox_path, todo_path)
-		if filename == "todo.md" then
-			logic_mod.sort_todo_file(todo_path)
-		end
+	lock_mod.with_automation_lock(data_dir, function()
+		logic_mod.check_dues_and_sort_when_requested(inbox_path, todo_path, filename == "todo.md")
 	end)
 
 	-- バッファローカルキーマップを登録
@@ -139,11 +144,8 @@ end
 --   inbox.md 側は変更があったときだけソートする (false)
 local function check_dues_and_sort(data_dir, inbox_path, todo_path, always_sort)
 	local changed = false
-	lock_mod.with_write_lock(data_dir, function()
-		changed = logic_mod.check_dues(inbox_path, todo_path)
-		if always_sort or changed then
-			logic_mod.sort_todo_file(todo_path)
-		end
+	lock_mod.with_automation_lock(data_dir, function()
+		changed = logic_mod.check_dues_and_maybe_sort(inbox_path, todo_path, always_sort)
 	end)
 	return changed
 end
@@ -158,7 +160,7 @@ end
 -- 指定ファイルの指定セクション末尾へタスクを追記して書き戻す。
 -- prepare_items は追記直前に既存アイテム列へ手を入れるための任意のフック。
 -- 書き込みに失敗した場合は通知したうえで false を返す(io.write_lines は失敗時に
--- error を投げるが、この経路は lock.with_write_lock の外側で誰も pcall していない)。
+-- error を投げるが、この経路は lock.with_automation_lock の外側で誰も pcall していない)。
 local function append_task_to_file(path, section_name, new_task, prepare_items)
 	local data = io_mod.read_todo_file(path)
 	local items = data.sections[section_name]
@@ -261,7 +263,7 @@ function M.add_or_edit_task()
 			if not append_task_to_file(todo_path, target_sec, new_task) then
 				return
 			end
-			lock_mod.with_write_lock(data_dir, function()
+			lock_mod.with_automation_lock(data_dir, function()
 				logic_mod.sort_todo_file(todo_path)
 			end)
 		else
@@ -293,10 +295,7 @@ function M.sort_and_check_dues()
 	local data_dir = config.get("data_dir")
 	local inbox_path = data_dir .. "/inbox.md"
 	local todo_path = data_dir .. "/todo.md"
-	lock_mod.with_write_lock(data_dir, function()
-		logic_mod.check_dues(inbox_path, todo_path)
-		logic_mod.sort_todo_file(todo_path)
-	end)
+	check_dues_and_sort(data_dir, inbox_path, todo_path, true)
 end
 
 -- グローバルキーマップの設定 (実体は keymaps.lua)

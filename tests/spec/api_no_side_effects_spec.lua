@@ -55,7 +55,7 @@ describe("api.get_stats の副作用除去と check_daily_rollover の戻り値"
 		}, data_dir .. "/todo.md")
 
 		-- ロールオーバー対象となるよう last_opened を過去日にしておく
-		require("gtodo-md.utils").write_last_opened("2000-01-01")
+		require("gtodo-md.state").write_last_opened("2000-01-01")
 	end)
 
 	after_each(function()
@@ -75,7 +75,7 @@ describe("api.get_stats の副作用除去と check_daily_rollover の戻り値"
 		)
 
 		-- last_opened も進んでいないこと
-		assert.are.same("2000-01-01", require("gtodo-md.utils").read_last_opened())
+		assert.are.same("2000-01-01", require("gtodo-md.state").read_last_opened())
 
 		-- 件数のカウント自体は従来どおり動作する
 		assert.are.same(1, stats.today)
@@ -96,7 +96,7 @@ describe("api.get_stats の副作用除去と check_daily_rollover の戻り値"
 	end)
 
 	it("check_daily_rollover は last_opened が今日なら false を返す", function()
-		require("gtodo-md.utils").write_last_opened(os.date("%Y-%m-%d"))
+		require("gtodo-md.state").write_last_opened(os.date("%Y-%m-%d"))
 
 		assert.is_false(daily_mod.check_daily_rollover())
 	end)

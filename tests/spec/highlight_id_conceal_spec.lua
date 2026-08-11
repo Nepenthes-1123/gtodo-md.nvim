@@ -65,6 +65,57 @@ describe("highlight: id:タグのconceal表示", function()
 	end)
 end)
 
+-- 回帰テスト: update_highlights が1行あたり task_mod.tag_ranges を
+-- 最大3回呼んでしまう非効率(以前は固定3エントリのテーブルで済んでいた経路の
+-- 退行)。位置特定はtask.tag_rangesに委ねる設計(highlight.luaのコメント参照)である
+-- 以上、1行につき1回の呼び出しに収まるべき。
+describe("highlight.update_highlights: task_mod.tag_rangesの呼び出し回数", function()
+	local buf
+
+	before_each(function()
+		buf = vim.api.nvim_create_buf(false, true)
+	end)
+
+	after_each(function()
+		if vim.api.nvim_buf_is_valid(buf) then
+			vim.api.nvim_buf_delete(buf, { force = true })
+		end
+	end)
+
+	local function run_update_and_wait(bufnr)
+		highlight_mod.update_highlights(bufnr)
+		-- update_highlights は vim.schedule で実処理を遅延させているため、
+		-- イベントループを一度回して完了を待つ
+		vim.wait(100, function()
+			return false
+		end)
+	end
+
+	it("1行につき1回だけ呼ばれる(project/context/due/idタグを複数持つ行を含む)", function()
+		local task_mod = require("gtodo-md.task")
+		local lines = {
+			"- [ ] タスクA +project @context due:2025-01-01 id:a1b2c3",
+			"- [ ] タグ無しタスクB",
+			"- [ ] タスクC +proj2 @ctx2 due:2025-02-02 id:deadbe",
+		}
+		vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+
+		local call_count = 0
+		local original = task_mod.tag_ranges
+		task_mod.tag_ranges = function(...)
+			call_count = call_count + 1
+			return original(...)
+		end
+
+		local ok, err = pcall(run_update_and_wait, buf)
+
+		task_mod.tag_ranges = original
+
+		assert.is_true(ok, err)
+		assert.are.same(#lines, call_count, "task_mod.tag_rangesの呼び出し回数が行数と一致しない")
+	end)
+end)
+
 describe("highlight.setup: conceallevel/concealcursorの設定", function()
 	it('BufWinEnterでdata_dir配下のバッファにconceallevel=2, concealcursor=""を設定する', function()
 		local config = require("gtodo-md.config")
