@@ -296,6 +296,46 @@ function M.restore_template_file(name)
 	return move_template_file(archived_template_path(data_dir, name), template_path(data_dir, name))
 end
 
+-- テンプレートを選んでアーカイブする。無テストの理由は edit_template と同じ。
+function M.archive_template()
+	local templates = M.list_templates()
+	if #templates == 0 then
+		vim.notify("[gtodo-md] No templates found. Create one first.", vim.log.levels.WARN)
+		return
+	end
+
+	vim.ui.select(templates, { prompt = "Archive Template:" }, function(choice)
+		if not choice then
+			return
+		end
+		if M.archive_template_file(choice) then
+			vim.notify(string.format("[gtodo-md] Archived template '%s'", choice), vim.log.levels.INFO)
+		else
+			vim.notify(string.format("[gtodo-md] failed to archive template '%s'", choice), vim.log.levels.ERROR)
+		end
+	end)
+end
+
+-- アーカイブ済みテンプレートを選んで復元する。無テストの理由は archive_template と同じ。
+function M.restore_template()
+	local archived = M.list_archived_templates()
+	if #archived == 0 then
+		vim.notify("[gtodo-md] No archived templates found.", vim.log.levels.WARN)
+		return
+	end
+
+	vim.ui.select(archived, { prompt = "Restore Template:" }, function(choice)
+		if not choice then
+			return
+		end
+		if M.restore_template_file(choice) then
+			vim.notify(string.format("[gtodo-md] Restored template '%s'", choice), vim.log.levels.INFO)
+		else
+			vim.notify(string.format("[gtodo-md] failed to restore template '%s'", choice), vim.log.levels.ERROR)
+		end
+	end)
+end
+
 -- テンプレートの新規作成/既存編集(フロートウィンドウでファイルを開く)。
 -- vim.ui.select/vim.ui.input を使う対話的なオーケストレーションのため無テスト
 -- (ui/prompt.lua と同じ既存の慣習に倣う)。
