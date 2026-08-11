@@ -166,7 +166,6 @@ end
 -- 中括弧が無い)ため、tag_ranges が動く時点で既に本物の +value/@value タグになって
 -- いなければならない。
 function M.extract_task_lines(lines, base_time, placeholder_values)
-	local utils_mod = require("gtodo-md.utils")
 	local resolved_lines = placeholder_values and M.resolve_placeholders(lines, placeholder_values) or lines
 	local result = {}
 	for _, line in ipairs(resolved_lines) do
@@ -296,7 +295,6 @@ function M.insert_template()
 				if trimmed == "" then
 					trimmed = "today"
 				end
-				local utils_mod = require("gtodo-md.utils")
 				local resolved_date = utils_mod.parse_due_date(trimmed)
 				if not resolved_date then
 					vim.notify("[gtodo-md] Invalid base date: " .. input, vim.log.levels.ERROR)
