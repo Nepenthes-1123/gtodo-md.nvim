@@ -445,6 +445,35 @@ function M.move_file(src, dst)
 	return rename_with_retry(src, dst)
 end
 
+-- move_file と異なり、dst に既存ファイルがあれば上書きせず失敗する「移動」。
+-- 呼び出し元が事前に filereadable(dst) を確認してから move_file を呼ぶ
+-- (check-then-act)方式では、確認と移動の間に他プロセスが dst へ新規ファイルを
+-- 作成する窓が残り、move_file の無条件上書き契約と組み合わさるとその新規ファイルを
+-- 無警告で消失させる。dst を "wx"(O_EXCL) で確保すること自体を存在確認として使い、
+-- 確認と実行を同一の syscall にすることで窓を無くす(lock.lua の try_acquire と同じ発想)。
+-- 成功: true / dst が既に存在(他プロセスが窓の間に作成した分を含む): nil, "EEXIST" /
+-- その他のI/Oエラー: nil, エラー文字列(error は投げない)。
+function M.move_file_no_replace(src, dst)
+	local fd, msg, code = uv.fs_open(dst, "wx", 384) -- 0600、権限は直後のrenameでsrcのものに置き換わる
+	if not fd then
+		if err_code(msg, code) == "EEXIST" then
+			return nil, "EEXIST"
+		end
+		return nil, msg
+	end
+	uv.fs_close(fd)
+
+	local ok, rename_err = rename_with_retry(src, dst)
+	if not ok then
+		-- 確保しただけのプレースホルダーを残さない。src にはまだ触れていないため、
+		-- ここでの unlink 失敗は「空の dst が残る」に留まり、以降の呼び出しが
+		-- 衝突として検出できる(データを破壊する失敗モードではない)。
+		uv.fs_unlink(dst)
+		return nil, rename_err
+	end
+	return true
+end
+
 -- 残留した一時ファイルを掃除する。判定は mtime だけで行い、ファイル名に含まれる
 -- PID は見ない。PID は OS に再利用されるため所有者の識別子にならず、再利用された
 -- 瞬間にその残骸がどのインスタンスからも永久に削除対象から外れてしまう。

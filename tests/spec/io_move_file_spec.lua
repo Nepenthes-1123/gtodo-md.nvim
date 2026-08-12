@@ -92,6 +92,63 @@ describe("io.move_file / io.find_buf", function()
 		end)
 	end)
 
+	describe("move_file_no_replace", function()
+		it(
+			"dstが存在しない場合はmove_fileと同様に成功し、srcの内容がそのまま移る",
+			function()
+				local src = data_dir .. "/foo.md"
+				local dst = data_dir .. "/bar.md"
+				vim.fn.writefile({ "- [ ] タスクA" }, src)
+
+				local ok, err = io_mod.move_file_no_replace(src, dst)
+
+				assert.is_true(ok)
+				assert.is_nil(err)
+				assert.are.same(0, vim.fn.filereadable(src))
+				assert.are.same({ "- [ ] タスクA" }, vim.fn.readfile(dst))
+			end
+		)
+
+		it(
+			'dstに既存ファイルがある場合は上書きせず nil, "EEXIST" を返し、双方とも無変更',
+			function()
+				local src = data_dir .. "/foo.md"
+				local dst = data_dir .. "/bar.md"
+				vim.fn.writefile({ "新しい内容" }, src)
+				vim.fn.writefile({ "既存の内容(残るはず)" }, dst)
+
+				local ok, err = io_mod.move_file_no_replace(src, dst)
+
+				assert.is_nil(ok)
+				assert.are.same("EEXIST", err)
+				assert.are.same(1, vim.fn.filereadable(src))
+				assert.are.same({ "新しい内容" }, vim.fn.readfile(src))
+				assert.are.same({ "既存の内容(残るはず)" }, vim.fn.readfile(dst))
+			end
+		)
+
+		it(
+			"srcが存在しない場合はnil, エラー文字列を返し、dstに空ファイルを残さない(error()は投げない)",
+			function()
+				local src = data_dir .. "/does-not-exist.md"
+				local dst = data_dir .. "/bar.md"
+
+				local ok, err
+				assert.has_no.errors(function()
+					ok, err = io_mod.move_file_no_replace(src, dst)
+				end)
+
+				assert.is_nil(ok)
+				assert.is_string(err)
+				assert.are.same(
+					0,
+					vim.fn.filereadable(dst),
+					"移動失敗後にdstのプレースホルダーが残っている"
+				)
+			end
+		)
+	end)
+
 	describe("find_buf", function()
 		it("対象パスにロード済みバッファが無ければ nil を返す", function()
 			local path = data_dir .. "/no-buffer.md"
