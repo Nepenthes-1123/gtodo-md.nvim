@@ -399,13 +399,26 @@ end
 
 -- projects/<project_tag>.md の frontmatter 内 status: を new_status へ書き換える。
 --   -> (false, "notfound")        ファイルが無い
+--   -> (false, "buffer_dirty")    対象ファイルに未保存(dirty)のバッファが開かれている
 --   -> (false, "no_status_field") frontmatterにstatus:キーが無い
 --   -> (true, "noop")             既にnew_statusと同じ値(ファイル変更なし)
 --   -> (true, nil)                実際に書き換えた(status:行以外は一切変更しない)
+--
+-- read_lines はバッファ優先で読むため、対象ファイルが未保存の無関係な編集
+-- (due:の削除、created:の書き換え等)を抱えたまま開かれていると、status:行の
+-- 書き換えにその編集ごと巻き込んでディスクへ確定してしまう。write_lines は
+-- :write を経由しないため autocmds.lua の BufWritePre フロントマター検証も
+-- 通らない。ui/template.lua の release_template_buffer(dirtyならアーカイブを
+-- 拒否する)と同じ方針で、dirtyな場合は書き込み自体を拒否する。
 function M.set_project_status(project_tag, new_status)
 	local path = project_file_path(project_tag)
 	if vim.fn.filereadable(path) == 0 then
 		return false, "notfound"
+	end
+
+	local buf = io_mod.find_buf(path)
+	if buf and vim.bo[buf].modified then
+		return false, "buffer_dirty"
 	end
 
 	local lines = io_mod.read_lines(path)
@@ -442,6 +455,11 @@ local function notify_status_failure(action, project_tag, reason)
 	elseif reason == "no_status_field" then
 		vim.notify(
 			string.format("[gtodo-md] project '%s' frontmatter has no status: field", project_tag),
+			vim.log.levels.ERROR
+		)
+	elseif reason == "buffer_dirty" then
+		vim.notify(
+			string.format("[gtodo-md] project '%s' has unsaved changes; save or discard them first", project_tag),
 			vim.log.levels.ERROR
 		)
 	else

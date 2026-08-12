@@ -208,6 +208,32 @@ describe("ui.project アーカイブ/復元", function()
 				assert.are.same("status: 会議待ち", result[14])
 			end
 		)
+
+		it(
+			'対象ファイルに未保存(dirty)のバッファがある場合は (false, "buffer_dirty") を返し、ディスクを一切変更しない',
+			function()
+				local tag = "dirty-buf"
+				local path = project_path(tag)
+				vim.fn.writefile(default_frontmatter(tag, "active"), path)
+				local before = vim.fn.readfile(path)
+
+				local bufnr = vim.fn.bufadd(path)
+				vim.fn.bufload(bufnr)
+				vim.api.nvim_buf_set_lines(bufnr, -1, -1, false, { "due: 2099-01-01(未保存の無関係な編集)" })
+				assert.is_true(vim.bo[bufnr].modified, "前提: バッファが未保存(dirty)であること")
+
+				local ok, err = project_mod.set_project_status(tag, "archived")
+
+				assert.is_false(ok)
+				assert.are.same("buffer_dirty", err)
+				assert.are.same(
+					before,
+					vim.fn.readfile(path),
+					"dirtyなバッファの未保存編集がディスクへ書き込まれている"
+				)
+				assert.is_true(vim.bo[bufnr].modified, "dirtyなバッファの未保存状態が失われた")
+			end
+		)
 	end)
 
 	describe("archive_project_file / restore_project_file", function()
