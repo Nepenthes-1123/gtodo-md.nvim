@@ -72,6 +72,17 @@ function M.ensure_template_file(name)
 
 	local data_dir = config.get("data_dir")
 
+	-- アーカイブ済みの同名テンプレートが存在する場合、ここで気付かず新規作成すると
+	-- 以後どちらの名前もarchive_template_file/restore_template_fileの衝突検出で
+	-- 弾かれ続け、アーカイブ側の内容がUIから到達不能になる(#5)。
+	if vim.fn.filereadable(archived_template_path(data_dir, name)) ~= 0 then
+		vim.notify(
+			string.format("[gtodo-md] template '%s' is archived; restore it or choose a different name", name),
+			vim.log.levels.ERROR
+		)
+		return false
+	end
+
 	if not utils_mod.ensure_dir(templates_dir(data_dir)) then
 		vim.notify(
 			string.format("[gtodo-md] failed to create templates directory: %s", templates_dir(data_dir)),

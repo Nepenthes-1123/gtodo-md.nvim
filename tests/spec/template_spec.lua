@@ -114,6 +114,26 @@ describe("ui.template", function()
 			local lines = vim.fn.readfile(templates_dir .. "/daily-setup.md")
 			assert.are.same({ "- [ ] 既存のタスク" }, lines)
 		end)
+
+		it(
+			"同名のアーカイブ済みテンプレートが既に存在する場合はfalseを返し、現役側に新規作成しない"
+				.. "(放置するとどちらの名前も以後archive/restoreの衝突検出で永久に到達不能になるため #5)",
+			function()
+				local archive_dir = templates_dir .. "/archive"
+				vim.fn.mkdir(archive_dir, "p")
+				vim.fn.writefile({ "- [ ] アーカイブ済みの内容" }, archive_dir .. "/daily-setup.md")
+
+				local ok = template_mod.ensure_template_file("daily-setup")
+
+				assert.is_false(ok)
+				assert.are.same(0, vim.fn.filereadable(templates_dir .. "/daily-setup.md"))
+				assert.are.same(
+					{ "- [ ] アーカイブ済みの内容" },
+					vim.fn.readfile(archive_dir .. "/daily-setup.md"),
+					"アーカイブ側の内容が変更されている"
+				)
+			end
+		)
 	end)
 
 	describe("extract_task_lines", function()
