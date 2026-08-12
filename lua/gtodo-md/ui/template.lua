@@ -265,6 +265,18 @@ end
 -- 未保存の変更(dirty)があれば nvim_buf_delete(force=false)がVim標準の挙動として
 -- 自然に失敗するため、dirty判定を自前実装する必要はない。バッファが無ければ
 -- 何もせず成功扱いにする。
+--
+-- move_template_file は src 側だけでなく dst 側のパスに対してもこの関数を呼ぶ
+-- (同一プロセス内に限る)。dst に「ファイルは無いがバッファだけが残っている」
+-- ケース(以前のアーカイブ/復元サイクルの生き残り)を放置すると、移動でその
+-- パスに新しい内容を書いた直後、残っていたバッファの WinLeave 自動保存が
+-- 古い内容で上書きし、操作が無警告で巻き戻る。
+--
+-- 既知の残存リスク: この関数が見えるのは自プロセスのバッファのみで、他の
+-- Neovimインスタンスが同じパスをフロート編集中でも検知できない(daily.luaの
+-- 複数インスタンス運用と同様、Neovimにはプロセスを跨いだバッファの可視性が無い)。
+-- そちらの経路は本関数では防げず、既知の残存リスクとして受容する
+-- (logic/due.luaのcheck_dues冒頭コメントと同種の割り切り)。
 local function release_template_buffer(path)
 	local buf = io_mod.find_buf(path)
 	if not buf then
@@ -276,23 +288,43 @@ end
 
 -- archive_template_file/restore_template_file共通の「衝突チェック→フロートバッファ
 -- 解放→移動」。src/dstどちらの方向かは呼び出し元がパスとして決める。
--- 衝突チェック(移動先に既にファイルが存在するか)は move_file を呼ぶ前に行う —
--- move_file自体は無条件でdstを上書きする契約のため。
+--   -> (false, "notfound")          src が存在しない
+--   -> (false, "collision")         dst に既に同名ファイルが存在する
+--   -> (false, "buffer_dirty")      src/dst いずれかに未保存のバッファが残っている
+--   -> (false, "ensure_dir_failed") dst の親ディレクトリを作成できなかった
+--   -> (false, "move_failed")       上記以外の移動失敗(I/Oエラー等)
+--   -> (true, nil)                  移動成功
+--
+-- 事前の filereadable(dst) チェックは「よくある衝突」を早期に弾き、その場合は
+-- src 側バッファに一切触れないようにするための高速経路にすぎない。実際の
+-- 衝突防止はここではなく io_mod.move_file_no_replace が dst を "wx"(O_EXCL) で
+-- 確保することで保証する — 素朴な check-then-act だと、このチェックと実際の
+-- 移動の間に他プロセスが dst へ新規ファイルを作成した場合、move_file の
+-- 無条件上書き契約と組み合わさってその新規ファイルを無警告で消失させてしまう。
 local function move_template_file(src, dst)
 	if vim.fn.filereadable(src) == 0 then
-		return false
+		return false, "notfound"
 	end
 	if vim.fn.filereadable(dst) ~= 0 then
-		return false
+		return false, "collision"
 	end
 	if not release_template_buffer(src) then
-		return false
+		return false, "buffer_dirty"
+	end
+	if not release_template_buffer(dst) then
+		return false, "buffer_dirty"
 	end
 	if not utils_mod.ensure_dir(vim.fn.fnamemodify(dst, ":h")) then
-		return false
+		return false, "ensure_dir_failed"
 	end
-	local ok = io_mod.move_file(src, dst)
-	return ok == true
+	local ok, err = io_mod.move_file_no_replace(src, dst)
+	if not ok then
+		if err == "EEXIST" then
+			return false, "collision"
+		end
+		return false, "move_failed"
+	end
+	return true, nil
 end
 
 -- テンプレートをアーカイブする(templates/<name>.md -> templates/archive/<name>.md)。
@@ -307,6 +339,29 @@ function M.restore_template_file(name)
 	return move_template_file(archived_template_path(data_dir, name), template_path(data_dir, name))
 end
 
+local function notify_move_failure(action, name, reason)
+	if reason == "notfound" then
+		vim.notify(string.format("[gtodo-md] template not found: %s", name), vim.log.levels.ERROR)
+	elseif reason == "collision" then
+		vim.notify(
+			string.format("[gtodo-md] a template named '%s' already exists at the destination", name),
+			vim.log.levels.ERROR
+		)
+	elseif reason == "buffer_dirty" then
+		vim.notify(
+			string.format("[gtodo-md] template '%s' has unsaved changes; save or discard them first", name),
+			vim.log.levels.ERROR
+		)
+	elseif reason == "ensure_dir_failed" then
+		vim.notify(string.format("[gtodo-md] failed to create directory for template '%s'", name), vim.log.levels.ERROR)
+	else
+		vim.notify(
+			string.format("[gtodo-md] failed to %s template '%s': %s", action, name, tostring(reason)),
+			vim.log.levels.ERROR
+		)
+	end
+end
+
 -- テンプレートを選んでアーカイブする。無テストの理由は edit_template と同じ。
 function M.archive_template()
 	local templates = M.list_templates()
@@ -319,11 +374,12 @@ function M.archive_template()
 		if not choice then
 			return
 		end
-		if M.archive_template_file(choice) then
-			vim.notify(string.format("[gtodo-md] Archived template '%s'", choice), vim.log.levels.INFO)
-		else
-			vim.notify(string.format("[gtodo-md] failed to archive template '%s'", choice), vim.log.levels.ERROR)
+		local ok, reason = M.archive_template_file(choice)
+		if not ok then
+			notify_move_failure("archive", choice, reason)
+			return
 		end
+		vim.notify(string.format("[gtodo-md] Archived template '%s'", choice), vim.log.levels.INFO)
 	end)
 end
 
@@ -339,11 +395,12 @@ function M.restore_template()
 		if not choice then
 			return
 		end
-		if M.restore_template_file(choice) then
-			vim.notify(string.format("[gtodo-md] Restored template '%s'", choice), vim.log.levels.INFO)
-		else
-			vim.notify(string.format("[gtodo-md] failed to restore template '%s'", choice), vim.log.levels.ERROR)
+		local ok, reason = M.restore_template_file(choice)
+		if not ok then
+			notify_move_failure("restore", choice, reason)
+			return
 		end
+		vim.notify(string.format("[gtodo-md] Restored template '%s'", choice), vim.log.levels.INFO)
 	end)
 end
 

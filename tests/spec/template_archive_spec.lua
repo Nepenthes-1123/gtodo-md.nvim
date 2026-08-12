@@ -82,18 +82,22 @@ describe("ui.template アーカイブ/復元", function()
 	end)
 
 	describe("archive_template_file", function()
-		it("元のファイルが存在しない場合はfalseを返し、何も起きない", function()
-			local ok = template_mod.archive_template_file("does-not-exist")
+		it(
+			'元のファイルが存在しない場合は (false, "notfound") を返し、何も起きない',
+			function()
+				local ok, reason = template_mod.archive_template_file("does-not-exist")
 
-			assert.is_false(ok)
-			assert.are.same(0, vim.fn.filereadable(template_path("does-not-exist")))
-			assert.are.same(0, vim.fn.filereadable(archived_path("does-not-exist")))
-			assert.are.same(
-				0,
-				vim.fn.isdirectory(archive_dir),
-				"無関係にarchiveディレクトリを作ってはいけない"
-			)
-		end)
+				assert.is_false(ok)
+				assert.are.same("notfound", reason)
+				assert.are.same(0, vim.fn.filereadable(template_path("does-not-exist")))
+				assert.are.same(0, vim.fn.filereadable(archived_path("does-not-exist")))
+				assert.are.same(
+					0,
+					vim.fn.isdirectory(archive_dir),
+					"無関係にarchiveディレクトリを作ってはいけない"
+				)
+			end
+		)
 
 		it("archiveディレクトリが無ければ自動作成した上で移動する", function()
 			vim.fn.writefile({ "- [ ] タスクA" }, template_path("daily-setup"))
@@ -108,15 +112,16 @@ describe("ui.template アーカイブ/復元", function()
 		end)
 
 		it(
-			"移動先に既に同名ファイルが存在する場合はfalseを返し、双方とも変更しない",
+			'移動先に既に同名ファイルが存在する場合は (false, "collision") を返し、双方とも変更しない',
 			function()
 				vim.fn.mkdir(archive_dir, "p")
 				vim.fn.writefile({ "- [ ] 現役側の内容" }, template_path("dup"))
 				vim.fn.writefile({ "- [ ] アーカイブ済みの内容" }, archived_path("dup"))
 
-				local ok = template_mod.archive_template_file("dup")
+				local ok, reason = template_mod.archive_template_file("dup")
 
 				assert.is_false(ok)
+				assert.are.same("collision", reason)
 				assert.are.same({ "- [ ] 現役側の内容" }, vim.fn.readfile(template_path("dup")))
 				assert.are.same({ "- [ ] アーカイブ済みの内容" }, vim.fn.readfile(archived_path("dup")))
 			end
@@ -163,7 +168,7 @@ describe("ui.template アーカイブ/復元", function()
 				)
 
 				it(
-					"未保存の変更があるバッファがロード済みの場合は失敗し、元ファイル・バッファ共に変更しない",
+					'未保存の変更があるバッファがロード済みの場合は (false, "buffer_dirty") で失敗し、元ファイル・バッファ共に変更しない',
 					function()
 						local path = template_path("dirty-buf")
 						vim.fn.writefile({ "- [ ] 元の内容" }, path)
@@ -173,9 +178,10 @@ describe("ui.template アーカイブ/復元", function()
 						vim.api.nvim_buf_set_lines(bufnr, -1, -1, false, { "- [ ] 未保存の追加行" })
 						assert.is_true(vim.bo[bufnr].modified, "前提: バッファが未保存(dirty)であること")
 
-						local ok = template_mod.archive_template_file("dirty-buf")
+						local ok, reason = template_mod.archive_template_file("dirty-buf")
 
 						assert.is_false(ok)
+						assert.are.same("buffer_dirty", reason)
 						assert.are.same(1, vim.fn.filereadable(path), "元ファイルが消えている")
 						assert.are.same(
 							{ "- [ ] 元の内容" },
@@ -187,28 +193,71 @@ describe("ui.template アーカイブ/復元", function()
 						assert.is_true(vim.bo[bufnr].modified, "dirtyなバッファの未保存状態が失われた")
 					end
 				)
+
+				it(
+					"移動先(dst)のパスに、ファイルは無いが未保存のバッファだけが残っている場合は"
+						.. '(false, "buffer_dirty") で失敗し、移動元ファイルは変更しない(#2の同一プロセス内対策)',
+					function()
+						local src_path = template_path("has-stale-dst-buf")
+						vim.fn.writefile({ "- [ ] 現役側の内容" }, src_path)
+
+						-- dst には現時点でファイルは存在しないが、以前のサイクルの生き残りとして
+						-- バッファだけが残っている状態を再現する。
+						local dst_path = archived_path("has-stale-dst-buf")
+						local dst_buf = vim.fn.bufadd(dst_path)
+						vim.fn.bufload(dst_buf)
+						vim.api.nvim_buf_set_lines(
+							dst_buf,
+							-1,
+							-1,
+							false,
+							{ "- [ ] 古いアーカイブ内容の残骸" }
+						)
+						assert.is_true(
+							vim.bo[dst_buf].modified,
+							"前提: dst側バッファが未保存(dirty)であること"
+						)
+
+						local ok, reason = template_mod.archive_template_file("has-stale-dst-buf")
+
+						assert.is_false(ok)
+						assert.are.same("buffer_dirty", reason)
+						assert.are.same(1, vim.fn.filereadable(src_path), "移動元ファイルが消えている")
+						assert.are.same({ "- [ ] 現役側の内容" }, vim.fn.readfile(src_path))
+						assert.are.same(0, vim.fn.filereadable(dst_path))
+						assert.is_true(
+							vim.bo[dst_buf].modified,
+							"dst側dirtyバッファの未保存状態が失われた"
+						)
+					end
+				)
 			end
 		)
 	end)
 
 	describe("restore_template_file", function()
-		it("アーカイブ側のファイルが存在しない場合はfalseを返し、何も起きない", function()
-			local ok = template_mod.restore_template_file("does-not-exist")
+		it(
+			'アーカイブ側のファイルが存在しない場合は (false, "notfound") を返し、何も起きない',
+			function()
+				local ok, reason = template_mod.restore_template_file("does-not-exist")
 
-			assert.is_false(ok)
-			assert.are.same(0, vim.fn.filereadable(template_path("does-not-exist")))
-		end)
+				assert.is_false(ok)
+				assert.are.same("notfound", reason)
+				assert.are.same(0, vim.fn.filereadable(template_path("does-not-exist")))
+			end
+		)
 
 		it(
-			"復元先に既に同名の現役テンプレートが存在する場合はfalseを返し、双方とも変更しない",
+			'復元先に既に同名の現役テンプレートが存在する場合は (false, "collision") を返し、双方とも変更しない',
 			function()
 				vim.fn.mkdir(archive_dir, "p")
 				vim.fn.writefile({ "- [ ] 現役側の内容" }, template_path("dup"))
 				vim.fn.writefile({ "- [ ] アーカイブ済みの内容" }, archived_path("dup"))
 
-				local ok = template_mod.restore_template_file("dup")
+				local ok, reason = template_mod.restore_template_file("dup")
 
 				assert.is_false(ok)
+				assert.are.same("collision", reason)
 				assert.are.same({ "- [ ] 現役側の内容" }, vim.fn.readfile(template_path("dup")))
 				assert.are.same({ "- [ ] アーカイブ済みの内容" }, vim.fn.readfile(archived_path("dup")))
 			end
@@ -251,7 +300,7 @@ describe("ui.template アーカイブ/復元", function()
 			)
 
 			it(
-				"未保存の変更があるバッファがロード済みの場合は失敗し、アーカイブ側ファイル・バッファ共に変更しない",
+				'未保存の変更があるバッファがロード済みの場合は (false, "buffer_dirty") で失敗し、アーカイブ側ファイル・バッファ共に変更しない',
 				function()
 					vim.fn.mkdir(archive_dir, "p")
 					local path = archived_path("dirty-buf")
@@ -262,9 +311,10 @@ describe("ui.template アーカイブ/復元", function()
 					vim.api.nvim_buf_set_lines(bufnr, -1, -1, false, { "- [ ] 未保存の追加行" })
 					assert.is_true(vim.bo[bufnr].modified, "前提: バッファが未保存(dirty)であること")
 
-					local ok = template_mod.restore_template_file("dirty-buf")
+					local ok, reason = template_mod.restore_template_file("dirty-buf")
 
 					assert.is_false(ok)
+					assert.are.same("buffer_dirty", reason)
 					assert.are.same(1, vim.fn.filereadable(path), "アーカイブ側ファイルが消えている")
 					assert.are.same(
 						{ "- [ ] 元の内容" },
@@ -274,6 +324,38 @@ describe("ui.template アーカイブ/復元", function()
 					assert.are.same(0, vim.fn.filereadable(template_path("dirty-buf")))
 					assert.are.same(1, vim.fn.bufloaded(path), "dirtyなバッファが解放されてしまった")
 					assert.is_true(vim.bo[bufnr].modified, "dirtyなバッファの未保存状態が失われた")
+				end
+			)
+
+			it(
+				"復元先(dst)のパスに、ファイルは無いが未保存のバッファだけが残っている場合は"
+					.. '(false, "buffer_dirty") で失敗し、アーカイブ側ファイルは変更しない(#2の同一プロセス内対策)',
+				function()
+					vim.fn.mkdir(archive_dir, "p")
+					local src_path = archived_path("has-stale-dst-buf")
+					vim.fn.writefile({ "- [ ] アーカイブ側の内容" }, src_path)
+
+					local dst_path = template_path("has-stale-dst-buf")
+					local dst_buf = vim.fn.bufadd(dst_path)
+					vim.fn.bufload(dst_buf)
+					vim.api.nvim_buf_set_lines(dst_buf, -1, -1, false, { "- [ ] 古い現役内容の残骸" })
+					assert.is_true(
+						vim.bo[dst_buf].modified,
+						"前提: dst側バッファが未保存(dirty)であること"
+					)
+
+					local ok, reason = template_mod.restore_template_file("has-stale-dst-buf")
+
+					assert.is_false(ok)
+					assert.are.same("buffer_dirty", reason)
+					assert.are.same(
+						1,
+						vim.fn.filereadable(src_path),
+						"アーカイブ側ファイルが消えている"
+					)
+					assert.are.same({ "- [ ] アーカイブ側の内容" }, vim.fn.readfile(src_path))
+					assert.are.same(0, vim.fn.filereadable(dst_path))
+					assert.is_true(vim.bo[dst_buf].modified, "dst側dirtyバッファの未保存状態が失われた")
 				end
 			)
 		end)
