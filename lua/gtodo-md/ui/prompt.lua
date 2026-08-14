@@ -18,11 +18,9 @@ function M.prompt_task(initial_task, callback)
 		end
 	end
 
-	-- 既存プロジェクト一覧の取得 (最近更新された順)
+	-- 既存プロジェクト一覧の取得 (最近更新された順、アーカイブ済みを除く)
 	local function get_projects()
-		local data_dir = require("gtodo-md.config").options.data_dir
-		local projects_dir = data_dir .. "/projects"
-		return require("gtodo-md.io").list_md_basenames_by_mtime(projects_dir)
+		return require("gtodo-md.ui.project").list_active_project_tags()
 	end
 
 	local function create_project_file(project_tag)
