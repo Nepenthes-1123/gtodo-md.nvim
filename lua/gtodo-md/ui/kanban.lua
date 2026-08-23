@@ -7,6 +7,12 @@
 -- editor.lua がtodo.mdへ書き込むだけで、カンバンのバッファを直接書き換えることは
 -- しない。書き込み後は io.add_write_observer 経由の再描画通知だけで表示を
 -- 更新する(ui/project.lua と同じパターン)。
+--
+-- v1のスコープ外(意図的な判断。要件定義時点での合意): カード上でのタスク本文編集、
+-- cancelled.md の表示およびカンバンからのキャンセル操作、Undo/Redo。
+-- cancelled.md を含めないのは実装漏れではなく、カンバンは「実行中のワークフロー」
+-- (Someday/Next/Today/Waiting/Done)を可視化する画面と位置付け、終了済みの記録である
+-- done.md/cancelled.md のうち done.md(完了)だけを対象に含める設計判断による。
 local M = {}
 
 local config = require("gtodo-md.config")
@@ -18,10 +24,14 @@ local BORDER_H = "─"
 local BORDER_V = "│"
 local BORDER_TL, BORDER_TR, BORDER_BL, BORDER_BR = "┌", "┐", "└", "┘"
 
-local MIN_COL_WIDTH = 28
+local MIN_COL_WIDTH = 20
 local MAX_COL_WIDTH = 56
 local COL_GAP = 1
 local OUTER_MARGIN = 1
+-- ウィンドウの罫線(border="rounded")が左右に1文字ずつ占める幅。5列を並べる際の
+-- 必要幅の見積りにこの分を含めないと、実際の画面幅より過大に列数を選んでしまい、
+-- 右端の列が画面外へはみ出す。
+local WIN_BORDER_WIDTH = 2
 
 -- カンバン列の並び順(仕様で固定): Someday / Next / Today / Waiting / Done
 local COLUMN_KEYS = { "SOMEDAY", "NEXT", "TODAY", "WAITING", "DONE" }
@@ -256,10 +266,13 @@ function M._build_columns(todo_data, done_data, sections)
 end
 
 -- 画面幅から、一度に表示できる列数と1列あたりの幅を決める(純関数)。
+-- avail_width は列を並べる領域全体の表示幅で、各列のウィンドウ罫線
+-- (WIN_BORDER_WIDTH)ぶんも含めて見積もる(実際に画面へ配置する際の
+-- 消費幅と一致させ、右端の列が画面外へはみ出すのを防ぐため)。
 function M._compute_layout(total_columns, avail_width, avail_height)
-	local visible_count =
-		math.max(1, math.min(total_columns, math.floor((avail_width + COL_GAP) / (MIN_COL_WIDTH + COL_GAP))))
-	local col_width = math.floor((avail_width - COL_GAP * (visible_count - 1)) / visible_count)
+	local unit = MIN_COL_WIDTH + WIN_BORDER_WIDTH
+	local visible_count = math.max(1, math.min(total_columns, math.floor((avail_width + COL_GAP) / (unit + COL_GAP))))
+	local col_width = math.floor((avail_width - COL_GAP * (visible_count - 1)) / visible_count) - WIN_BORDER_WIDTH
 	col_width = math.max(MIN_COL_WIDTH, math.min(MAX_COL_WIDTH, col_width))
 	return { visible_count = visible_count, col_width = col_width, height = avail_height }
 end
@@ -333,7 +346,15 @@ end
 
 local kanban_ns = vim.api.nvim_create_namespace("gtodo_kanban")
 local selected_ns = vim.api.nvim_create_namespace("gtodo_kanban_selected")
+-- 個々のウィンドウ/バッファに紐づく autocmd(WinClosed/BufWipeout/CursorMoved)専用。
+-- render() が(内容だけの更新で済まず)作り直しを行うたびに、古い登録を明示的に
+-- クリアしてから作り直す。クリアしないと、既に閉じられて二度と発火しない
+-- WinClosed/BufWipeoutの登録が再描画のたびに際限なく積み上がってしまう。
 local AUGROUP = vim.api.nvim_create_augroup("GtodoMdKanban", { clear = true })
+-- ウィンドウ/バッファに依存せず、モジュールの寿命ぶんだけ張りっぱなしにする
+-- autocmd(VimResized)専用。AUGROUP は render() のたびにクリアされるため、
+-- そちらに登録すると初回の作り直しで消えてしまう。
+local GLOBAL_AUGROUP = vim.api.nvim_create_augroup("GtodoMdKanbanGlobal", { clear = true })
 
 local state = {
 	wins = {}, -- 現在開いているウィンドウ(可視列の分だけ)
@@ -347,6 +368,8 @@ local state = {
 	focus_col_index = 1,
 	is_open = false,
 	closing = false,
+	last_layout_col_width = nil, -- 直近の描画に使ったレイアウト(内容だけの更新が可能かの判定に使う)
+	last_layout_height = nil,
 }
 
 local render
@@ -591,11 +614,104 @@ local function collect_columns()
 	return M._build_columns(todo_data, done_data, config.sections), today_time
 end
 
+local function arrays_equal(a, b)
+	if #a ~= #b then
+		return false
+	end
+	for i = 1, #a do
+		if a[i] ~= b[i] then
+			return false
+		end
+	end
+	return true
+end
+
+local function all_wins_bufs_valid()
+	for _, w in ipairs(state.wins) do
+		if not vim.api.nvim_win_is_valid(w) then
+			return false
+		end
+	end
+	for _, b in ipairs(state.bufs) do
+		if not vim.api.nvim_buf_is_valid(b) then
+			return false
+		end
+	end
+	return true
+end
+
+-- 可視列の構成とレイアウト(列幅・高さ)が前回描画時と変わらない場合に、
+-- ウィンドウ/バッファを閉じて作り直さず、内容(行・ハイライト・タイトル)だけを
+-- 更新する。トリアージ操作(カードを1件動かすたびに書き込みオブザーバ経由で
+-- 再描画される、本機能の主要ユースケース)で、無関係な列まで含めて毎回
+-- ちらつくのを避けるための最適化。ページング・リサイズ等で可視列やレイアウトが
+-- 変わる場合は render() 側の判定でこの関数を使わず作り直す。
+local function update_columns_in_place(visible_indices, columns, layout, today_time)
+	for i, col_index in ipairs(visible_indices) do
+		local column = columns[col_index]
+		local win = state.wins[i]
+		local buf = state.bufs[i]
+		local key = state.col_keys[i]
+
+		local prev_view, prev_task_id = nil, nil
+		local ok, view = pcall(vim.api.nvim_win_call, win, function()
+			return vim.fn.winsaveview()
+		end)
+		if ok then
+			prev_view = view
+			local range = M._find_card_at_line(state.card_ranges[key] or {}, view.lnum)
+			if range then
+				prev_task_id = range.task_id
+			end
+		end
+
+		local lines, ranges, hl_spans = M._render_column_lines(column.cards, layout.col_width, today_time)
+		state.card_ranges[key] = ranges
+
+		vim.bo[buf].modifiable = true
+		vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+		vim.bo[buf].modifiable = false
+
+		vim.api.nvim_buf_clear_namespace(buf, kanban_ns, 0, -1)
+		apply_highlight_spans(buf, hl_spans)
+
+		pcall(vim.api.nvim_win_set_config, win, { title = string.format(" %s (%d) ", column.title, #column.cards) })
+
+		restore_view(win, buf, ranges, prev_task_id, prev_view)
+		highlight_current_card(buf, win, key)
+	end
+end
+
 -- (再)描画する。focus_index(1-indexed, COLUMN_KEYS上の位置)を可視範囲に含めて
 -- フォーカスする。他インスタンスの書き込み・due自動昇格・日次ロールオーバー等
 -- による再描画もすべてこの関数を通る。
 render = function(focus_index)
 	focus_index = focus_index or state.focus_col_index or 1
+
+	local columns, today_time = collect_columns()
+
+	local avail_width = math.max(MIN_COL_WIDTH, vim.o.columns - OUTER_MARGIN * 2)
+	local avail_height = math.max(10, math.floor(vim.o.lines * 0.8))
+	local layout = M._compute_layout(#columns, avail_width, avail_height)
+	local new_offset = M._clamp_page_offset(focus_index, layout.visible_count, #columns, state.page_offset)
+
+	local visible_indices = {}
+	for i = 1, layout.visible_count do
+		table.insert(visible_indices, new_offset + i)
+	end
+
+	if
+		state.is_open
+		and layout.col_width == state.last_layout_col_width
+		and layout.height == state.last_layout_height
+		and arrays_equal(visible_indices, state.visible_indices)
+		and all_wins_bufs_valid()
+	then
+		update_columns_in_place(visible_indices, columns, layout, today_time)
+		state.page_offset = new_offset
+		state.focus_col_index = focus_index
+		return
+	end
 
 	-- 閉じる前に、現在表示中の各列のカーソル位置/スクロール位置を保存しておく。
 	for i, key in ipairs(state.col_keys) do
@@ -614,21 +730,13 @@ render = function(focus_index)
 		end
 	end
 
+	-- WinClosed/BufWipeout/CursorMoved の登録は作り直すたびに積み上がるため、
+	-- 古い登録(既に閉じた/これから消えるウィンドウ・バッファを指すもの)を
+	-- 明示的にクリアしてから作り直す。
+	vim.api.nvim_clear_autocmds({ group = AUGROUP })
 	close_kanban()
 
-	local columns, today_time = collect_columns()
-
-	local avail_width = math.max(MIN_COL_WIDTH, vim.o.columns - OUTER_MARGIN * 2)
-	local avail_height = math.max(10, math.floor(vim.o.lines * 0.8))
-	local layout = M._compute_layout(#columns, avail_width, avail_height)
-	state.page_offset = M._clamp_page_offset(focus_index, layout.visible_count, #columns, state.page_offset)
-
 	local row = math.max(0, math.floor((vim.o.lines - layout.height) / 2))
-
-	local visible_indices = {}
-	for i = 1, layout.visible_count do
-		table.insert(visible_indices, state.page_offset + i)
-	end
 
 	local new_wins, new_bufs, new_keys = {}, {}, {}
 	local failed = false
@@ -644,8 +752,13 @@ render = function(focus_index)
 		vim.bo[buf].buftype = "nofile"
 		vim.bo[buf].bufhidden = "wipe"
 		vim.bo[buf].swapfile = false
+		-- ネイティブundo(u)を実質no-opにする。カンバンのバッファはtodo.md/done.mdの
+		-- 内容を再描画するだけの表示専用バッファであり、バッファ内容への直接編集は
+		-- 想定していない。undo履歴を残すと、実データ(todo.md)を変えない見た目だけの
+		-- 巻き戻しができるように見えて誤操作を誘発するため、記録自体を無効化する。
+		vim.bo[buf].undolevels = -1
 
-		local x = OUTER_MARGIN + (i - 1) * (layout.col_width + 2 + COL_GAP)
+		local x = OUTER_MARGIN + (i - 1) * (layout.col_width + WIN_BORDER_WIDTH + COL_GAP)
 		local ok, win = pcall(vim.api.nvim_open_win, buf, false, {
 			relative = "editor",
 			width = layout.col_width,
@@ -653,7 +766,7 @@ render = function(focus_index)
 			row = row,
 			col = x,
 			style = "minimal",
-			border = "single",
+			border = "rounded",
 			title = string.format(" %s (%d) ", column.title, #column.cards),
 			title_pos = "center",
 		})
@@ -701,7 +814,10 @@ render = function(focus_index)
 	state.bufs = new_bufs
 	state.col_keys = new_keys
 	state.visible_indices = visible_indices
+	state.page_offset = new_offset
 	state.focus_col_index = focus_index
+	state.last_layout_col_width = layout.col_width
+	state.last_layout_height = layout.height
 	state.is_open = true
 
 	for i, idx in ipairs(visible_indices) do
@@ -729,6 +845,17 @@ focus_column = function(delta)
 
 	render(new_index)
 end
+
+-- ターミナルのリサイズに列レイアウト(表示できる列数・1列あたりの幅)を追従させる。
+-- GLOBAL_AUGROUP に登録するため、render() が AUGROUP をクリアしても消えない。
+vim.api.nvim_create_autocmd("VimResized", {
+	group = GLOBAL_AUGROUP,
+	callback = function()
+		if state.is_open then
+			render(state.focus_col_index)
+		end
+	end,
+})
 
 -- inbox.md/todo.md への書き込みで進捗表示を更新する ui/project.lua と同じパターン:
 -- 書き込みが起きたことをここで拾い、Kanban表示中であれば再描画する。
