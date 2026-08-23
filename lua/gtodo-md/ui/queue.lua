@@ -6,6 +6,12 @@ local float_ui = require("gtodo-md.ui.float")
 local WEEKDAYS_JP = { "日", "月", "火", "水", "木", "金", "土" }
 local SEPARATOR = string.rep("─", 46)
 
+-- この日数を超える未来の見出しは、旧「それ以降」セクションと同様に
+-- 低視覚重みのハイライト(Comment)にする(#150 フォローアップ)。
+-- date_label() が一律 DiagnosticInfo を返すと、320日後のような遠い将来の
+-- タスクも3日後と同じ強調色になり、偽の緊急性を招くため。
+local FAR_FUTURE_DAYS = 30
+
 -- ファイルをバッファとして読み込む。
 -- 既にロード済みならそのまま返す(何もイベントは発火しない)。
 -- 未ロードの場合、bufload() は BufRead/BufReadPre/BufReadPost 等の
@@ -216,7 +222,8 @@ local function date_label(date_str, today_time)
 	elseif diff == 1 then
 		return string.format(" 明日 (%d/%d %s)", mo, d, wd), "DiagnosticInfo"
 	else
-		return string.format(" %d/%d %s (%d日後)", mo, d, wd, diff), "DiagnosticInfo"
+		local hl = diff > FAR_FUTURE_DAYS and "Comment" or "DiagnosticInfo"
+		return string.format(" %d/%d %s (%d日後)", mo, d, wd, diff), hl
 	end
 end
 

@@ -189,6 +189,24 @@ describe("ui.queue._build_display (due モード)", function()
 		end
 	)
 
+	it("30日を大きく超える日付(40日後)の見出しはComment(低視覚重み)になる", function()
+		local idx
+		for i, line in ipairs(lines) do
+			if line == " 7/20 日 (40日後)" then
+				idx = i - 1
+				break
+			end
+		end
+		assert.is_not_nil(idx)
+		local found
+		for _, hl in ipairs(hls) do
+			if hl[1] == idx then
+				found = hl[2]
+			end
+		end
+		assert.are.same("Comment", found)
+	end)
+
 	it("タスク行だけが line_map に登録される", function()
 		local mapped = 0
 		for idx, source in pairs(line_map) do
@@ -225,6 +243,40 @@ describe("ui.queue._build_display (due モード)", function()
 			"",
 			"  期限付きタスクはありません",
 		}, empty_lines)
+	end)
+end)
+
+describe("ui.queue._build_display 日付見出しのハイライト閾値(#150 フォローアップ)", function()
+	local lines, hls
+
+	before_each(function()
+		local entries = {
+			entry("- [ ] boundary near due:2025-07-10"), -- 30日後(閾値以内)
+			entry("- [ ] boundary far due:2025-07-11"), -- 31日後(閾値超え)
+		}
+		local groups = queue._group_entries(entries, "due", TODAY_TIME)
+		lines, hls = queue._build_display("due", groups, TODAY_STR, TODAY_TIME)
+	end)
+
+	local function hl_of_line_containing(pattern)
+		for i, line in ipairs(lines) do
+			if line:find(pattern, 1, true) then
+				for _, hl in ipairs(hls) do
+					if hl[1] == i - 1 then
+						return hl[2]
+					end
+				end
+			end
+		end
+		return nil
+	end
+
+	it("30日後(閾値以内)はDiagnosticInfoのまま", function()
+		assert.are.same("DiagnosticInfo", hl_of_line_containing("(30日後)"))
+	end)
+
+	it("31日後(閾値超え)はComment(低視覚重み)へ格下げされる", function()
+		assert.are.same("Comment", hl_of_line_containing("(31日後)"))
 	end)
 end)
 
