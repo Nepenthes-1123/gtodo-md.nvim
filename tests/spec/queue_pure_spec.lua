@@ -76,26 +76,40 @@ describe("ui.queue._group_entries (due モード)", function()
 		groups = queue._group_entries(entries, "due", TODAY_TIME)
 	end)
 
-	it("今日より前は overdue、7日後までは by_date、それ以降は later へ振り分ける", function()
-		assert.are.same({ "overdue older", "overdue newer" }, contents(groups.overdue))
-		assert.are.same({ "later edge", "later far" }, contents(groups.later))
-		assert.are.same({ "2025-06-10", "2025-06-11", "2025-06-17" }, groups.sorted_dates)
-	end)
+	it(
+		"今日より前は overdue、今日以降は全て by_date へ振り分ける(7日の区切りは無い)",
+		function()
+			assert.are.same({ "overdue older", "overdue newer" }, contents(groups.overdue))
+			assert.are.same(
+				{ "2025-06-10", "2025-06-11", "2025-06-17", "2025-06-18", "2025-07-20" },
+				groups.sorted_dates
+			)
+		end
+	)
 
-	it("ちょうど7日後は by_date に含まれ、8日後は later になる(境界)", function()
+	it("7日を超える日付も by_date に日付ごとのキーで含まれる", function()
 		assert.are.same({ "week edge" }, contents(groups.by_date["2025-06-17"]))
-		assert.is_nil(groups.by_date["2025-06-18"])
+		assert.are.same({ "later edge" }, contents(groups.by_date["2025-06-18"]))
+		assert.are.same({ "later far" }, contents(groups.by_date["2025-07-20"]))
 	end)
 
-	it("overdue と later は due の昇順にソートされる", function()
+	it("overdue は due の昇順にソートされる", function()
 		assert.are.same("2025-06-01", groups.overdue[1].task.due)
 		assert.are.same("2025-06-09", groups.overdue[2].task.due)
-		assert.are.same("2025-06-18", groups.later[1].task.due)
-		assert.are.same("2025-07-20", groups.later[2].task.due)
 	end)
 
 	it("同じ日付のタスクは元の並び順を保つ", function()
 		assert.are.same({ "today task", "today second" }, contents(groups.by_date["2025-06-10"]))
+	end)
+
+	it("7日を超えた先の同じ日付のタスクもまとめられる", function()
+		local far_entries = {
+			entry("- [ ] exam due:2025-09-12"),
+			entry("- [ ] dentist due:2025-09-12"),
+		}
+		local far_groups = queue._group_entries(far_entries, "due", TODAY_TIME)
+		assert.are.same({ "2025-09-12" }, far_groups.sorted_dates)
+		assert.are.same({ "exam", "dentist" }, contents(far_groups.by_date["2025-09-12"]))
 	end)
 
 	it("wait モード用のグループは空のまま", function()
@@ -106,7 +120,7 @@ describe("ui.queue._group_entries (due モード)", function()
 	it("エントリが空なら全グループが空になる", function()
 		local empty = queue._group_entries({}, "due", TODAY_TIME)
 		assert.are.same({}, empty.overdue)
-		assert.are.same({}, empty.later)
+		assert.are.same({}, empty.by_date)
 		assert.are.same({}, empty.sorted_dates)
 	end)
 end)
@@ -131,7 +145,6 @@ describe("ui.queue._group_entries (wait モード)", function()
 	it("due モード用のグループは空のまま", function()
 		assert.are.same({}, groups.overdue)
 		assert.are.same({}, groups.by_date)
-		assert.are.same({}, groups.later)
 		assert.are.same({}, groups.sorted_dates)
 	end)
 end)
@@ -167,10 +180,14 @@ describe("ui.queue._build_display (due モード)", function()
 		assert.is_truthy(vim.tbl_contains(lines, " 6/13 金 (3日後)"))
 	end)
 
-	it("それ以降のタスクには due:M/D を付ける", function()
-		assert.is_truthy(vim.tbl_contains(lines, " それ以降"))
-		assert.is_truthy(vim.tbl_contains(lines, "  ▶ later task  due:7/20"))
-	end)
+	it(
+		"7日を超える日付にも同じ形式の見出しが付き、それ以降への特別扱いは無い",
+		function()
+			assert.is_falsy(vim.tbl_contains(lines, " それ以降"))
+			assert.is_truthy(vim.tbl_contains(lines, " 7/20 日 (40日後)"))
+			assert.is_truthy(vim.tbl_contains(lines, "  ▶ later task"))
+		end
+	)
 
 	it("タスク行だけが line_map に登録される", function()
 		local mapped = 0

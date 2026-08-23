@@ -130,15 +130,13 @@ end
 -- 収集済みエントリを表示グループへ振り分け、表示順へソートする(純関数)。
 -- entries: { { task=..., filepath=..., lnum=..., mark_id=..., bufnr=... }, ... }
 -- today_time: 「今日」の 00:00 を指すエポック秒(省略時は実際の今日)
--- 戻り値: { overdue, by_date, sorted_dates, later, by_person, sorted_persons }
+-- 戻り値: { overdue, by_date, sorted_dates, by_person, sorted_persons }
 function M._group_entries(entries, mode, today_time)
 	today_time = today_time or utils.date_to_time(default_today_str())
-	local week_end_time = today_time + 7 * 24 * 60 * 60
 
 	-- due モード用のグループ分け
 	local overdue = {}
 	local by_date = {}
-	local later = {}
 
 	-- wait モード用のグループ分け
 	local by_person = {}
@@ -148,13 +146,11 @@ function M._group_entries(entries, mode, today_time)
 			local due_time = utils.date_to_time(entry.task.due)
 			if due_time < today_time then
 				table.insert(overdue, entry)
-			elseif due_time <= week_end_time then
+			else
 				if not by_date[entry.task.due] then
 					by_date[entry.task.due] = {}
 				end
 				table.insert(by_date[entry.task.due], entry)
-			else
-				table.insert(later, entry)
 			end
 		else
 			-- wait モード
@@ -178,9 +174,6 @@ function M._group_entries(entries, mode, today_time)
 		table.sort(overdue, function(a, b)
 			return a.task.due < b.task.due
 		end)
-		table.sort(later, function(a, b)
-			return a.task.due < b.task.due
-		end)
 	else
 		for p in pairs(by_person) do
 			table.insert(sorted_persons, p)
@@ -192,7 +185,6 @@ function M._group_entries(entries, mode, today_time)
 		overdue = overdue,
 		by_date = by_date,
 		sorted_dates = sorted_dates,
-		later = later,
 		by_person = by_person,
 		sorted_persons = sorted_persons,
 	}
@@ -288,7 +280,7 @@ function M._build_display(mode, groups, today_str, today_time)
 				)
 			end
 		end
-		-- 今日〜7日後（タスクある日のみ）
+		-- 今日以降（タスクある日のみ、日付ごとに見出しを分ける）
 		for _, date in ipairs(groups.sorted_dates) do
 			local label, hl = date_label(date, today_time)
 			add("", nil)
@@ -299,20 +291,8 @@ function M._build_display(mode, groups, today_str, today_time)
 			end
 		end
 
-		-- それ以降
-		if #groups.later > 0 then
-			add("", nil)
-			add(" それ以降", "Comment")
-			add(sep, "Comment")
-			for _, entry in ipairs(groups.later) do
-				local mo = tonumber(entry.task.due:sub(6, 7))
-				local d = tonumber(entry.task.due:sub(9, 10))
-				add(task_line(entry) .. string.format("  due:%d/%d", mo, d), "Comment", source_of(entry))
-			end
-		end
-
 		-- タスクがひとつもない場合
-		if #groups.overdue == 0 and #groups.sorted_dates == 0 and #groups.later == 0 then
+		if #groups.overdue == 0 and #groups.sorted_dates == 0 then
 			add("", nil)
 			add("  期限付きタスクはありません", "DiagnosticOk")
 		end
