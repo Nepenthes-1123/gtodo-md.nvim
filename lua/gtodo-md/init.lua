@@ -29,6 +29,7 @@ function M.setup(opts)
 	-- Autocmdの設定
 	M.setup_autocmds()
 	highlight_mod.setup()
+	require("gtodo-md.ui.kanban").setup()
 
 	-- グローバルキーマップの設定
 	if config.get("use_default_keymaps") then
@@ -39,6 +40,10 @@ function M.setup(opts)
 	vim.api.nvim_create_user_command("GtodoQueue", function()
 		ui_mod.open_queue()
 	end, { desc = "Open Gtodo Queue view" })
+
+	vim.api.nvim_create_user_command("GtodoKanban", function()
+		ui_mod.open_kanban()
+	end, { desc = "Open Gtodo Kanban view" })
 
 	vim.api.nvim_create_user_command("GtodoEditTemplate", function()
 		ui_mod.edit_template()
