@@ -100,14 +100,17 @@ end
 function M._card_body_lines(task, inner_width, today_time)
 	today_time = today_time or utils.date_to_time(os.date("%Y-%m-%d"))
 
-	local checkbox = (task.status == "x") and "[x]" or "[ ]"
+	-- [ ]/[x] のチェックボックス表記は表示しない。どの列に表示されているか自体が
+	-- 完了状態を表す(Today/Next/Someday/Waitingは未完了のみ、Doneは完了/
+	-- rollover待ちのみ)ため、ただでさえ狭いカード内で冗長になるための判断。
+	-- task自体のstatus(データ)には一切触れない。
 	local priority_text = (task.priority and task.priority ~= "") and ("(" .. task.priority .. ") ") or ""
-	local head = " " .. checkbox .. " " .. priority_text .. (task.content or "")
+	local head = " " .. priority_text .. (task.content or "")
 	local first = M._pad_to_width(M._truncate_to_width(head, inner_width), inner_width)
 
 	local spans = {}
 	if priority_text ~= "" then
-		local prefix_len = #(" " .. checkbox .. " ")
+		local prefix_len = #" "
 		local hl = "GTodoPriorityC"
 		if task.priority == "A" then
 			hl = "GTodoPriorityA"

@@ -44,16 +44,22 @@ describe("ui.kanban._truncate_to_width / _pad_to_width", function()
 end)
 
 describe("ui.kanban._card_body_lines", function()
-	it("1行目はチェック状態と本文からなる", function()
+	it("1行目は本文からなる", function()
 		local lines = kanban._card_body_lines(task("- [ ] Buy milk"), 30, TODAY_TIME)
-		assert.is_truthy(lines[1]:find("[ ]", 1, true))
 		assert.is_truthy(lines[1]:find("Buy milk", 1, true))
 	end)
 
-	it("完了タスクは [x] で表示する", function()
-		local lines = kanban._card_body_lines(task("- [x] Done task completed_at:2026-08-20"), 30, TODAY_TIME)
-		assert.is_truthy(lines[1]:find("[x]", 1, true))
-	end)
+	it(
+		"[ ]/[x] のチェックボックス表記は状態に関わらず表示しない(完了状態は列自体で表現するため)",
+		function()
+			local incomplete_lines = kanban._card_body_lines(task("- [ ] Buy milk"), 30, TODAY_TIME)
+			assert.is_nil(incomplete_lines[1]:find("[ ]", 1, true))
+
+			local done_lines = kanban._card_body_lines(task("- [x] Done task completed_at:2026-08-20"), 30, TODAY_TIME)
+			assert.is_nil(done_lines[1]:find("[x]", 1, true))
+			assert.is_truthy(done_lines[1]:find("Done task", 1, true))
+		end
+	)
 
 	it("優先度がある場合は1行目に含め、ハイライトスパンを返す", function()
 		local lines, spans = kanban._card_body_lines(task("- [ ] (A) Important task"), 30, TODAY_TIME)
