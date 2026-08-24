@@ -293,8 +293,11 @@ function M._build_display(mode, groups, today_str, today_time)
 			add("", nil)
 			add(label, hl)
 			add(sep, "Comment")
+			-- 見出しが30日超で Comment(低視覚重み)になる日は、タスク行も揃えて
+			-- Comment にする(旧「それ以降」セクションと同じ扱い)。
+			local task_hl = hl == "Comment" and "Comment" or nil
 			for _, entry in ipairs(groups.by_date[date]) do
-				add(task_line(entry), nil, source_of(entry))
+				add(task_line(entry), task_hl, source_of(entry))
 			end
 		end
 

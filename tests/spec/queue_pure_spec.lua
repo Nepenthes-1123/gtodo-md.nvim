@@ -278,6 +278,14 @@ describe("ui.queue._build_display 日付見出しのハイライト閾値(#150 �
 	it("31日後(閾値超え)はComment(低視覚重み)へ格下げされる", function()
 		assert.are.same("Comment", hl_of_line_containing("(31日後)"))
 	end)
+
+	it("30日後(閾値以内)のタスク行は通常色(ハイライト無し)のまま", function()
+		assert.is_nil(hl_of_line_containing("boundary near"))
+	end)
+
+	it("31日後(閾値超え)のタスク行も見出しと揃えてCommentになる", function()
+		assert.are.same("Comment", hl_of_line_containing("boundary far"))
+	end)
 end)
 
 describe("ui.queue._build_display (wait モード)", function()
