@@ -19,6 +19,7 @@ local config = require("gtodo-md.config")
 local io_mod = require("gtodo-md.io")
 local utils = require("gtodo-md.utils")
 local editor_mod = require("gtodo-md.editor")
+local float_ui = require("gtodo-md.ui.float")
 
 local BORDER_H = "─"
 local BORDER_V = "│"
@@ -882,6 +883,11 @@ function M.setup()
 end
 
 function M.open_kanban()
+	-- todo/inbox/done/cancelledのフロートやQueueが開いていれば、まずそちらを閉じてから
+	-- 開く(単一の排他ビューレジストリ経由。ui/float.lua参照)。逆方向(Kanban表示中に
+	-- それらを開いた場合にKanbanが閉じること)は、それらが register_float_win 経由で
+	-- 同じレジストリへ登録する際に自動的に成立する。
+	float_ui.register_active_view(M.close_kanban)
 	render(state.focus_col_index or 1)
 end
 
