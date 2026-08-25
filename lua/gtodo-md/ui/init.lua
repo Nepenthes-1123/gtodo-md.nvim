@@ -16,6 +16,8 @@ M.search_tasks = require("gtodo-md.ui.search").search_tasks
 -- project.lua
 M.jump_to_project = require("gtodo-md.ui.project").jump_to_project
 M.render_project_tasks = require("gtodo-md.ui.project").render_project_tasks
+M.archive_project = require("gtodo-md.ui.project").archive_project
+M.restore_project = require("gtodo-md.ui.project").restore_project
 
 -- prompt_task
 M.prompt_task = require("gtodo-md.ui.prompt").prompt_task
@@ -23,5 +25,7 @@ M.prompt_task = require("gtodo-md.ui.prompt").prompt_task
 -- template.lua
 M.edit_template = require("gtodo-md.ui.template").edit_template
 M.insert_template = require("gtodo-md.ui.template").insert_template
+M.archive_template = require("gtodo-md.ui.template").archive_template
+M.restore_template = require("gtodo-md.ui.template").restore_template
 
 return M

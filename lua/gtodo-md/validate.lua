@@ -33,6 +33,9 @@ local function frontmatter_end_index(lines)
 	return nil
 end
 
+-- ui/project.lua が status: 行の書き換え範囲をフロントマター内に限定するために再利用する。
+M.frontmatter_end_index = frontmatter_end_index
+
 -- todo.md に不足している必須セクション見出しのリストを返す。
 -- #94: config.sections.* はsetup()でカスタム名に変更できるが、
 -- デフォルト名(Today等)も常にエイリアスとして受理する(既存ファイルの
