@@ -8,6 +8,8 @@ gtodo-md.nvim は、プレーンな Markdown ファイル（`inbox.md`, `todo.md
 
 リポジトリ構成に関する注意: このチェックアウトは、親ディレクトリの bare リポジトリから作られたブランチごとの git worktree の1つです。他のブランチ用の worktree が兄弟ディレクトリとして存在する場合があります。
 
+**既存の worktree 内で `git checkout <別ブランチ>` を行ってはならない。** 各 worktree は「1 worktree = 1 ブランチ」を前提に運用されており、特に `main`/`develop` 用の worktree はローカルの `main`/`develop` ブランチ参照を最新に保つ役割を兼ねている。この規律を破って worktree 内でブランチを切り替えると、その worktree はブランチ最新化の役目を果たさなくなり、ローカルブランチ参照が `origin` から静かに乖離し続ける（実際に `develop` 用 worktree 内で `feat/archive-restore` へ切り替えた結果、ローカル `develop` が `origin/develop` から17コミット遅れたまま放置され、他の feature ブランチが古い `develop` を基点に分岐する事故が発生した）。新しい作業には必ず新しい worktree（`git worktree add`）を使うこと。
+
 ## コマンド
 
 Lua 5.1 のツールチェインと、PATH 上の Neovim が必要です。`plenary.nvim` が利用可能である必要があります（`stdpath("data")/site/pack/core/opt/plenary.nvim` に存在するか、リポジトリルートからの相対パス `./plenary` として存在すること — `tests/minimal_init.lua` を参照）。
