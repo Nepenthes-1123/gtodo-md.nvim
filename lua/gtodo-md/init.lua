@@ -52,6 +52,22 @@ function M.setup(opts)
 	vim.api.nvim_create_user_command("GtodoInsertTemplate", function()
 		ui_mod.insert_template()
 	end, { desc = "Insert tasks from a Gtodo task template" })
+
+	vim.api.nvim_create_user_command("GtodoArchiveTemplate", function()
+		ui_mod.archive_template()
+	end, { desc = "Archive a Gtodo task template" })
+
+	vim.api.nvim_create_user_command("GtodoRestoreTemplate", function()
+		ui_mod.restore_template()
+	end, { desc = "Restore an archived Gtodo task template" })
+
+	vim.api.nvim_create_user_command("GtodoArchiveProject", function()
+		ui_mod.archive_project()
+	end, { desc = "Archive a Gtodo project" })
+
+	vim.api.nvim_create_user_command("GtodoRestoreProject", function()
+		ui_mod.restore_project()
+	end, { desc = "Restore an archived Gtodo project" })
 end
 
 -- BufEnter時の自動処理

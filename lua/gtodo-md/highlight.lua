@@ -149,6 +149,10 @@ function M.update_highlights(bufnr)
 			local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 			local today_time = utils.date_to_time(os.date("%Y-%m-%d"))
 
+			-- done.md/cancelled.md は完了/キャンセル済みのため、due の相対表示(仮想テキスト)は
+			-- 意味を持たない。行ごとに判定せずここで1回だけ行う。
+			local is_history = utils.is_history_file(vim.api.nvim_buf_get_name(bufnr))
+
 			-- ロケール判定は1回の update_highlights 呼び出し内では不変なので、
 			-- due日付を持つ行ごとにループの内側で計算せずここで1回だけ行う。
 			local lang = type(vim.v.lang) == "string" and vim.v.lang or os.getenv("LANG") or ""
@@ -251,7 +255,8 @@ function M.update_highlights(bufnr)
 						})
 
 						-- Virtual text at end of line
-						if vtext ~= "" then
+						-- done.md/cancelled.md には付与しない(完了/キャンセル済みタスクの相対due表示は無意味なため)
+						if vtext ~= "" and not is_history then
 							vim.api.nvim_buf_set_extmark(bufnr, ns, i - 1, 0, {
 								virt_text = { { vtext, hl } },
 								virt_text_pos = "eol",

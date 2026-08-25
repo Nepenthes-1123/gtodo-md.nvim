@@ -116,14 +116,16 @@ function M.ensure_dir(path)
 	return ok and created ~= 0
 end
 
-function M.is_gtodo_file(bufname)
+-- bufname を data_dir からの相対パスへ正規化する(絶対パス化・区切り文字統一・小文字化)。
+-- data_dir 配下でなければ nil を返す。
+local function relative_path(bufname)
 	if not bufname or bufname == "" then
-		return false
+		return nil
 	end
 	local config = require("gtodo-md.config")
 	local data_dir = config.get("data_dir")
 	if not data_dir or data_dir == "" then
-		return false
+		return nil
 	end
 
 	-- 相対パス・ドットパスを絶対パスへ正規化
@@ -138,15 +140,31 @@ function M.is_gtodo_file(bufname)
 	end
 
 	if norm_bufname:sub(1, #norm_datadir) == norm_datadir then
-		local rel = norm_bufname:sub(#norm_datadir + 1)
-		if rel == "inbox.md" or rel == "todo.md" or rel == "done.md" or rel == "cancelled.md" then
-			return true
-		end
-		if rel:match("^projects/[^/]+%.md$") then
-			return true
-		end
+		return norm_bufname:sub(#norm_datadir + 1)
+	end
+	return nil
+end
+
+function M.is_gtodo_file(bufname)
+	local rel = relative_path(bufname)
+	if not rel then
+		return false
+	end
+	if rel == "inbox.md" or rel == "todo.md" or rel == "done.md" or rel == "cancelled.md" then
+		return true
+	end
+	if rel:match("^projects/[^/]+%.md$") then
+		return true
 	end
 	return false
+end
+
+-- done.md / cancelled.md(繰り込み済み・キャンセル済みタスクの保管先)かどうか。
+-- これらのタスクは既に完了/キャンセル済みのため、due の相対表示(仮想テキスト)は
+-- 意味を持たない(highlight.lua が参照する)。
+function M.is_history_file(bufname)
+	local rel = relative_path(bufname)
+	return rel == "done.md" or rel == "cancelled.md"
 end
 
 return M
