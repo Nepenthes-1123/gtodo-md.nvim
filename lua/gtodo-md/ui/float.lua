@@ -49,8 +49,8 @@ function M.open_float(filepath, title)
 	-- 既存のgtodoフロートを閉じてから新しく開く
 	M.close_current_float()
 
-	local width = math.floor(vim.o.columns * config.get("float_width_ratio"))
-	local height = math.floor(vim.o.lines * config.get("float_height_ratio"))
+	local width = math.floor(vim.o.columns * config.get("float_ratio").width)
+	local height = math.floor(vim.o.lines * config.get("float_ratio").height)
 	local col = math.floor((vim.o.columns - width) / 2)
 	local row = math.floor((vim.o.lines - height) / 2)
 

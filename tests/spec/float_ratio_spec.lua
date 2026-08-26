@@ -2,24 +2,27 @@
 -- 高さ/横幅を割合(vim.o.columns/vim.o.lines に対する比率)で設定できるようにする。
 --
 -- 設計上の要件:
--- - todo/inbox/done/cancelled のフロートと Queue は float_width_ratio/float_height_ratio
---   (既定0.8)を共有する。Queue にあった絶対値上限(min(..., 80列))は廃止する。
+-- - todo/inbox/done/cancelled のフロートと Queue は float_ratio = { width, height }
+--   (既定0.8/0.8)を共有する。Queue にあった絶対値上限(min(..., 80列))は廃止する。
 -- - カンバンは列数を確保するためになるべく画面全体を使いたいという目的の違いから、
---   float_width_ratio/float_height_ratio とは独立した kanban_width_ratio/kanban_height_ratio
---   (既定はより広め)を持つ。float_width_ratio を変えてもカンバンの列幅は変化しない。
+--   float_ratio とは独立した kanban_ratio = { width, height }(既定はより広め)を持つ。
+--   float_ratio を変えてもカンバンの列幅は変化しない。
+-- - float_ratio/kanban_ratio はネストしたテーブルで、setup()はvim.tbl_deep_extendが
+--   再帰的にマージするため、width/heightの片方だけを渡しても他方は既定値のまま残る
+--   (sectionsのような専用サニタイズは不要)。
 
 local config = require("gtodo-md.config")
 
 describe("config: float/kanban 用の比率設定 (#151)", function()
 	describe("デフォルト値", function()
-		it("float_width_ratio/float_height_ratioの既定値は0.8", function()
-			assert.are.equal(0.8, config.get("float_width_ratio"))
-			assert.are.equal(0.8, config.get("float_height_ratio"))
+		it("float_ratioの既定値はwidth=0.8, height=0.8", function()
+			assert.are.equal(0.8, config.get("float_ratio").width)
+			assert.are.equal(0.8, config.get("float_ratio").height)
 		end)
 
-		it("kanban_width_ratioの既定値は単一フロートより広く、kanban_height_ratioは0.8", function()
-			assert.is_true(config.get("kanban_width_ratio") > config.get("float_width_ratio"))
-			assert.are.equal(0.8, config.get("kanban_height_ratio"))
+		it("kanban_ratio.widthの既定値は単一フロートより広く、heightは0.8", function()
+			assert.is_true(config.get("kanban_ratio").width > config.get("float_ratio").width)
+			assert.are.equal(0.8, config.get("kanban_ratio").height)
 		end)
 	end)
 
@@ -36,24 +39,31 @@ describe("config: float/kanban 用の比率設定 (#151)", function()
 			vim.fn.delete(data_dir, "rf")
 		end)
 
-		it("float_width_ratio/float_height_ratioをキー単位で上書きできる", function()
-			config.setup({ data_dir = data_dir, float_width_ratio = 0.5, float_height_ratio = 0.6 })
-			assert.are.equal(0.5, config.get("float_width_ratio"))
-			assert.are.equal(0.6, config.get("float_height_ratio"))
+		it("float_ratioをテーブルごと上書きできる", function()
+			config.setup({ data_dir = data_dir, float_ratio = { width = 0.5, height = 0.6 } })
+			assert.are.equal(0.5, config.get("float_ratio").width)
+			assert.are.equal(0.6, config.get("float_ratio").height)
 		end)
 
-		it("kanban_width_ratio/kanban_height_ratioをキー単位で上書きできる", function()
-			config.setup({ data_dir = data_dir, kanban_width_ratio = 0.95, kanban_height_ratio = 0.7 })
-			assert.are.equal(0.95, config.get("kanban_width_ratio"))
-			assert.are.equal(0.7, config.get("kanban_height_ratio"))
+		it("kanban_ratioをテーブルごと上書きできる", function()
+			config.setup({ data_dir = data_dir, kanban_ratio = { width = 0.95, height = 0.7 } })
+			assert.are.equal(0.95, config.get("kanban_ratio").width)
+			assert.are.equal(0.7, config.get("kanban_ratio").height)
 		end)
 
-		it("一部だけ上書きしても他のキーは既定値のまま残る", function()
-			config.setup({ data_dir = data_dir, float_width_ratio = 0.5 })
-			assert.are.equal(0.5, config.get("float_width_ratio"))
-			assert.are.equal(0.8, config.get("float_height_ratio"))
-			assert.are.equal(0.9, config.get("kanban_width_ratio"))
-			assert.are.equal(0.8, config.get("kanban_height_ratio"))
+		it(
+			"float_ratio.widthだけ上書きしても、heightは既定値のまま残る(vim.tbl_deep_extendによる再帰マージ)",
+			function()
+				config.setup({ data_dir = data_dir, float_ratio = { width = 0.5 } })
+				assert.are.equal(0.5, config.get("float_ratio").width)
+				assert.are.equal(0.8, config.get("float_ratio").height)
+			end
+		)
+
+		it("float_ratioを上書きしてもkanban_ratioは既定値のまま残る", function()
+			config.setup({ data_dir = data_dir, float_ratio = { width = 0.5 } })
+			assert.are.equal(0.9, config.get("kanban_ratio").width)
+			assert.are.equal(0.8, config.get("kanban_ratio").height)
 		end)
 	end)
 end)
@@ -74,8 +84,8 @@ describe("ui.float.open_float の比率設定 (#151)", function()
 		vim.fn.delete(data_dir, "rf")
 	end)
 
-	it("float_width_ratio/float_height_ratioに応じたウィンドウサイズで開く", function()
-		config.setup({ data_dir = data_dir, float_width_ratio = 0.5, float_height_ratio = 0.4 })
+	it("float_ratioに応じたウィンドウサイズで開く", function()
+		config.setup({ data_dir = data_dir, float_ratio = { width = 0.5, height = 0.4 } })
 
 		local float = require("gtodo-md.ui.float")
 		local _, win = float.open_float(path, "Todo")
@@ -119,8 +129,8 @@ describe("ui.queue.open_queue の比率設定 (#151)", function()
 		vim.fn.delete(data_dir, "rf")
 	end)
 
-	it("float_width_ratioに応じて幅が変わり、80列の絶対値上限は存在しない", function()
-		config.setup({ data_dir = data_dir, float_width_ratio = 0.95 })
+	it("float_ratio.widthに応じて幅が変わり、80列の絶対値上限は存在しない", function()
+		config.setup({ data_dir = data_dir, float_ratio = { width = 0.95 } })
 
 		local queue = require("gtodo-md.ui.queue")
 		queue.open_queue("due")
@@ -180,15 +190,15 @@ describe("ui.kanban の比率設定 (#151)", function()
 		vim.fn.delete(data_dir, "rf")
 	end)
 
-	it("kanban_width_ratioを大きくすると小さくするより表示列数が増える", function()
+	it("kanban_ratio.widthを大きくすると小さくするより表示列数が増える", function()
 		local kanban = require("gtodo-md.ui.kanban")
 
-		config.setup({ data_dir = data_dir, kanban_width_ratio = 0.3 })
+		config.setup({ data_dir = data_dir, kanban_ratio = { width = 0.3 } })
 		kanban.open_kanban()
 		local narrow_count = #list_float_wins()
 		kanban.close_kanban()
 
-		config.setup({ data_dir = data_dir, kanban_width_ratio = 0.95 })
+		config.setup({ data_dir = data_dir, kanban_ratio = { width = 0.95 } })
 		kanban.open_kanban()
 		local wide_count = #list_float_wins()
 		kanban.close_kanban()
@@ -203,30 +213,26 @@ describe("ui.kanban の比率設定 (#151)", function()
 		)
 	end)
 
-	it("float_width_ratioを変えてもカンバンの列幅は変化しない(独立設定)", function()
+	it("float_ratioを変えてもカンバンの列幅は変化しない(独立設定)", function()
 		local kanban = require("gtodo-md.ui.kanban")
 
-		config.setup({ data_dir = data_dir, float_width_ratio = 0.3, kanban_width_ratio = 0.9 })
+		config.setup({ data_dir = data_dir, float_ratio = { width = 0.3 }, kanban_ratio = { width = 0.9 } })
 		kanban.open_kanban()
 		local width1 = vim.api.nvim_win_get_config(list_float_wins()[1]).width
 		kanban.close_kanban()
 
-		config.setup({ data_dir = data_dir, float_width_ratio = 0.95, kanban_width_ratio = 0.9 })
+		config.setup({ data_dir = data_dir, float_ratio = { width = 0.95 }, kanban_ratio = { width = 0.9 } })
 		kanban.open_kanban()
 		local width2 = vim.api.nvim_win_get_config(list_float_wins()[1]).width
 		kanban.close_kanban()
 
-		assert.are.equal(
-			width1,
-			width2,
-			"float_width_ratioの変更がkanbanの列幅に影響してしまっている"
-		)
+		assert.are.equal(width1, width2, "float_ratioの変更がkanbanの列幅に影響してしまっている")
 	end)
 
-	it("kanban_height_ratioに応じて列の高さが変わる", function()
+	it("kanban_ratio.heightに応じて列の高さが変わる", function()
 		local kanban = require("gtodo-md.ui.kanban")
 
-		config.setup({ data_dir = data_dir, kanban_height_ratio = 0.5 })
+		config.setup({ data_dir = data_dir, kanban_ratio = { height = 0.5 } })
 		kanban.open_kanban()
 		local height = vim.api.nvim_win_get_config(list_float_wins()[1]).height
 		kanban.close_kanban()
