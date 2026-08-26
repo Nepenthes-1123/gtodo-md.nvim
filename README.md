@@ -53,6 +53,8 @@ require("gtodo-md").setup({
   waiting_warning_interval = 3600, -- Interval to check Waiting tasks warnings (seconds)
   enable_project_progress = true, -- Display progress bars at the bottom of project files
   auto_move_inbox_to_today = true, -- Automatically move tasks with due dates of today/overdue from Inbox to Today on creation or edit
+  float_ratio = { width = 0.8, height = 0.8 }, -- Width/height ratio (relative to the screen) shared by the todo/inbox/done/cancelled floats and the Queue view
+  kanban_ratio = { width = 0.9, height = 0.8 }, -- Width/height ratio for the Kanban view (kept separate from float_ratio so shrinking the single floats doesn't also shrink the number of Kanban columns)
   sections = { -- Customize todo.md section names (partial overrides are fine)
     TODAY = "Today",
     NEXT = "Next",
