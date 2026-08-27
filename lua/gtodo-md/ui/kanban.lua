@@ -387,6 +387,7 @@ local state = {
 	last_layout_col_width = nil, -- 直近の描画に使ったレイアウト(内容だけの更新が可能かの判定に使う)
 	last_layout_height = nil,
 	last_layout_left_margin = nil, -- 直近の描画に使った中央寄せ左マージン(同上)
+	last_layout_row = nil, -- 直近の描画に使った中央寄せ上マージン(同上)
 }
 
 local render
@@ -715,6 +716,11 @@ render = function(focus_index)
 	local avail_height = math.max(10, math.floor(vim.o.lines * kanban_ratio.height))
 	local layout = M._compute_layout(#columns, avail_width, avail_height)
 	local left_margin = M._center_left_margin(vim.o.columns, layout.visible_count, layout.col_width)
+	-- left_marginと同じ理由: vim.o.lines基準で計算するため、avail_height/
+	-- layout.heightが変わらなくてもvim.o.lines自体の変化でrowだけずれ得る。
+	-- fast pathはウィンドウのrow位置を更新しないため、判定条件に含めないと
+	-- 列が中央からずれた位置に取り残される。
+	local row = math.max(0, math.floor((vim.o.lines - layout.height) / 2))
 	local new_offset = M._clamp_page_offset(focus_index, layout.visible_count, #columns, state.page_offset)
 
 	local visible_indices = {}
@@ -727,6 +733,7 @@ render = function(focus_index)
 		and layout.col_width == state.last_layout_col_width
 		and layout.height == state.last_layout_height
 		and left_margin == state.last_layout_left_margin
+		and row == state.last_layout_row
 		and arrays_equal(visible_indices, state.visible_indices)
 		and all_wins_bufs_valid()
 	then
@@ -758,8 +765,6 @@ render = function(focus_index)
 	-- 明示的にクリアしてから作り直す。
 	vim.api.nvim_clear_autocmds({ group = AUGROUP })
 	close_kanban()
-
-	local row = math.max(0, math.floor((vim.o.lines - layout.height) / 2))
 
 	local new_wins, new_bufs, new_keys = {}, {}, {}
 	local failed = false
@@ -842,6 +847,7 @@ render = function(focus_index)
 	state.last_layout_col_width = layout.col_width
 	state.last_layout_height = layout.height
 	state.last_layout_left_margin = left_margin
+	state.last_layout_row = row
 	state.is_open = true
 
 	for i, idx in ipairs(visible_indices) do
