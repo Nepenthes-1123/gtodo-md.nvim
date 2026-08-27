@@ -281,6 +281,18 @@ function M._compute_layout(total_columns, avail_width, avail_height)
 	return { visible_count = visible_count, col_width = col_width, height = avail_height }
 end
 
+-- 列群を画面中央へ寄せるための左端マージンを計算する(純関数)。
+-- screen_width には avail_width(kanban_ratio適用後の帯)ではなく vim.o.columns
+-- (画面全体)をそのまま渡すこと — avail_width基準だと、kanban_ratio.width<1.0で
+-- 縮めた帯自体が左詰めのままになり、本来解消したい余白が残ってしまう。
+-- OUTER_MARGINは最低限確保する縁の余白として残し、置き換えず中央寄せ分を
+-- その上に加算する。
+function M._center_left_margin(screen_width, visible_count, col_width)
+	local used_width = visible_count * (col_width + WIN_BORDER_WIDTH) + COL_GAP * (visible_count - 1)
+	local extra = math.max(0, screen_width - used_width - OUTER_MARGIN * 2)
+	return OUTER_MARGIN + math.floor(extra / 2)
+end
+
 -- focus_index(1-indexed)が可視範囲に入るよう、必要なら page_offset をずらす(純関数)。
 -- 既に可視範囲内ならそのまま返す。
 function M._clamp_page_offset(focus_index, visible_count, total_columns, current_offset)
@@ -374,6 +386,7 @@ local state = {
 	closing = false,
 	last_layout_col_width = nil, -- 直近の描画に使ったレイアウト(内容だけの更新が可能かの判定に使う)
 	last_layout_height = nil,
+	last_layout_left_margin = nil, -- 直近の描画に使った中央寄せ左マージン(同上)
 }
 
 local render
@@ -701,6 +714,7 @@ render = function(focus_index)
 	local avail_width = math.max(MIN_COL_WIDTH, math.floor(vim.o.columns * kanban_ratio.width) - OUTER_MARGIN * 2)
 	local avail_height = math.max(10, math.floor(vim.o.lines * kanban_ratio.height))
 	local layout = M._compute_layout(#columns, avail_width, avail_height)
+	local left_margin = M._center_left_margin(vim.o.columns, layout.visible_count, layout.col_width)
 	local new_offset = M._clamp_page_offset(focus_index, layout.visible_count, #columns, state.page_offset)
 
 	local visible_indices = {}
@@ -712,6 +726,7 @@ render = function(focus_index)
 		state.is_open
 		and layout.col_width == state.last_layout_col_width
 		and layout.height == state.last_layout_height
+		and left_margin == state.last_layout_left_margin
 		and arrays_equal(visible_indices, state.visible_indices)
 		and all_wins_bufs_valid()
 	then
@@ -766,7 +781,7 @@ render = function(focus_index)
 		-- 巻き戻しができるように見えて誤操作を誘発するため、記録自体を無効化する。
 		vim.bo[buf].undolevels = -1
 
-		local x = OUTER_MARGIN + (i - 1) * (layout.col_width + WIN_BORDER_WIDTH + COL_GAP)
+		local x = left_margin + (i - 1) * (layout.col_width + WIN_BORDER_WIDTH + COL_GAP)
 		local ok, win = pcall(vim.api.nvim_open_win, buf, false, {
 			relative = "editor",
 			width = layout.col_width,
@@ -826,6 +841,7 @@ render = function(focus_index)
 	state.focus_col_index = focus_index
 	state.last_layout_col_width = layout.col_width
 	state.last_layout_height = layout.height
+	state.last_layout_left_margin = left_margin
 	state.is_open = true
 
 	for i, idx in ipairs(visible_indices) do
