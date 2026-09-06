@@ -12,6 +12,18 @@ M.defaults = {
 	enable_waiting_warning = true, -- Waitingタスクの期限警告通知を有効にするか
 	waiting_warning_interval = 3600, -- Waitingタスク警告のチェック間隔（秒）。デフォルト1時間
 	enable_project_progress = true, -- プロジェクトファイル最下部に進捗バーを表示するかどうか
+	-- todo/inbox/done/cancelled のフローティングウィンドウ、および Queue ビューが
+	-- 共有する横幅/高さの比率(#151)。画面(vim.o.columns/vim.o.lines)に対する割合。
+	-- setup()での部分上書き(例: setup({float_ratio={width=0.5}}))はvim.tbl_deep_extend
+	-- がネストしたテーブルを再帰的にマージするため、指定しなかったheightは
+	-- デフォルト値のまま残る(sectionsのような専用サニタイズは不要)。
+	float_ratio = { width = 0.8, height = 0.8 },
+	-- カンバンビュー専用の横幅/高さ比率(#151)。上記の float_ratio とはあえて
+	-- 別のキーにしてある — 同じ値を共有すると、「todo.mdのポップアップを
+	-- 小さめにしたい」という意図の設定が、意図せずカンバンの列数まで減らして
+	-- しまう副作用が起きるため(カンバンは列数を確保するためになるべく画面全体を
+	-- 使いたく、単一フロートより広めの既定値にしている)。
+	kanban_ratio = { width = 0.9, height = 0.8 },
 	-- conceal で隠す `key:value` 形式のタグ名。既定は `id` のみ(従来の挙動)。
 	-- 指定できるのは id / created / due / wait / completed_at / done / cancelled / from。
 	-- `+project`/`@context` は `key:value` 形式ではないため対象外。

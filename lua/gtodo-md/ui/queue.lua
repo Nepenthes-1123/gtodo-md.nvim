@@ -6,6 +6,12 @@ local float_ui = require("gtodo-md.ui.float")
 local WEEKDAYS_JP = { "日", "月", "火", "水", "木", "金", "土" }
 local SEPARATOR = string.rep("─", 46)
 
+-- この日数を超える未来の見出しは、旧「それ以降」セクションと同様に
+-- 低視覚重みのハイライト(Comment)にする(#150 フォローアップ)。
+-- date_label() が一律 DiagnosticInfo を返すと、320日後のような遠い将来の
+-- タスクも3日後と同じ強調色になり、偽の緊急性を招くため。
+local FAR_FUTURE_DAYS = 30
+
 -- ファイルをバッファとして読み込む。
 -- 既にロード済みならそのまま返す(何もイベントは発火しない)。
 -- 未ロードの場合、bufload() は BufRead/BufReadPre/BufReadPost 等の
@@ -130,15 +136,13 @@ end
 -- 収集済みエントリを表示グループへ振り分け、表示順へソートする(純関数)。
 -- entries: { { task=..., filepath=..., lnum=..., mark_id=..., bufnr=... }, ... }
 -- today_time: 「今日」の 00:00 を指すエポック秒(省略時は実際の今日)
--- 戻り値: { overdue, by_date, sorted_dates, later, by_person, sorted_persons }
+-- 戻り値: { overdue, by_date, sorted_dates, by_person, sorted_persons }
 function M._group_entries(entries, mode, today_time)
 	today_time = today_time or utils.date_to_time(default_today_str())
-	local week_end_time = today_time + 7 * 24 * 60 * 60
 
 	-- due モード用のグループ分け
 	local overdue = {}
 	local by_date = {}
-	local later = {}
 
 	-- wait モード用のグループ分け
 	local by_person = {}
@@ -148,13 +152,11 @@ function M._group_entries(entries, mode, today_time)
 			local due_time = utils.date_to_time(entry.task.due)
 			if due_time < today_time then
 				table.insert(overdue, entry)
-			elseif due_time <= week_end_time then
+			else
 				if not by_date[entry.task.due] then
 					by_date[entry.task.due] = {}
 				end
 				table.insert(by_date[entry.task.due], entry)
-			else
-				table.insert(later, entry)
 			end
 		else
 			-- wait モード
@@ -178,9 +180,6 @@ function M._group_entries(entries, mode, today_time)
 		table.sort(overdue, function(a, b)
 			return a.task.due < b.task.due
 		end)
-		table.sort(later, function(a, b)
-			return a.task.due < b.task.due
-		end)
 	else
 		for p in pairs(by_person) do
 			table.insert(sorted_persons, p)
@@ -192,7 +191,6 @@ function M._group_entries(entries, mode, today_time)
 		overdue = overdue,
 		by_date = by_date,
 		sorted_dates = sorted_dates,
-		later = later,
 		by_person = by_person,
 		sorted_persons = sorted_persons,
 	}
@@ -224,7 +222,8 @@ local function date_label(date_str, today_time)
 	elseif diff == 1 then
 		return string.format(" 明日 (%d/%d %s)", mo, d, wd), "DiagnosticInfo"
 	else
-		return string.format(" %d/%d %s (%d日後)", mo, d, wd, diff), "DiagnosticInfo"
+		local hl = diff > FAR_FUTURE_DAYS and "Comment" or "DiagnosticInfo"
+		return string.format(" %d/%d %s (%d日後)", mo, d, wd, diff), hl
 	end
 end
 
@@ -288,31 +287,22 @@ function M._build_display(mode, groups, today_str, today_time)
 				)
 			end
 		end
-		-- 今日〜7日後（タスクある日のみ）
+		-- 今日以降（タスクある日のみ、日付ごとに見出しを分ける）
 		for _, date in ipairs(groups.sorted_dates) do
 			local label, hl = date_label(date, today_time)
 			add("", nil)
 			add(label, hl)
 			add(sep, "Comment")
+			-- 見出しが30日超で Comment(低視覚重み)になる日は、タスク行も揃えて
+			-- Comment にする(旧「それ以降」セクションと同じ扱い)。
+			local task_hl = hl == "Comment" and "Comment" or nil
 			for _, entry in ipairs(groups.by_date[date]) do
-				add(task_line(entry), nil, source_of(entry))
-			end
-		end
-
-		-- それ以降
-		if #groups.later > 0 then
-			add("", nil)
-			add(" それ以降", "Comment")
-			add(sep, "Comment")
-			for _, entry in ipairs(groups.later) do
-				local mo = tonumber(entry.task.due:sub(6, 7))
-				local d = tonumber(entry.task.due:sub(9, 10))
-				add(task_line(entry) .. string.format("  due:%d/%d", mo, d), "Comment", source_of(entry))
+				add(task_line(entry), task_hl, source_of(entry))
 			end
 		end
 
 		-- タスクがひとつもない場合
-		if #groups.overdue == 0 and #groups.sorted_dates == 0 and #groups.later == 0 then
+		if #groups.overdue == 0 and #groups.sorted_dates == 0 then
 			add("", nil)
 			add("  期限付きタスクはありません", "DiagnosticOk")
 		end
@@ -341,8 +331,11 @@ end
 -- 表示行からフローティングウィンドウを作る。
 -- 失敗した場合は通知した上で nil を返す(呼び出し元はそこで諦める)。
 local function open_queue_window(lines, hls)
-	local width = math.min(math.floor(vim.o.columns * 0.65), 80)
-	local height = math.min(#lines + 2, math.floor(vim.o.lines * 0.8))
+	-- #151: todo/inbox/done/cancelledのフロートと同じ float_ratio を共有する。
+	-- 以前あった横幅の絶対値上限(80列キャップ)は廃止し、純粋な割合制御にする。
+	local float_ratio = config.get("float_ratio")
+	local width = math.floor(vim.o.columns * float_ratio.width)
+	local height = math.min(#lines + 2, math.floor(vim.o.lines * float_ratio.height))
 	local col = math.floor((vim.o.columns - width) / 2)
 	local row = math.floor((vim.o.lines - height) / 2)
 

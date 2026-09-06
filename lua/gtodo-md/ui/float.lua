@@ -1,22 +1,46 @@
 local M = {}
 local config = require("gtodo-md.config")
 
--- 現在開いているgtodoフローティングウィンドウ (1つだけ管理)
-local gtodo_float_win = nil
+-- 現在開いている「排他的な」ビュー(todo/inbox/done/cancelledのフロート、Queue、
+-- Kanban等)を閉じるためのクロージャを1つだけ保持する。次に別のビューを開く際は、
+-- まずこれを呼んで前のビューを閉じてから、新しいビューの閉じ方に差し替える。
+-- 単一ウィンドウとは限らない(Kanbanは複数ウィンドウを1つのビューとして扱う)ため、
+-- ウィンドウIDそのものではなく「閉じ方(関数)」を持つ形に一般化してある。
+local active_closer = nil
 
 -- open_float が張る WinLeave の置き場。clear=false で作る —
 -- clear=true にすると、別ファイルのフロートが張った登録まで巻き添えで消える。
 local float_augroup = vim.api.nvim_create_augroup("GtodoMdFloat", { clear = false })
 
+-- 現在の排他ビューを閉じる。呼び出し前に active_closer を nil へ戻してから
+-- closer を呼ぶ(再入防止。closer の実装が何らかの経路でこの関数を呼び返しても、
+-- 既に nil になっているため二重にクローズ処理が走らない)。
 function M.close_current_float()
-	if gtodo_float_win and vim.api.nvim_win_is_valid(gtodo_float_win) then
-		vim.api.nvim_win_close(gtodo_float_win, true)
+	local closer = active_closer
+	if closer then
+		active_closer = nil
+		closer()
 	end
-	gtodo_float_win = nil
 end
 
+-- 新しい排他ビューを登録する。まず現在の排他ビュー(あれば)を閉じてから、
+-- 渡された closer_fn を次の「閉じ方」として登録する。
+-- closer_fn は引数を取らない関数で、既に閉じている状態で呼ばれても安全である
+-- (冪等)必要がある。
+function M.register_active_view(closer_fn)
+	M.close_current_float()
+	active_closer = closer_fn
+end
+
+-- 単一ウィンドウのビュー(todo/inbox/done/cancelledのフロート、Queue)向けの
+-- 薄いラッパー。register_active_view の外部APIはそのままに、既存の呼び出し元
+-- (open_float / ui/queue.lua の open_queue_window 等)は変更不要。
 function M.register_float_win(win)
-	gtodo_float_win = win
+	M.register_active_view(function()
+		if vim.api.nvim_win_is_valid(win) then
+			vim.api.nvim_win_close(win, true)
+		end
+	end)
 end
 
 -- フローティングウィンドウでファイルを開く
@@ -25,8 +49,8 @@ function M.open_float(filepath, title)
 	-- 既存のgtodoフロートを閉じてから新しく開く
 	M.close_current_float()
 
-	local width = math.floor(vim.o.columns * 0.8)
-	local height = math.floor(vim.o.lines * 0.8)
+	local width = math.floor(vim.o.columns * config.get("float_ratio").width)
+	local height = math.floor(vim.o.lines * config.get("float_ratio").height)
 	local col = math.floor((vim.o.columns - width) / 2)
 	local row = math.floor((vim.o.lines - height) / 2)
 

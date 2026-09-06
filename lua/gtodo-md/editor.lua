@@ -158,6 +158,28 @@ local function update_task_in_todo(task, section, action_fn)
 	return true
 end
 
+-- todo.md内のタスクの完了トグルを実行する。カーソル位置に依存しないコア処理で、
+-- カーソル版(M.toggle_complete)とカンバンビュー(ui/kanban.lua)の両方から呼ばれる。
+function M.toggle_task_complete(task, section)
+	local is_completed = (task.status == "x")
+	local today = os.date("%Y-%m-%d")
+	local ok, reason = update_task_in_todo(task, section, function(todo_data, sec, idx, sec_items)
+		local t = sec_items[idx].task
+		if is_completed then
+			t.status = " "
+			t.completed_at = nil
+		else
+			t.status = "x"
+			t.completed_at = today
+		end
+		todo_data.sections[sec] = logic_mod.sort_section_tasks(todo_data.sections[sec])
+	end)
+	if not ok and reason == "notfound" then
+		vim.notify("Task not found in todo.md.", vim.log.levels.WARN)
+	end
+	return ok
+end
+
 -- 完了トグル
 function M.toggle_complete()
 	local task, row = M.get_current_task()
@@ -168,26 +190,12 @@ function M.toggle_complete()
 
 	local bufname = vim.api.nvim_buf_get_name(0)
 	local filename = vim.fn.fnamemodify(bufname, ":t")
-	local today = os.date("%Y-%m-%d")
-	local is_completed = (task.status == "x")
 
 	if filename == "todo.md" then
-		local current_sec = M.get_current_section()
-		local ok, reason = update_task_in_todo(task, current_sec, function(todo_data, section, idx, sec_items)
-			local t = sec_items[idx].task
-			if is_completed then
-				t.status = " "
-				t.completed_at = nil
-			else
-				t.status = "x"
-				t.completed_at = today
-			end
-			todo_data.sections[section] = logic_mod.sort_section_tasks(todo_data.sections[section])
-		end)
-		if not ok and reason == "notfound" then
-			vim.notify("Task not found in todo.md.", vim.log.levels.WARN)
-		end
+		M.toggle_task_complete(task, M.get_current_section())
 	else
+		local today = os.date("%Y-%m-%d")
+		local is_completed = (task.status == "x")
 		if is_completed then
 			task.status = " "
 			task.completed_at = nil
@@ -251,56 +259,90 @@ function M._execute_move(task, row, target_section)
 		vim.notify(string.format("Moved task to todo.md [%s]", target_section), vim.log.levels.INFO)
 	elseif filename == "todo.md" then
 		local current_sec = M.get_current_section()
-		if current_sec == target_section then
-			-- Waiting 内での操作だけは no-op にしない。セクション移動は起きないが、
-			-- 待ち先(wait:)を変更する手段がこの経路以外に存在しないため、
-			-- 同一セクションであっても wait: の更新だけは受け付ける。
-			if target_section == config.sections.WAITING then
-				local updated, reason = update_task_in_todo(task, current_sec, function(_, _, idx, sec_items)
-					sec_items[idx].task.wait = task.wait
-				end)
-				if updated then
-					vim.notify(string.format("Updated wait: in [%s]", target_section), vim.log.levels.INFO)
-				elseif reason == "notfound" then
-					vim.notify("Task not found in current section.", vim.log.levels.WARN)
+		M.move_task_between_sections(task, current_sec, target_section)
+	end
+end
+
+-- todo.md内でのセクション間移動を実行する。カーソル位置に依存しないコア処理で、
+-- カーソル版(M._execute_move)とカンバンビュー(ui/kanban.lua)の両方から呼ばれる。
+-- 戻り値: 実際に移動(またはwait:の更新)が行われたかどうか
+function M.move_task_between_sections(task, current_section, target_section)
+	if current_section == target_section then
+		-- Waiting 内での操作だけは no-op にしない。セクション移動は起きないが、
+		-- 待ち先(wait:)を変更する手段がこの経路以外に存在しないため、
+		-- 同一セクションであっても wait: の更新だけは受け付ける。
+		if target_section == config.sections.WAITING then
+			local updated, reason = update_task_in_todo(task, current_section, function(_, _, idx, sec_items)
+				sec_items[idx].task.wait = task.wait
+			end)
+			if updated then
+				vim.notify(string.format("Updated wait: in [%s]", target_section), vim.log.levels.INFO)
+			elseif reason == "notfound" then
+				vim.notify("Task not found in current section.", vim.log.levels.WARN)
+			end
+			return updated
+		end
+
+		vim.notify("Already in " .. target_section, vim.log.levels.INFO)
+		return false
+	end
+
+	-- BUG-15対応: update_task_in_todo の戻り値を確認してから notify
+	local moved = false
+	local ok, reason = update_task_in_todo(task, current_section, function(todo_data, section, idx, sec_items)
+		table.remove(sec_items, idx)
+
+		if not todo_data.sections[target_section] then
+			todo_data.sections[target_section] = {}
+			local has_sec = false
+			for _, s in ipairs(todo_data.section_order) do
+				if s == target_section then
+					has_sec = true
+					break
 				end
+			end
+			if not has_sec then
+				table.insert(todo_data.section_order, target_section)
+			end
+		end
+
+		table.insert(todo_data.sections[target_section], { type = "task", task = task })
+		todo_data.sections[section] = logic_mod.sort_section_tasks(todo_data.sections[section] or {})
+		todo_data.sections[target_section] = logic_mod.sort_section_tasks(todo_data.sections[target_section])
+		moved = true
+	end)
+
+	if ok and moved then
+		vim.notify(string.format("Moved task to [%s]", target_section), vim.log.levels.INFO)
+	elseif reason == "notfound" then
+		vim.notify("Task not found in current section.", vim.log.levels.WARN)
+	end
+	return ok and moved
+end
+
+-- カーソルに依存せず、タスクと現在のセクションを引数にとる移動リクエスト。
+-- カンバンビュー(ui/kanban.lua)専用。inbox.mdからの移動は扱わない
+-- (カンバンはtodo.mdのセクションのみを表示するため、移動元は常にtodo.md内)。
+-- 完了済みタスクの拒否・Waiting移動時のwait:入力プロンプトは
+-- M.move_current_task_to と同じ挙動にする。
+function M.request_move_task_to(task, current_section, target_section)
+	if task.status == "x" then
+		vim.notify("Cannot move a completed task.", vim.log.levels.WARN)
+		return
+	end
+
+	if target_section == config.sections.WAITING then
+		vim.ui.input({ prompt = "Waiting for (empty to skip/remove): ", default = task.wait or "" }, function(input)
+			if input == nil then
 				return
-			end
-
-			vim.notify("Already in " .. target_section, vim.log.levels.INFO)
-			return
-		end
-
-		-- BUG-15対応: update_task_in_todo の戻り値を確認してから notify
-		local moved = false
-		local ok, reason = update_task_in_todo(task, current_sec, function(todo_data, section, idx, sec_items)
-			table.remove(sec_items, idx)
-
-			if not todo_data.sections[target_section] then
-				todo_data.sections[target_section] = {}
-				local has_sec = false
-				for _, s in ipairs(todo_data.section_order) do
-					if s == target_section then
-						has_sec = true
-						break
-					end
-				end
-				if not has_sec then
-					table.insert(todo_data.section_order, target_section)
-				end
-			end
-
-			table.insert(todo_data.sections[target_section], { type = "task", task = task })
-			todo_data.sections[section] = logic_mod.sort_section_tasks(todo_data.sections[section] or {})
-			todo_data.sections[target_section] = logic_mod.sort_section_tasks(todo_data.sections[target_section])
-			moved = true
+			end -- aborted
+			local trimmed = vim.trim(input)
+			task.wait = (trimmed ~= "") and trimmed or nil
+			M.move_task_between_sections(task, current_section, target_section)
 		end)
-
-		if ok and moved then
-			vim.notify(string.format("Moved task to [%s]", target_section), vim.log.levels.INFO)
-		elseif reason == "notfound" then
-			vim.notify("Task not found in current section.", vim.log.levels.WARN)
-		end
+	else
+		task.wait = nil
+		M.move_task_between_sections(task, current_section, target_section)
 	end
 end
 

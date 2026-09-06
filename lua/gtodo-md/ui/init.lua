@@ -10,6 +10,9 @@ M.open_cancelled_float = require("gtodo-md.ui.float").open_cancelled_float
 -- queue.lua
 M.open_queue = require("gtodo-md.ui.queue").open_queue
 
+-- kanban.lua
+M.open_kanban = require("gtodo-md.ui.kanban").open_kanban
+
 -- search.lua
 M.search_tasks = require("gtodo-md.ui.search").search_tasks
 

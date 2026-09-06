@@ -44,6 +44,11 @@ function M.setup_global()
 		ui_mod.open_queue()
 	end, { desc = "Open Queue view" })
 
+	-- Kanban ビュー
+	vim.keymap.set("n", prefix .. "k", function()
+		ui_mod.open_kanban()
+	end, { desc = "Open Kanban view" })
+
 	-- テンプレート系
 	vim.keymap.set("n", prefix .. "T", function()
 		ui_mod.edit_template()
