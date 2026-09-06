@@ -694,8 +694,12 @@ render = function(focus_index)
 
 	local columns, today_time = collect_columns()
 
-	local avail_width = math.max(MIN_COL_WIDTH, vim.o.columns - OUTER_MARGIN * 2)
-	local avail_height = math.max(10, math.floor(vim.o.lines * 0.8))
+	-- #151: MIN_COL_WIDTH等の文字数ベースの計算とは別軸で、画面全体に対する
+	-- 利用可能幅/高さの上限をkanban_ratioで設定できるようにする。
+	-- 単一フロート(float_ratio)とはあえて共有しない別設定キー — 詳細はconfig.lua参照。
+	local kanban_ratio = config.get("kanban_ratio")
+	local avail_width = math.max(MIN_COL_WIDTH, math.floor(vim.o.columns * kanban_ratio.width) - OUTER_MARGIN * 2)
+	local avail_height = math.max(10, math.floor(vim.o.lines * kanban_ratio.height))
 	local layout = M._compute_layout(#columns, avail_width, avail_height)
 	local new_offset = M._clamp_page_offset(focus_index, layout.visible_count, #columns, state.page_offset)
 

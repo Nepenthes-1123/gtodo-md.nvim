@@ -331,8 +331,11 @@ end
 -- 表示行からフローティングウィンドウを作る。
 -- 失敗した場合は通知した上で nil を返す(呼び出し元はそこで諦める)。
 local function open_queue_window(lines, hls)
-	local width = math.min(math.floor(vim.o.columns * 0.65), 80)
-	local height = math.min(#lines + 2, math.floor(vim.o.lines * 0.8))
+	-- #151: todo/inbox/done/cancelledのフロートと同じ float_ratio を共有する。
+	-- 以前あった横幅の絶対値上限(80列キャップ)は廃止し、純粋な割合制御にする。
+	local float_ratio = config.get("float_ratio")
+	local width = math.floor(vim.o.columns * float_ratio.width)
+	local height = math.min(#lines + 2, math.floor(vim.o.lines * float_ratio.height))
 	local col = math.floor((vim.o.columns - width) / 2)
 	local row = math.floor((vim.o.lines - height) / 2)
 
