@@ -264,6 +264,49 @@ describe("ui.kanban._compute_layout", function()
 	end)
 end)
 
+-- kanban.lua 内のプライベート定数をテスト用に再掲(OUTER_MARGIN/COL_GAP/WIN_BORDER_WIDTH)。
+-- 値自体はkanban.lua側が正本であり、ここでは _center_left_margin の入出力を
+-- 手計算で検証するために使う。
+local OUTER_MARGIN = 1
+local COL_GAP = 1
+local WIN_BORDER_WIDTH = 2
+
+describe("ui.kanban._center_left_margin", function()
+	-- 5列表示・MAX_COL_WIDTHクランプが効く広い画面では余白がOUTER_MARGINより大きくなる
+	it("広い画面(MAX_COL_WIDTHクランプあり)ではOUTER_MARGINより大きい余白になる", function()
+		local layout = kanban._compute_layout(5, 400, 40)
+		assert.are.same(56, layout.col_width) -- MAX_COL_WIDTHでクランプされている前提
+
+		local left_margin = kanban._center_left_margin(400, layout.visible_count, layout.col_width)
+		assert.is_true(left_margin > OUTER_MARGIN)
+	end)
+
+	-- 画面幅が列の消費幅ぴったり(クランプなし)ならOUTER_MARGINちょうど(余白なし)になる
+	it("画面幅ぴったり(クランプなし)ならOUTER_MARGINちょうどになる", function()
+		local visible_count, col_width = 4, 25 -- MIN_COL_WIDTH(20)〜MAX_COL_WIDTH(56)の範囲内でクランプなし
+		local used_width = visible_count * (col_width + WIN_BORDER_WIDTH) + COL_GAP * (visible_count - 1)
+		local screen_width = used_width + OUTER_MARGIN * 2
+
+		local left_margin = kanban._center_left_margin(screen_width, visible_count, col_width)
+		assert.are.same(OUTER_MARGIN, left_margin)
+	end)
+
+	it("極端に狭い画面でも負にならず、OUTER_MARGIN未満にもならない", function()
+		local left_margin = kanban._center_left_margin(5, 5, 20)
+		assert.is_true(left_margin >= OUTER_MARGIN)
+	end)
+
+	it("ページング中(visible_countが1〜4)でも同じ式で問題なく動く", function()
+		local col_width, screen_width = 30, 200
+		local expected = { 84, 67, 51, 34 }
+		for visible_count = 1, 4 do
+			local left_margin = kanban._center_left_margin(screen_width, visible_count, col_width)
+			assert.are.same(expected[visible_count], left_margin)
+			assert.is_true(left_margin >= OUTER_MARGIN)
+		end
+	end)
+end)
+
 describe("ui.kanban._clamp_page_offset", function()
 	it("フォーカス列が既に可視範囲ならoffsetを変えない", function()
 		assert.are.same(1, kanban._clamp_page_offset(2, 3, 5, 1))
