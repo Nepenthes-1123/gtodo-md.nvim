@@ -11,7 +11,7 @@ M.defaults = {
 	waiting_warning_days = 2, -- Waitingタスクの期限警告日数
 	enable_waiting_warning = true, -- Waitingタスクの期限警告通知を有効にするか
 	waiting_warning_interval = 3600, -- Waitingタスク警告のチェック間隔（秒）。デフォルト1時間
-	enable_project_progress = true, -- プロジェクトファイル最下部に進捗バーを表示するかどうか
+	enable_project_progress = true, -- プロジェクトファイルのフロントマター直下に進捗バーを表示するかどうか
 	-- todo/inbox/done/cancelled のフローティングウィンドウ、および Queue ビューが
 	-- 共有する横幅/高さの比率(#151)。画面(vim.o.columns/vim.o.lines)に対する割合。
 	-- setup()での部分上書き(例: setup({float_ratio={width=0.5}}))はvim.tbl_deep_extend

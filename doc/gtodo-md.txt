@@ -65,7 +65,7 @@ The default options are as follows:
       -- Interval to check 'Waiting' task warnings (in seconds)
       waiting_warning_interval = 3600,
       
-      -- Display progress bars at the bottom of project files
+      -- Display progress bars just below the frontmatter of project files
       enable_project_progress = true,
 
       -- Width/height ratio (relative to vim.o.columns/vim.o.lines) shared by
