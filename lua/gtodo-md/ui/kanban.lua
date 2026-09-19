@@ -444,9 +444,30 @@ local function register_cleanup(win, buf)
 	})
 end
 
+-- nvim_buf_add_highlight() は Neovim 0.11 で非推奨になった(:h deprecated-0.11)。
+-- 代替として示されているのは vim.hl.range() と nvim_buf_set_extmark() の2つだが、
+-- **ここでは nvim_buf_set_extmark を使う**。vim.hl.range は優先度に
+-- vim.hl.priorities.user(200)を明示的に設定するため、旧APIの既定値(4096)から
+-- 変わってしまい、他のハイライトとの重なり順が黙って入れ替わりうる。
+-- extmark 版は実測で旧APIと同一の extmark(優先度を含む)になることを確認済み。
+--
+-- end_col に -1 を渡す「行末まで」という旧APIの表現は、extmark では
+-- 「次の行の先頭まで」(end_row = line + 1, end_col = 0)に対応する。
+-- バッファ最終行でも end_row が範囲外扱いにならないことも確認済み。
+local function add_hl(buf, ns, hl_group, line, start_col, end_col)
+	local opts = { hl_group = hl_group }
+	if end_col == -1 then
+		opts.end_row = line + 1
+		opts.end_col = 0
+	else
+		opts.end_col = end_col
+	end
+	return vim.api.nvim_buf_set_extmark(buf, ns, line, start_col, opts)
+end
+
 local function apply_highlight_spans(buf, spans)
 	for _, s in ipairs(spans) do
-		pcall(vim.api.nvim_buf_add_highlight, buf, kanban_ns, s.hl_group, s.line - 1, s.start_col, s.end_col)
+		pcall(add_hl, buf, kanban_ns, s.hl_group, s.line - 1, s.start_col, s.end_col)
 	end
 end
 
@@ -471,11 +492,11 @@ local function highlight_current_card(buf, win, key)
 	for l = range.start_line, range.end_line do
 		if l == range.start_line or l == range.end_line then
 			-- 罫線のみの行(上端/下端)はそのまま全体を罫線色にする
-			vim.api.nvim_buf_add_highlight(buf, selected_ns, "GTodoKanbanSelectedBorder", l - 1, 0, -1)
+			add_hl(buf, selected_ns, "GTodoKanbanSelectedBorder", l - 1, 0, -1)
 		else
 			local text = vim.api.nvim_buf_get_lines(buf, l - 1, l, false)[1] or ""
-			vim.api.nvim_buf_add_highlight(buf, selected_ns, "GTodoKanbanSelectedBorder", l - 1, 0, border_bytes)
-			vim.api.nvim_buf_add_highlight(
+			add_hl(buf, selected_ns, "GTodoKanbanSelectedBorder", l - 1, 0, border_bytes)
+			add_hl(
 				buf,
 				selected_ns,
 				"GTodoKanbanSelectedBg",
@@ -483,7 +504,7 @@ local function highlight_current_card(buf, win, key)
 				border_bytes,
 				math.max(border_bytes, #text - border_bytes)
 			)
-			vim.api.nvim_buf_add_highlight(
+			add_hl(
 				buf,
 				selected_ns,
 				"GTodoKanbanSelectedBorder",
