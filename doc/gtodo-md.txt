@@ -183,6 +183,21 @@ Task priorities `(A)`, `(B)`, and tags like `+project` and `@context` are
 automatically syntax-highlighted. Due dates are augmented with virtual text
 showing relative days (e.g., "Tomorrow", "In 3 days").
 
+*Save-time validation is reported as diagnostics*
+When a save is blocked (a required `## ` section removed from `todo.md`, a
+top header removed from `inbox.md`/`done.md`/`cancelled.md`, an existing
+`## YYYY-MM` history section deleted, or a broken `projects/*.md`
+frontmatter), the reason is published as |vim.diagnostic| entries in the
+`gtodo-md/validate` namespace, in addition to the error message on the
+command line. Frontmatter problems are attached to the offending line, so
+`]d`, signs and |vim.diagnostic.open_float()| all work. The diagnostics are
+cleared as soon as a save succeeds.
+
+Neovim disables both 'virtual_text' and 'virtual_lines' for diagnostics by
+default, so this namespace (and only this namespace) enables virtual lines
+via |vim.diagnostic.config()|. Your global diagnostic configuration is left
+untouched.
+
 *Persistent undo is disabled for managed files*
 'undofile' is turned off (buffer-locally) for `inbox.md`, `todo.md`,
 `done.md`, `cancelled.md` and `projects/*.md`. Undo inside the buffer keeps

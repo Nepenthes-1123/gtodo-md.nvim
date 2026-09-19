@@ -36,6 +36,24 @@ end
 -- ui/project.lua が status: 行の書き換え範囲をフロントマター内に限定するために再利用する。
 M.frontmatter_end_index = frontmatter_end_index
 
+-- フロントマター内で `key:` が現れる行番号(0-indexed)を返す。無ければ nil。
+-- 保存時バリデーションの診断(vim.diagnostic)を該当行へ紐付けるために使う。
+-- 探索範囲はフロントマター内に限定する — 本文中に偶然同名のキーで始まる行が
+-- あっても拾わない(ui/project.lua の find_status_line と同じ考え方)。
+function M.frontmatter_key_lnum(lines, key)
+	local end_idx = frontmatter_end_index(lines)
+	if not end_idx then
+		return nil
+	end
+	local pattern = "^" .. vim.pesc(key) .. ":"
+	for i = 2, end_idx - 1 do
+		if lines[i]:match(pattern) then
+			return i - 1
+		end
+	end
+	return nil
+end
+
 -- todo.md に不足している必須セクション見出しのリストを返す。
 -- #94: config.sections.* はsetup()でカスタム名に変更できるが、
 -- デフォルト名(Today等)も常にエイリアスとして受理する(既存ファイルの
@@ -122,10 +140,13 @@ function M.extract_frontmatter_created(lines)
 	return nil
 end
 
--- projects/*.md のフロントマターを検証し、エラー文字列のリストを返す。
--- 空リストなら妥当。original_created は読み込み時の created の値(nil可)で、
--- 一度設定されたら変更不可という不変条件の照合に使う。
-function M.validate_project_frontmatter(lines, proj_name, original_created)
+-- projects/*.md のフロントマターを検証し、問題のリストを返す。
+-- 各要素は { message = <エラー文字列>, key = <原因となったフロントマターのキー|nil> }。
+-- key は診断を該当行へ紐付けるためのもので、行を特定できない問題(必須項目の不足・
+-- フロントマター自体の破損)では nil になる。空リストなら妥当。
+-- original_created は読み込み時の created の値(nil可)で、一度設定されたら変更不可と
+-- いう不変条件の照合に使う。
+function M.project_frontmatter_issues(lines, proj_name, original_created)
 	local valid_frontmatter = false
 	local created_changed = false
 	local tag_matches_filename = false
@@ -175,21 +196,37 @@ function M.validate_project_frontmatter(lines, proj_name, original_created)
 	end
 
 	if created_changed then
-		table.insert(errors, "created (作成日) の変更は禁止されています")
+		table.insert(errors, { message = "created (作成日) の変更は禁止されています", key = "created" })
 	end
 	if not tag_matches_filename then
-		table.insert(errors, string.format("tag の値がファイル名 (%s) と一致していません", proj_name))
+		table.insert(errors, {
+			message = string.format("tag の値がファイル名 (%s) と一致していません", proj_name),
+			key = "tag",
+		})
 	end
 
 	if #missing_keys > 0 then
-		table.insert(errors, "必須項目が不足しています (" .. table.concat(missing_keys, ", ") .. ")")
+		table.insert(
+			errors,
+			{ message = "必須項目が不足しています (" .. table.concat(missing_keys, ", ") .. ")" }
+		)
 	end
 
 	if #errors == 0 then
-		table.insert(errors, "フロントマターのフォーマット (---) が破損しています")
+		table.insert(errors, { message = "フロントマターのフォーマット (---) が破損しています" })
 	end
 
 	return errors
+end
+
+-- project_frontmatter_issues のメッセージだけを返す薄いラッパー。
+-- 行番号を必要としない呼び出し元(と既存のテスト)のために残してある。
+function M.validate_project_frontmatter(lines, proj_name, original_created)
+	local messages = {}
+	for _, issue in ipairs(M.project_frontmatter_issues(lines, proj_name, original_created)) do
+		table.insert(messages, issue.message)
+	end
+	return messages
 end
 
 return M

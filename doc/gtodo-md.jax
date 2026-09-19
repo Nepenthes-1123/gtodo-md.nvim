@@ -168,6 +168,19 @@ todo.md のセクション保護バリデーション:
         ブロックされた場合は、`u` キー（アンドゥ）等でセクション見出しを復元
         してから保存してください。
 
+保存時バリデーションの診断表示:
+        保存がブロックされた場合(`todo.md` の必須セクション欠落、`inbox.md`
+        `done.md` `cancelled.md` の必須ヘッダー削除、既存の `## YYYY-MM` 履歴
+        セクションの削除、`projects/*.md` のフロントマター不正)、その理由が
+        コマンドラインのエラーに加えて |vim.diagnostic| としても出ます
+        (名前空間 `gtodo-md/validate`)。フロントマターの問題は該当行に紐付く
+        ため、`]d` でのジャンプ・サイン・|vim.diagnostic.open_float()| が
+        そのまま使えます。保存に成功した時点で診断は消えます。
+
+        Neovim の既定では診断の 'virtual_text' も 'virtual_lines' も無効な
+        ため、**この名前空間に限って** virtual_lines を有効にしています。
+        グローバルの診断設定には一切触れません。
+
 管理対象ファイルの永続 undo 無効化:
         `inbox.md` / `todo.md` / `done.md` / `cancelled.md` / `projects/*.md`
         では 'undofile'（永続 undo）をバッファローカルに無効化します。バッフ

@@ -10,8 +10,44 @@ local utils_mod = require("gtodo-md.utils")
 local validate_mod = require("gtodo-md.validate")
 local timer_mod = require("gtodo-md.timer")
 
+-- 保存時バリデーションの結果を載せる診断の名前空間。
+--
+-- 保存の中断(error)は従来どおり残す。これは BufWritePre で標準の保存処理を
+-- 止める唯一の手段であり、診断では代替できない。診断が引き受けるのは
+-- 「何がどこで問題なのか」で、サイン・下線・]d でのジャンプ・
+-- vim.diagnostic.open_float が全部そのまま効くようになる。
+local diagnostic_ns = vim.api.nvim_create_namespace("gtodo-md/validate")
+
+-- 診断を差し替える。バリデーションを通ったら必ず消すこと —
+-- 残したままにすると、直した後もサインと下線が居座り続ける。
+local function set_validation_diagnostics(bufnr, issues)
+	local diagnostics = {}
+	for _, issue in ipairs(issues) do
+		table.insert(diagnostics, {
+			lnum = issue.lnum or 0,
+			col = 0,
+			severity = vim.diagnostic.severity.ERROR,
+			source = "gtodo-md",
+			message = issue.message,
+		})
+	end
+	vim.diagnostic.set(diagnostic_ns, bufnr, diagnostics)
+end
+
+local function clear_validation_diagnostics(bufnr)
+	vim.diagnostic.reset(diagnostic_ns, bufnr)
+end
+
 function M.setup()
 	local group = vim.api.nvim_create_augroup("GtodoMd", { clear = true })
+
+	-- Neovim 0.12 の既定では virtual_text も virtual_lines も無効で、診断は
+	-- サインと下線しか出ない。保存が中断された理由がその場で読めないと意味が
+	-- 薄いため、**この名前空間に限って** virtual_lines を有効にする
+	-- (vim.diagnostic.config の第2引数。ユーザーのグローバル設定には触れない)。
+	-- 検証エラーのメッセージは日本語で長く、virtual_text だと右端で切れるため
+	-- 複数行で展開する virtual_lines の方が適している。
+	vim.diagnostic.config({ virtual_lines = true }, diagnostic_ns)
 
 	-- この setup 実行インスタンスに完全にカプセル化されたキャッシュテーブル
 	-- augroup のクリア (clear = true) と連動して再初期化されるため、古い Autocmd との不整合は起きない
@@ -31,14 +67,31 @@ function M.setup()
 			local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
 			local missing = validate_mod.missing_todo_sections(lines)
 
-			if #missing > 0 then
-				local msg = "[gtodo-md] 必須セクションが不足しているため保存を中断しました ("
-					.. table.concat(missing, ", ")
-					.. ") ※スタックトレースは仕様です"
-				-- BufWritePreの中で標準の保存処理を中断させるには例外エラーを投げる必要がある。
-				-- 見栄えを良くするため、第2引数に0を渡してLuaのスタックトレースを非表示にしている。
-				error(msg, 0)
+			if #missing == 0 then
+				clear_validation_diagnostics(args.buf)
+				return
 			end
+
+			local issues = {}
+			for _, section in ipairs(missing) do
+				table.insert(
+					issues,
+					{ message = string.format("必須セクション %s がありません", section) }
+				)
+			end
+			set_validation_diagnostics(args.buf, issues)
+
+			-- 診断はサインと下線が既定のため、メッセージ本体は error 側にも残す
+			-- (ユーザーのグローバル設定に関わらずコマンドラインで理由が読めるように)。
+			-- BufWritePreの中で標準の保存処理を中断させるには例外エラーを投げる必要がある。
+			-- 第2引数に0を渡してLuaのスタックトレースを非表示にしている。
+			error(
+				string.format(
+					"[gtodo-md] 保存を中断しました: 必須セクションが不足しています (%s)",
+					table.concat(missing, ", ")
+				),
+				0
+			)
 		end,
 	})
 
@@ -75,13 +128,23 @@ function M.setup()
 				local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
 
 				if not validate_mod.has_required_header(lines, expected_header) then
-					local msg = string.format(
-						"[gtodo-md] 必須ヘッダー (%s) が削除されたため保存を中断しました ※スタックトレースは仕様です",
-						expected_header
-					)
+					set_validation_diagnostics(args.buf, {
+						{
+							message = string.format(
+								"必須ヘッダー %s が削除されています",
+								expected_header
+							),
+						},
+					})
 					-- BufWritePreの中で標準の保存処理を中断させるには例外エラーを投げる必要がある。
-					-- 見栄えを良くするため、第2引数に0を渡してLuaのスタックトレースを非表示にしている。
-					error(msg, 0)
+					-- 第2引数に0を渡してLuaのスタックトレースを非表示にしている。
+					error(
+						string.format(
+							"[gtodo-md] 保存を中断しました: 必須ヘッダー (%s) が削除されています",
+							expected_header
+						),
+						0
+					)
 				end
 
 				-- 年月セクションの削除保護 (done.md と cancelled.md のみ)
@@ -90,15 +153,27 @@ function M.setup()
 					local missing_secs = validate_mod.missing_history_sections(lines, original_secs)
 
 					if #missing_secs > 0 then
-						local msg = string.format(
-							"[gtodo-md] 既存の履歴セクション (%s) が削除されたため保存を中断しました ※スタックトレースは仕様です",
-							table.concat(missing_secs, ", ")
+						local issues = {}
+						for _, section in ipairs(missing_secs) do
+							table.insert(issues, {
+								message = string.format(
+									"読み込み時に存在した履歴セクション %s が削除されています",
+									section
+								),
+							})
+						end
+						set_validation_diagnostics(args.buf, issues)
+						error(
+							string.format(
+								"[gtodo-md] 保存を中断しました: 既存の履歴セクション (%s) が削除されています",
+								table.concat(missing_secs, ", ")
+							),
+							0
 						)
-						-- BufWritePreの中で標準の保存処理を中断させるには例外エラーを投げる必要がある。
-						-- 見栄えを良くするため、第2引数に0を渡してLuaのスタックトレースを非表示にしている。
-						error(msg, 0)
 					end
 				end
+
+				clear_validation_diagnostics(args.buf)
 			end,
 		})
 	end
@@ -135,16 +210,35 @@ function M.setup()
 
 			-- フロントマター検証
 			local original_created = original_created_dates[tostring(args.buf)]
-			local errors = validate_mod.validate_project_frontmatter(lines, proj_name, original_created)
+			local issues = validate_mod.project_frontmatter_issues(lines, proj_name, original_created)
 
-			if #errors > 0 then
-				local msg = "[gtodo-md] フロントマターが不正なため保存を中断しました ("
-					.. table.concat(errors, " / ")
-					.. ") ※スタックトレースは仕様です"
-				-- BufWritePreの中で標準の保存処理を中断させるには例外エラーを投げる必要がある。
-				-- 見栄えを良くするため、第2引数に0を渡してLuaのスタックトレースを非表示にしている。
-				error(msg, 0)
+			if #issues == 0 then
+				clear_validation_diagnostics(args.buf)
+				return
 			end
+
+			-- 原因キーが分かるもの(created / tag)は該当行へ紐付ける。
+			-- 行を特定できないもの(必須項目の不足・フロントマター自体の破損)は先頭行。
+			local messages = {}
+			local located = {}
+			for _, issue in ipairs(issues) do
+				table.insert(messages, issue.message)
+				table.insert(located, {
+					message = issue.message,
+					lnum = issue.key and validate_mod.frontmatter_key_lnum(lines, issue.key) or nil,
+				})
+			end
+			set_validation_diagnostics(args.buf, located)
+
+			-- BufWritePreの中で標準の保存処理を中断させるには例外エラーを投げる必要がある。
+			-- 第2引数に0を渡してLuaのスタックトレースを非表示にしている。
+			error(
+				string.format(
+					"[gtodo-md] 保存を中断しました: フロントマターが不正です (%s)",
+					table.concat(messages, " / ")
+				),
+				0
+			)
 		end,
 	})
 
