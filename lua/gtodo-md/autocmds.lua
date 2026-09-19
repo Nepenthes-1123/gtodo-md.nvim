@@ -47,7 +47,12 @@ function M.setup()
 	-- (vim.diagnostic.config の第2引数。ユーザーのグローバル設定には触れない)。
 	-- 検証エラーのメッセージは日本語で長く、virtual_text だと右端で切れるため
 	-- 複数行で展開する virtual_lines の方が適している。
-	vim.diagnostic.config({ virtual_lines = true }, diagnostic_ns)
+	--
+	-- **同時に virtual_text をこの名前空間だけ無効にする。** 名前空間の設定で
+	-- 指定しなかったキーはグローバル設定へフォールバックするため、ErrorLens 風に
+	-- virtual_text を有効にしているユーザーの環境では、同じ診断が行末(virtual_text)と
+	-- 下の行(virtual_lines)の二重に描画されてしまう(実測で確認済み)。
+	vim.diagnostic.config({ virtual_lines = true, virtual_text = false }, diagnostic_ns)
 
 	-- この setup 実行インスタンスに完全にカプセル化されたキャッシュテーブル
 	-- augroup のクリア (clear = true) と連動して再初期化されるため、古い Autocmd との不整合は起きない

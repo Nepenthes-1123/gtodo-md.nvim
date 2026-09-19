@@ -70,6 +70,47 @@ describe("保存時バリデーションの診断", function()
 		vim.fn.delete(outside_dir, "rf")
 	end)
 
+	-- 名前空間の設定で指定しなかったキーはグローバル設定へフォールバックする。
+	-- そのため virtual_lines だけを有効にすると、ErrorLens 風に virtual_text を
+	-- 有効にしている環境では同じ診断が行末と下の行へ二重に描画される。
+	-- 実利用の設定がまさにこの形だったため、名前空間側で virtual_text を
+	-- 明示的に無効にしている。
+	it("グローバルで virtual_text が有効でも二重に描画しない", function()
+		local saved = vim.diagnostic.config()
+		vim.diagnostic.config({
+			virtual_text = { enabled = true, spacing = 4, prefix = "■" },
+			underline = true,
+			signs = true,
+		})
+		require("gtodo-md").setup_autocmds() -- 名前空間の設定を張り直させる
+
+		local _, _, buf = open_and_write(data_dir .. "/todo.md", { "# Todo", "", "## Today", "" })
+		assert.is_true(#diagnostics_of(buf) > 0, "前提: 診断が出ていること")
+
+		vim.api.nvim_set_current_buf(buf)
+		vim.cmd("redraw")
+
+		local kinds = {}
+		for name, id in pairs(vim.api.nvim_get_namespaces()) do
+			if name:find("gtodo%-md/validate%.diagnostic") then
+				for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(buf, id, 0, -1, { details = true })) do
+					local d = mark[4]
+					if d.virt_lines then
+						kinds.virt_lines = true
+					end
+					if d.virt_text then
+						kinds.virt_text = true
+					end
+				end
+			end
+		end
+
+		vim.diagnostic.config(saved)
+
+		assert.is_true(kinds.virt_lines, "virtual_lines が描画されていない")
+		assert.is_nil(kinds.virt_text, "virtual_text と virtual_lines が二重に描画されている")
+	end)
+
 	it(
 		"この名前空間に限って virtual_lines を有効にする(グローバル設定には触れない)",
 		function()
