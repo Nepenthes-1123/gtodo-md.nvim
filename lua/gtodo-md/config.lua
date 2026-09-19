@@ -24,6 +24,13 @@ M.defaults = {
 	-- しまう副作用が起きるため(カンバンは列数を確保するためになるべく画面全体を
 	-- 使いたく、単一フロートより広めの既定値にしている)。
 	kanban_ratio = { width = 0.9, height = 0.8 },
+	-- このプラグインが開くフローティングウィンドウ(todo/inbox/done/cancelled の
+	-- フロート、Queue、カンバンの各列、タスク分割のポップアップ)の罫線スタイル。
+	-- nvim_open_win の border と同じ値を取る('winborder' の値一覧を参照)。
+	-- Neovim 全体の 'winborder' ではなくこのオプションを見るのは、明示指定が
+	-- 'winborder' を上書きする仕様上、両者を混ぜると「どちらが効くのか」が
+	-- 利用者から見て不透明になるため。既定は従来の見た目を維持する "rounded"。
+	winborder = "rounded",
 	-- conceal で隠す `key:value` 形式のタグ名。既定は `id` のみ(従来の挙動)。
 	-- 指定できるのは id / created / due / wait / completed_at / done / cancelled / from。
 	-- `+project`/`@context` は `key:value` 形式ではないため対象外。
@@ -90,9 +97,43 @@ local function sanitize_sections(sections)
 	return sanitized
 end
 
+-- nvim_open_win の border が受け付けるプリセット('winborder' と同じ一覧)。
+-- カスタム指定は 8 要素の配列で渡せるため、テーブルは値を検証せず通す
+-- (中身の妥当性は nvim_open_win 側が判定する)。
+local BORDER_PRESETS = {
+	bold = true,
+	double = true,
+	none = true,
+	rounded = true,
+	shadow = true,
+	single = true,
+	solid = true,
+	[""] = true,
+}
+
+-- 使えない winborder を既定へ差し戻す。
+--
+-- 素通しにすると nvim_open_win が例外を投げ、フロートを開こうとするたびに
+-- 生のエラーが表面化する(ui/float.lua は pcall していない)。設定ミスを黙って
+-- 壊れた状態にせず、既定へ戻したうえで理由を通知する(sanitize_sections と同じ方針)。
+local function sanitize_winborder(border)
+	if type(border) == "table" then
+		return border
+	end
+	if type(border) == "string" and BORDER_PRESETS[border] then
+		return border
+	end
+	vim.notify(
+		string.format("[gtodo-md] invalid winborder %s; falling back to %q", vim.inspect(border), M.defaults.winborder),
+		vim.log.levels.ERROR
+	)
+	return M.defaults.winborder
+end
+
 function M.setup(opts)
 	opts = opts or {}
 	M.options = vim.tbl_deep_extend("force", M.defaults, opts)
+	M.options.winborder = sanitize_winborder(M.options.winborder)
 	-- ディレクトリが存在しない場合は作成。
 	-- 失敗を握り潰してはならない — 作成できないまま進むと、以降あらゆる書き込みが
 	-- 失敗し続けるのに原因がどこにも表示されず、ユーザーには「保存が効かない」と

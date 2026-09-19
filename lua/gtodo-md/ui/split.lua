@@ -1,5 +1,6 @@
 local M = {}
 local task_mod = require("gtodo-md.task")
+local config = require("gtodo-md.config")
 
 -- active_splits[source_buf] は現在アクティブな split ポップアップの配列。
 -- 各エントリは { id = task.id(あれば) } または { row, extmark_id(発行後) } の
@@ -308,7 +309,7 @@ local function open_split_window(parent_line)
 		col = math.floor((vim.o.columns - width) / 2),
 		row = math.floor((vim.o.lines - height) / 2),
 		style = "minimal",
-		border = "rounded",
+		border = config.get("winborder"),
 		title = " Splitting: " .. summarize_parent_text(parent_line) .. " ",
 		title_pos = "center",
 	}

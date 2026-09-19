@@ -80,6 +80,13 @@ The default options are as follows:
       -- float_ratio on purpose: sharing the same value would mean shrinking
       -- the single floats also shrinks the number of visible Kanban columns.
       kanban_ratio = { width = 0.9, height = 0.8 },
+
+      -- Border style for every floating window this plugin opens
+      -- (floats, Queue, Kanban columns, split popup). Takes the same
+      -- values as nvim_open_win()'s border; see |'winborder'|.
+      -- Use "none" to drop the borders -- the Kanban column layout
+      -- accounts for the freed width.
+      winborder = "rounded",
     })
 <
 

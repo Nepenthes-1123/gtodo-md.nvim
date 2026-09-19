@@ -355,7 +355,7 @@ local function open_queue_window(lines, hls)
 		col = col,
 		row = row,
 		style = "minimal",
-		border = "rounded",
+		border = config.get("winborder"),
 		title = " Queue ",
 		title_pos = "center",
 	})
