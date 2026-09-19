@@ -108,6 +108,79 @@ describe("管理対象バッファの強制リロード", function()
 		vim.fn.delete(outside)
 	end)
 
+	-- FileChangedShell は「autocmd が存在するだけで警告とプロンプトが抑制される」
+	-- (:h FileChangedShell)。pattern = "*" で登録している以上、管理対象外のファイルには
+	-- v:fcs_choice = "ask" を明示して既定の挙動へ戻さなければ、ユーザーの無関係な
+	-- ファイルの外部変更が一切通知されなくなる。
+	--
+	-- 直前の「data_dir 外のファイルは強制リロードしない」は否定側(リロードされない)
+	-- しか見ておらず、"ask" を書き忘れても v:fcs_choice が "" のまま素通りして通過する。
+	-- そこで、プラグインの登録より後に観測用の autocmd を張り(autocmd は登録順に
+	-- 実行される)、コールバックが実際に置いた値そのものを検証する。
+	--
+	-- 前提: FileChangedShell は "Not used when 'autoread' is set and the buffer was
+	-- not changed"(:h FileChangedShell)。'autoread' は既定で on のため、バッファを
+	-- 未保存(dirty)にしておかないと autoread による無言リロードになり発火しない。
+	it('data_dir 外のファイルには v:fcs_choice = "ask" を明示して既定の挙動へ戻す', function()
+		local observed = {}
+		local probe = vim.api.nvim_create_augroup("GtodoMdFcsProbe", { clear = true })
+		vim.api.nvim_create_autocmd("FileChangedShell", {
+			group = probe,
+			pattern = "*",
+			callback = function(args)
+				observed[vim.api.nvim_buf_get_name(args.buf)] = vim.v.fcs_choice
+			end,
+		})
+
+		local managed = data_dir .. "/todo.md"
+		vim.fn.writefile({ "# Todo", "- [ ] a" }, managed)
+		vim.cmd("edit " .. vim.fn.fnameescape(managed))
+		local managed_buf = vim.api.nvim_get_current_buf()
+		vim.api.nvim_buf_set_lines(managed_buf, -1, -1, false, { "- [ ] 打ちかけ" })
+		write_externally(managed, { "# Todo", "- [ ] a", "- [ ] 他インスタンス" })
+		pcall(vim.cmd, "checktime " .. managed_buf)
+
+		local outside = vim.fn.tempname() .. "_other.md"
+		vim.fn.writefile({ "A" }, outside)
+		vim.cmd("edit " .. vim.fn.fnameescape(outside))
+		local outside_buf = vim.api.nvim_get_current_buf()
+		vim.api.nvim_buf_set_lines(outside_buf, -1, -1, false, { "USER" })
+		write_externally(outside, { "A", "EXTERNAL" })
+		pcall(vim.cmd, "checktime " .. outside_buf)
+
+		-- 削除は "reload" が効かない(:h v:fcs_choice)うえ、黙って進めてよい事象でもない。
+		-- 直後の「ファイルが削除された場合はリロードせず…」は、"reload" が削除済み
+		-- ファイルに効かないという別の理由でも通ってしまうため、ここで v:fcs_choice の
+		-- 値そのものを確認する。
+		local deleted = data_dir .. "/cancelled.md"
+		vim.fn.writefile({ "# Cancelled", "- [ ] a" }, deleted)
+		vim.cmd("edit " .. vim.fn.fnameescape(deleted))
+		local deleted_buf = vim.api.nvim_get_current_buf()
+		vim.fn.delete(deleted)
+		pcall(vim.cmd, "checktime " .. deleted_buf)
+
+		vim.api.nvim_del_augroup_by_id(probe)
+
+		assert.are.same(
+			"reload",
+			observed[vim.api.nvim_buf_get_name(managed_buf)],
+			"管理対象に reload を指定していない"
+		)
+		assert.are.same(
+			"ask",
+			observed[vim.api.nvim_buf_get_name(outside_buf)],
+			"管理対象外に ask を明示しておらず、外部変更が黙って握り潰される"
+		)
+		assert.are.same(
+			"ask",
+			observed[vim.api.nvim_buf_get_name(deleted_buf)],
+			"管理対象でもファイル削除時は ask を明示する必要がある"
+		)
+
+		pcall(vim.api.nvim_buf_delete, outside_buf, { force = true })
+		vim.fn.delete(outside)
+	end)
+
 	-- 「書く者を1つに絞る」方向では、他インスタンスのユーザー操作・:w・Neovim 以外の
 	-- 書き手が素通りするため塞がらない。読む直前にディスクを取り込んで、
 	-- 古いバッファを読むこと自体を無くす。
