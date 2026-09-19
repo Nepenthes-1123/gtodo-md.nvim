@@ -105,6 +105,41 @@ describe("ui.project アーカイブ/復元", function()
 			assert.are.same("no_status_field", err)
 		end)
 
+		-- 境界(frontmatter終端)の回帰テスト。
+		--
+		-- 既存の衝突テストは「frontmatterにstatus:があり、本文にもstatus:がある」形で、
+		-- 先頭ヒットが常にfrontmatter側になるため、探索範囲がfrontmatterの外へ
+		-- 広がる退行を検出できなかった。frontmatterにstatus:が無く本文にだけある
+		-- このケースだけが、境界判定そのものを突ける。
+		-- 範囲が広がると本文の行を frontmatter の status: と誤認して書き換えてしまう。
+		it(
+			"frontmatterにstatus:が無く本文にだけstatus:がある場合も no_status_field とし、本文を書き換えない",
+			function()
+				local tag = "body-status-only"
+				local path = project_path(tag)
+				local lines = {
+					"---",
+					"title:",
+					"tag: " .. tag,
+					"created: 2025-01-01",
+					"due:",
+					"members: []",
+					"---",
+					"",
+					"## Notes",
+					"",
+					"status: 会議待ち",
+					"",
+				}
+				vim.fn.writefile(lines, path)
+
+				local ok, err = project_mod.set_project_status(tag, "archived")
+				assert.is_false(ok)
+				assert.are.same("no_status_field", err)
+				assert.are.same(lines, vim.fn.readfile(path), "本文中のstatus:行が書き換えられている")
+			end
+		)
+
 		it('既に指定のstatusと同じ場合はファイルを変更せず (true, "noop") を返す', function()
 			local tag = "already-active"
 			local path = project_path(tag)
