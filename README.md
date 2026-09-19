@@ -29,9 +29,16 @@ stdpath("data")/gtodo-md/
     └── *.md
 ```
 
+## Requirements
+
+- Neovim **v0.12.0 or later**
+
+Optional integrations: `snacks.nvim` (input / picker UI), `telescope.nvim` or
+`fzf-lua` (search backend), `plenary.nvim` (only needed to run the test suite).
+
 ## Installation & Configuration
 
-### 1. vim.pack (Neovim v0.12+)
+### 1. vim.pack (built into Neovim v0.12+)
 Add the following to your `vim.pack.add` block:
 ```lua
 vim.pack.add({

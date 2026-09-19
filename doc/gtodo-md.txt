@@ -21,6 +21,10 @@ The following files are automatically generated and managed:
 - done.md       : History of completed tasks (auto-sorted by month).
 - cancelled.md  : History of cancelled tasks.
 
+REQUIREMENTS                                           *gtodo-md-requirements*
+
+Neovim v0.12.0 or later is required.
+
 ==============================================================================
 2. Configuration                                      *gtodo-md-configuration*
 
