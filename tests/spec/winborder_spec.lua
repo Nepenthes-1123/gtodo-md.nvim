@@ -1,13 +1,17 @@
 -- config.winborder: このプラグインが開くフローティングウィンドウの罫線スタイル。
 --
 -- 以前は todo/inbox/done/cancelled のフロート・Queue・カンバンの各列・タスク分割の
--- ポップアップの4箇所で "rounded" を直書きしていた。Neovim 全体の 'winborder' では
--- なくプラグイン固有のオプションを見るのは、nvim_open_win の border 明示指定が
--- 'winborder' を上書きする仕様上、両者を混ぜると「どちらが効くのか」が利用者から
--- 見て不透明になるため。
+-- ポップアップの4箇所で "rounded" を直書きしていた。
+--
+-- 既定の "auto" は「ユーザーが設定している項目があればそちらを優先し、無ければ
+-- こちらで見た目を用意する」という方針で次の順に解決する:
+--   1. setup({ winborder = ... }) に具体的な値があればそれ
+--   2. Neovim 全体の 'winborder' が設定されていればそれに委ねる
+--      (nvim_open_win へ border を渡さない。渡すと 'winborder' を上書きしてしまう)
+--   3. どちらも無ければ "rounded"
 --
 -- カンバンは罫線が左右に消費する幅をレイアウト計算へ織り込んでいる(#151/#154)ため、
--- 罫線を消す設定にしたときに消費幅の見積りも追従することを併せて確認する。
+-- 実際に効く罫線(effective_winborder)に消費幅の見積りが追従することも確認する。
 
 local config = require("gtodo-md.config")
 
@@ -70,10 +74,43 @@ describe("config.winborder", function()
 		vim.fn.delete(data_dir, "rf")
 	end)
 
-	describe("設定値", function()
-		it("既定は rounded(従来の見た目を維持する)", function()
+	describe("解決順", function()
+		local saved_winborder
+
+		before_each(function()
+			saved_winborder = vim.o.winborder
+		end)
+
+		after_each(function()
+			vim.o.winborder = saved_winborder
+		end)
+
+		it("既定は auto", function()
 			config.setup({ data_dir = data_dir })
-			assert.are.same("rounded", config.get("winborder"))
+			assert.are.same("auto", config.get("winborder"))
+		end)
+
+		it("プラグインの指定があれば 'winborder' より優先する", function()
+			vim.o.winborder = "double"
+			config.setup({ data_dir = data_dir, winborder = "single" })
+			assert.are.same("single", config.resolve_winborder())
+			assert.are.same("single", config.effective_winborder())
+		end)
+
+		-- border を明示すると 'winborder' を上書きしてしまうため、委ねる場合は
+		-- nvim_open_win へ border を渡さない(= nil)必要がある。
+		it("プラグイン未指定で 'winborder' があれば border を渡さず委ねる", function()
+			vim.o.winborder = "double"
+			config.setup({ data_dir = data_dir })
+			assert.is_nil(config.resolve_winborder(), "border を明示して 'winborder' を上書きしている")
+			assert.are.same("double", config.effective_winborder())
+		end)
+
+		it("どちらも未指定なら rounded", function()
+			vim.o.winborder = ""
+			config.setup({ data_dir = data_dir })
+			assert.are.same("rounded", config.resolve_winborder())
+			assert.are.same("rounded", config.effective_winborder())
 		end)
 
 		it("プリセット名で上書きできる", function()
@@ -99,7 +136,7 @@ describe("config.winborder", function()
 
 			config.setup({ data_dir = data_dir, winborder = "roundedd" })
 
-			assert.are.same("rounded", config.get("winborder"))
+			assert.are.same("auto", config.get("winborder"))
 			assert.is_truthy(notified, "不正な winborder が黙って差し戻されている")
 			assert.is_truthy(notified:find("winborder", 1, true), "想定外の通知: " .. tostring(notified))
 		end)
@@ -110,6 +147,16 @@ describe("config.winborder", function()
 			config.setup({ data_dir = data_dir, winborder = "none" })
 			require("gtodo-md.ui.float").open_todo_float()
 			assert.are.same("none", border_of(first_float_win()))
+		end)
+
+		it("プラグイン未指定なら 'winborder' の設定がそのまま効く", function()
+			local saved = vim.o.winborder
+			vim.o.winborder = "none"
+			config.setup({ data_dir = data_dir })
+			require("gtodo-md.ui.float").open_todo_float()
+			local got = border_of(first_float_win())
+			vim.o.winborder = saved
+			assert.are.same("none", got, "'winborder' がプラグイン側の明示指定で上書きされている")
 		end)
 
 		it("Queue の罫線に反映される", function()

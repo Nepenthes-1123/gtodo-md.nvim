@@ -41,18 +41,33 @@ end
 function M.setup()
 	local group = vim.api.nvim_create_augroup("GtodoMd", { clear = true })
 
-	-- Neovim 0.12 の既定では virtual_text も virtual_lines も無効で、診断は
-	-- サインと下線しか出ない。保存が中断された理由がその場で読めないと意味が
-	-- 薄いため、**この名前空間に限って** virtual_lines を有効にする
-	-- (vim.diagnostic.config の第2引数。ユーザーのグローバル設定には触れない)。
-	-- 検証エラーのメッセージは日本語で長く、virtual_text だと右端で切れるため
-	-- 複数行で展開する virtual_lines の方が適している。
+	-- 診断の表示方法は、**ユーザーが設定していればそれを尊重し、していなければ
+	-- こちらで補う**。
 	--
-	-- **同時に virtual_text をこの名前空間だけ無効にする。** 名前空間の設定で
-	-- 指定しなかったキーはグローバル設定へフォールバックするため、ErrorLens 風に
-	-- virtual_text を有効にしているユーザーの環境では、同じ診断が行末(virtual_text)と
-	-- 下の行(virtual_lines)の二重に描画されてしまう(実測で確認済み)。
-	vim.diagnostic.config({ virtual_lines = true, virtual_text = false }, diagnostic_ns)
+	-- Neovim 0.12 の既定では virtual_text も virtual_lines も無効で、診断は
+	-- サインと下線しか出ない。そのままでは保存が中断された理由がその場で読めない
+	-- ため、どちらも設定されていない場合に限り、**この名前空間だけ**
+	-- virtual_lines を有効にする(検証エラーのメッセージは日本語で長く、
+	-- virtual_text だと右端で切れるため複数行で展開する方が適している)。
+	--
+	-- 逆に、ユーザーが virtual_text か virtual_lines のどちらかを既に有効にして
+	-- いるなら、その設定のまま表示する。ここで勝手に virtual_lines を足すと、
+	-- 名前空間で指定しなかったキーはグローバルへフォールバックする仕様上、
+	-- 同じ診断が行末と下の行へ二重に描画されてしまう(実測で確認済み)。
+	--
+	-- グローバル値を名前空間へ写しているのは、setup が再実行されたときに前回の
+	-- 判断が残らないようにするため(名前空間の設定を解除する手段が無い)。
+	-- a and b or c のイディオムは使わないこと。virtual_lines が false のとき
+	-- (virtual_text だけ有効にしている典型的な構成)に true へ倒れてしまう。
+	local global_diagnostic = vim.diagnostic.config() or {}
+	local user_shows_message = global_diagnostic.virtual_text or global_diagnostic.virtual_lines
+	local virtual_lines
+	if user_shows_message then
+		virtual_lines = global_diagnostic.virtual_lines
+	else
+		virtual_lines = true
+	end
+	vim.diagnostic.config({ virtual_lines = virtual_lines }, diagnostic_ns)
 
 	-- この setup 実行インスタンスに完全にカプセル化されたキャッシュテーブル
 	-- augroup のクリア (clear = true) と連動して再初期化されるため、古い Autocmd との不整合は起きない

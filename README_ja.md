@@ -55,7 +55,7 @@ require("gtodo-md").setup({
   auto_move_inbox_to_today = true, -- Inbox内でタスクを追加・編集した際、期日が「今日・過去」であれば自動的にTodayへ移動するかどうか
   float_ratio = { width = 0.8, height = 0.8 }, -- todo/inbox/done/cancelledのフロートとQueueビューが共有する横幅/高さの比率(画面に対する割合)
   kanban_ratio = { width = 0.9, height = 0.8 }, -- カンバンビュー専用の横幅/高さの比率(float_ratioとは別キー。単一フロートを小さくしてもカンバンの列数が減らないようにするため)
-  winborder = "rounded", -- このプラグインが開く全フローティングウィンドウの罫線スタイル。nvim_open_win の border と同じ値を取る(:h 'winborder' 参照)。"none" で罫線を消せる(カンバンのレイアウト計算も追従する)
+  winborder = "auto", -- このプラグインが開く全フローティングウィンドウの罫線スタイル。nvim_open_win の border と同じ値を取る(:h 'winborder' 参照)。"auto" は 'winborder' を設定していればそれに委ね、無ければ "rounded" を使う(カンバンのレイアウト計算も実際に効く罫線に追従する)
   sections = { -- todo.md のセクション名をカスタマイズ(一部のキーだけの上書きも可)
     TODAY = "Today",
     NEXT = "Next",

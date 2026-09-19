@@ -70,26 +70,15 @@ describe("保存時バリデーションの診断", function()
 		vim.fn.delete(outside_dir, "rf")
 	end)
 
-	-- 名前空間の設定で指定しなかったキーはグローバル設定へフォールバックする。
-	-- そのため virtual_lines だけを有効にすると、ErrorLens 風に virtual_text を
-	-- 有効にしている環境では同じ診断が行末と下の行へ二重に描画される。
-	-- 実利用の設定がまさにこの形だったため、名前空間側で virtual_text を
-	-- 明示的に無効にしている。
-	it("グローバルで virtual_text が有効でも二重に描画しない", function()
-		local saved = vim.diagnostic.config()
-		vim.diagnostic.config({
-			virtual_text = { enabled = true, spacing = 4, prefix = "■" },
-			underline = true,
-			signs = true,
-		})
-		require("gtodo-md").setup_autocmds() -- 名前空間の設定を張り直させる
-
-		local _, _, buf = open_and_write(data_dir .. "/todo.md", { "# Todo", "", "## Today", "" })
-		assert.is_true(#diagnostics_of(buf) > 0, "前提: 診断が出ていること")
-
+	-- 診断の表示方法は「ユーザーが設定していればそれを尊重し、していなければ補う」。
+	--
+	-- 名前空間の設定(vim.diagnostic.config の第2引数)で指定しなかったキーは
+	-- グローバル設定へフォールバックする。そのため、ユーザーが既に virtual_text を
+	-- 有効にしている環境で virtual_lines を足すと、同じ診断が行末と下の行へ
+	-- 二重に描画される(実測で確認済み)。
+	local function rendered_kinds(buf)
 		vim.api.nvim_set_current_buf(buf)
 		vim.cmd("redraw")
-
 		local kinds = {}
 		for name, id in pairs(vim.api.nvim_get_namespaces()) do
 			if name:find("gtodo%-md/validate%.diagnostic") then
@@ -104,16 +93,56 @@ describe("保存時バリデーションの診断", function()
 				end
 			end
 		end
+		return kinds
+	end
 
+	local function with_global_diagnostic(opts, fn)
+		local saved = vim.diagnostic.config()
+		vim.diagnostic.config(opts)
+		require("gtodo-md").setup_autocmds() -- 名前空間の設定を判断し直させる
+		local ok, err = pcall(fn)
 		vim.diagnostic.config(saved)
-
-		assert.is_true(kinds.virt_lines, "virtual_lines が描画されていない")
-		assert.is_nil(kinds.virt_text, "virtual_text と virtual_lines が二重に描画されている")
-	end)
+		if not ok then
+			error(err, 0)
+		end
+	end
 
 	it(
-		"この名前空間に限って virtual_lines を有効にする(グローバル設定には触れない)",
+		"ユーザーが virtual_text を有効にしていればそれを尊重し、二重に描画しない",
 		function()
+			with_global_diagnostic({
+				virtual_text = { enabled = true, spacing = 4, prefix = "■" },
+				virtual_lines = false,
+				underline = true,
+				signs = true,
+			}, function()
+				local _, _, buf = open_and_write(data_dir .. "/todo.md", { "# Todo", "", "## Today", "" })
+				assert.is_true(#diagnostics_of(buf) > 0, "前提: 診断が出ていること")
+
+				local kinds = rendered_kinds(buf)
+				assert.is_true(kinds.virt_text, "ユーザー設定の virtual_text が効いていない")
+				assert.is_nil(
+					kinds.virt_lines,
+					"ユーザー設定に加えて virtual_lines を足し、二重に描画している"
+				)
+			end)
+		end
+	)
+
+	it("ユーザーが virtual_lines を有効にしていればそのまま使う", function()
+		with_global_diagnostic({ virtual_text = false, virtual_lines = true, signs = true }, function()
+			local _, _, buf = open_and_write(data_dir .. "/todo.md", { "# Todo", "", "## Today", "" })
+			local kinds = rendered_kinds(buf)
+			assert.is_true(kinds.virt_lines)
+			assert.is_nil(kinds.virt_text)
+		end)
+	end)
+
+	-- Neovim 0.12 の既定は virtual_text も virtual_lines も無効で、診断はサインと
+	-- 下線しか出ない。そのままでは保存が中断された理由がその場で読めないため、
+	-- 未設定のときに限りこの名前空間だけ virtual_lines を補う。
+	it("どちらも未設定なら、この名前空間に限って virtual_lines を補う", function()
+		with_global_diagnostic({ virtual_text = false, virtual_lines = false, signs = true }, function()
 			local ns = vim.api.nvim_create_namespace(DIAG_NS)
 			assert.is_true(
 				vim.diagnostic.config(nil, ns).virtual_lines,
@@ -123,8 +152,12 @@ describe("保存時バリデーションの診断", function()
 				vim.diagnostic.config().virtual_lines,
 				"グローバルの virtual_lines まで書き換えている"
 			)
-		end
-	)
+
+			local _, _, buf = open_and_write(data_dir .. "/todo.md", { "# Todo", "", "## Today", "" })
+			local kinds = rendered_kinds(buf)
+			assert.is_true(kinds.virt_lines, "理由が読める表示が補われていない")
+		end)
+	end)
 
 	describe("todo.md の必須セクション", function()
 		it("不足しているセクションごとに診断を出し、保存は中断する", function()

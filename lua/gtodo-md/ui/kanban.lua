@@ -762,7 +762,7 @@ render = function(focus_index)
 	local avail_height = math.max(10, math.floor(vim.o.lines * kanban_ratio.height))
 	-- 罫線の消費幅は設定(winborder)によって変わる。列数・列幅・中央寄せ・実際の
 	-- 配置がすべて同じ値を使わないと、右端の列がはみ出したり余白がずれたりする。
-	local border_width = M._border_width(config.get("winborder"))
+	local border_width = M._border_width(config.effective_winborder())
 	local layout = M._compute_layout(#columns, avail_width, avail_height, border_width)
 	local left_margin = M._center_left_margin(vim.o.columns, layout.visible_count, layout.col_width, border_width)
 	-- left_marginと同じ理由: vim.o.lines基準で計算するため、avail_height/
@@ -843,7 +843,7 @@ render = function(focus_index)
 			row = row,
 			col = x,
 			style = "minimal",
-			border = config.get("winborder"),
+			border = config.resolve_winborder(),
 			title = string.format(" %s (%d) ", column.title, #column.cards),
 			title_pos = "center",
 		})

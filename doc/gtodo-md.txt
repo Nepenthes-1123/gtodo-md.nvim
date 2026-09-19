@@ -84,9 +84,13 @@ The default options are as follows:
       -- Border style for every floating window this plugin opens
       -- (floats, Queue, Kanban columns, split popup). Takes the same
       -- values as nvim_open_win()'s border; see |'winborder'|.
-      -- Use "none" to drop the borders -- the Kanban column layout
-      -- accounts for the freed width.
-      winborder = "rounded",
+      -- The default "auto" resolves in this order:
+      --   1. an explicit value set here
+      --   2. your global |'winborder'| when it is set
+      --   3. "rounded"
+      -- The Kanban column layout accounts for whichever border is
+      -- actually in effect, so "none" frees width for more columns.
+      winborder = "auto",
     })
 <
 
@@ -194,9 +198,11 @@ command line. Frontmatter problems are attached to the offending line, so
 cleared as soon as a save succeeds.
 
 Neovim disables both 'virtual_text' and 'virtual_lines' for diagnostics by
-default, so this namespace (and only this namespace) enables virtual lines
-via |vim.diagnostic.config()|. Your global diagnostic configuration is left
-untouched.
+default. If you have neither enabled, this namespace (and only this
+namespace) turns on virtual lines via |vim.diagnostic.config()| so the
+reason is readable where it happens. If you already enable either of them,
+your setting is used as-is -- adding virtual lines on top would render the
+same message twice. Your global diagnostic configuration is never modified.
 
 *Persistent undo is disabled for managed files*
 'undofile' is turned off (buffer-locally) for `inbox.md`, `todo.md`,
