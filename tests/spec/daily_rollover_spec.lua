@@ -232,4 +232,82 @@ describe("daily.check_daily_rollover (共有ロック経由)", function()
 			end
 		)
 	end)
+
+	-- 外部変更検知(reload_if_externally_changed)のベースラインに関する回帰テスト。
+	--
+	-- external_change_mtimes は「未取得のキーを nil のままにする」契約である。
+	-- 初期値を 0 にすると、実ファイルの mtime は 0 になり得ないため初回チェックが
+	-- 必ず「外部変更あり」と判定され、無意味なリロードが1回走る。リロードは
+	-- 未保存編集の破棄を伴う(autocmds.lua の FileChangedShell)ため、この誤検知は
+	-- 放置できない。
+	--
+	-- ロールオーバー成功時に明示的に記録されるのは inbox/todo/done の3つだけなので、
+	-- cancelled.md と projects/*.md が「初めて見るパス」としてこの契約を突ける。
+	describe("外部変更検知のベースライン", function()
+		local uv = vim.uv or vim.loop
+
+		local function count_reloads(fn)
+			local calls = 0
+			local original = daily_mod.reload_managed_bufs
+			daily_mod.reload_managed_bufs = function(...)
+				calls = calls + 1
+				return original(...)
+			end
+			local ok, err = pcall(fn)
+			daily_mod.reload_managed_bufs = original
+			if not ok then
+				error(err, 0)
+			end
+			return calls
+		end
+
+		before_each(function()
+			vim.fn.writefile({ "# Cancelled" }, data_dir .. "/cancelled.md")
+			vim.fn.writefile({
+				"---",
+				"title: Foo",
+				"tag: foo",
+				"created: 2025-01-01",
+				"due:",
+				"status: active",
+				"members: []",
+				"---",
+			}, data_dir .. "/projects/foo.md")
+		end)
+
+		it(
+			"初めて見るパスをベースライン未取得として扱い、無意味なリロードを走らせない",
+			function()
+				-- ロールオーバー本体を先に済ませる。ここで記録されるのは inbox/todo/done のみで、
+				-- cancelled.md と projects/foo.md は未取得のまま残る。
+				daily_mod.check_daily_rollover()
+
+				-- 同日の早期return分岐 → reload_if_externally_changed。
+				-- 未取得のパスを「変化あり」と誤判定していればここでリロードが走る。
+				local calls = count_reloads(function()
+					daily_mod.check_daily_rollover()
+				end)
+
+				assert.are.same(0, calls, "初回チェックで外部変更を誤検知してリロードしている")
+			end
+		)
+
+		it("ベースライン取得後に実際に外部変更があればリロードする", function()
+			daily_mod.check_daily_rollover()
+			-- 1回目の早期returnで全パスのベースラインを取得させる
+			daily_mod.check_daily_rollover()
+
+			-- mtimeの秒精度による偽陰性を避けるため明示的に未来へ進める
+			local cancelled = data_dir .. "/cancelled.md"
+			vim.fn.writefile({ "# Cancelled", "- [ ] 他インスタンスが追記" }, cancelled)
+			local st = uv.fs_stat(cancelled)
+			uv.fs_utime(cancelled, st.atime.sec + 10, st.mtime.sec + 10)
+
+			local calls = count_reloads(function()
+				daily_mod.check_daily_rollover()
+			end)
+
+			assert.are.same(1, calls, "実際の外部変更を検知できていない")
+		end)
+	end)
 end)
