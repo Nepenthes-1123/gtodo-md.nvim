@@ -313,12 +313,8 @@ local function open_split_window(parent_line)
 		title_pos = "center",
 	}
 
-	if vim.fn.has("nvim-0.10") == 1 then
-		win_opts.footer = " [Commit: g<CR> or <Leader><CR>] | [Cancel: :q] "
-		win_opts.footer_pos = "center"
-	else
-		win_opts.title = win_opts.title .. " | [Commit: g<CR>] "
-	end
+	win_opts.footer = " [Commit: g<CR> or <Leader><CR>] | [Cancel: :q] "
+	win_opts.footer_pos = "center"
 
 	local scratch_win = vim.api.nvim_open_win(scratch_buf, true, win_opts)
 
