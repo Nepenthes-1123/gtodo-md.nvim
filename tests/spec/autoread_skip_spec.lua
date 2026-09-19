@@ -111,9 +111,46 @@ describe("autoread and timer skip for project files", function()
 		assert.is_false(utils.is_gtodo_file(nil))
 	end)
 
-	-- R1-2/R1-4 回帰テスト: 以前は未保存(dirty)なバッファがあると
-	-- handle_buf_enter は自動処理を丸ごとスキップしていたが、現在は
-	-- dirty かどうかに関わらず常に処理・保存し、未保存編集も失わない。
+	-- パス正規化の回帰テスト。
+	--
+	-- 相対パス化を vim.fs.abspath / normalize / relpath へ委ねたことで、判定が
+	-- **ディスクの状態に依存しなくなった**。以前の vim.fn.fnamemodify(path, ":p") は
+	-- "." / ".." をパスが実在するときにしか解決しないため、同じバッファ名でも
+	-- data_dir を作る前後で is_gtodo_file の結果が変わりえた。管理対象から漏れると
+	-- autoread・undofile・保存時バリデーションが一切掛からない状態になる。
+	--
+	-- そのため data_dir は**作らずに**設定する(config.setup は data_dir/projects を
+	-- 作ってしまうため options を直接差し替える。daily_rollover_spec と同じ流儀)。
+	local function set_data_dir_without_creating(dir)
+		require("gtodo-md.config").options.data_dir = dir
+	end
+
+	it("is_gtodo_file は . や .. を畳んで判定し、ディスクの有無に依存しない", function()
+		local data_dir = vim.fn.tempname() -- 実在しないパス
+		set_data_dir_without_creating(data_dir)
+		assert.are.same(0, vim.fn.isdirectory(data_dir), "前提: data_dir が存在しないこと")
+
+		assert.is_true(utils.is_gtodo_file(data_dir .. "/./inbox.md"))
+		assert.is_true(utils.is_gtodo_file(data_dir .. "/projects/../todo.md"))
+		assert.is_true(utils.is_gtodo_file(data_dir .. "/./projects/alpha.md"))
+
+		-- 畳んだ結果 data_dir の外へ出るものは拒否する
+		assert.is_false(utils.is_gtodo_file(data_dir .. "/../other/inbox.md"))
+		assert.is_false(utils.is_gtodo_file(data_dir .. "/projects/../../inbox.md"))
+		-- 隣接する同名前置きディレクトリも拒否し続ける
+		assert.is_false(utils.is_gtodo_file(data_dir .. "_backup/inbox.md"))
+	end)
+
+	it("is_history_file も正規化後のパスで判定する", function()
+		local data_dir = vim.fn.tempname()
+		set_data_dir_without_creating(data_dir)
+
+		assert.is_true(utils.is_history_file(data_dir .. "/./done.md"))
+		assert.is_true(utils.is_history_file(data_dir .. "/projects/../cancelled.md"))
+		assert.is_false(utils.is_history_file(data_dir .. "/./todo.md"))
+		assert.is_false(utils.is_history_file(data_dir .. "/../other/done.md"))
+	end)
+
 	it("handle_buf_enter は未保存(dirty)なバッファでも自動処理を実行し保存する", function()
 		local main_mod = require("gtodo-md")
 		local config = require("gtodo-md.config")
