@@ -22,6 +22,13 @@ stdpath("data")/gtodo-md/
     └── *.md
 ```
 
+## 必要要件
+
+- Neovim **v0.12.0 以降**
+
+任意の連携先: `snacks.nvim`(入力・ピッカーUI)、`telescope.nvim` または `fzf-lua`
+(検索バックエンド)、`plenary.nvim`(テストスイートの実行にのみ必要)。
+
 ## インストールと設定
 
 ### 1. vim.pack (Neovim v0.12+ 組み込み) の場合
