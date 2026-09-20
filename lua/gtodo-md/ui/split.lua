@@ -309,7 +309,7 @@ local function open_split_window(parent_line)
 		col = math.floor((vim.o.columns - width) / 2),
 		row = math.floor((vim.o.lines - height) / 2),
 		style = "minimal",
-		border = config.resolve_winborder(),
+		border = config.resolve_border(),
 		title = " Splitting: " .. summarize_parent_text(parent_line) .. " ",
 		title_pos = "center",
 	}

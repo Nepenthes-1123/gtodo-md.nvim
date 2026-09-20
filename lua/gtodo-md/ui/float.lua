@@ -61,7 +61,7 @@ function M.open_float(filepath, title)
 		col = col,
 		row = row,
 		style = "minimal",
-		border = config.resolve_winborder(),
+		border = config.resolve_border(),
 		title = " " .. title .. " ",
 		title_pos = "center",
 	}

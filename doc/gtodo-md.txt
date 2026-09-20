@@ -90,7 +90,7 @@ The default options are as follows:
       --   3. "rounded"
       -- The Kanban column layout accounts for whichever border is
       -- actually in effect, so "none" frees width for more columns.
-      winborder = "auto",
+      border = "auto",
     })
 <
 

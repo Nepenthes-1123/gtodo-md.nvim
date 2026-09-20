@@ -63,7 +63,7 @@ Neovim v0.12.0 以降が必要です。
       --   3. どちらも無ければ "rounded"
       -- カンバンの列レイアウトは実際に効く罫線に追従するため、"none" に
       -- すると罫線ぶんの幅が列へ回ります。
-      winborder = "auto",
+      border = "auto",
 
       -- 期限切れ警告通知の最小間隔（秒）。デフォルト30分
       due_notification_cooldown = 1800,

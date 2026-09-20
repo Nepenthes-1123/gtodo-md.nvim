@@ -269,7 +269,7 @@ function M._build_columns(todo_data, done_data, sections)
 	return columns
 end
 
--- 設定された winborder が左右に消費する表示幅を返す(純関数。テスト用に公開)。
+-- 設定された border が左右に消費する表示幅を返す(純関数。テスト用に公開)。
 --
 -- 罫線なし("none" / "" / 全要素が空文字の配列)なら0、それ以外は左右1文字ずつで2。
 -- 判別できない指定は**2(消費する側)として扱う**。実際は0だったとしても余白が
@@ -294,7 +294,7 @@ end
 -- 画面幅から、一度に表示できる列数と1列あたりの幅を決める(純関数)。
 -- avail_width は列を並べる領域全体の表示幅で、各列のウィンドウ罫線ぶんも含めて
 -- 見積もる(実際に画面へ配置する際の消費幅と一致させ、右端の列が画面外へ
--- はみ出すのを防ぐため)。border_width は設定された winborder が左右に消費する幅で、
+-- はみ出すのを防ぐため)。border_width は設定された border が左右に消費する幅で、
 -- 省略時は罫線ありの既定値を使う(M._border_width 参照)。
 function M._compute_layout(total_columns, avail_width, avail_height, border_width)
 	border_width = border_width or WIN_BORDER_WIDTH
@@ -760,9 +760,9 @@ render = function(focus_index)
 	local kanban_ratio = config.get("kanban_ratio")
 	local avail_width = math.max(MIN_COL_WIDTH, math.floor(vim.o.columns * kanban_ratio.width) - OUTER_MARGIN * 2)
 	local avail_height = math.max(10, math.floor(vim.o.lines * kanban_ratio.height))
-	-- 罫線の消費幅は設定(winborder)によって変わる。列数・列幅・中央寄せ・実際の
+	-- 罫線の消費幅は設定(border)によって変わる。列数・列幅・中央寄せ・実際の
 	-- 配置がすべて同じ値を使わないと、右端の列がはみ出したり余白がずれたりする。
-	local border_width = M._border_width(config.effective_winborder())
+	local border_width = M._border_width(config.effective_border())
 	local layout = M._compute_layout(#columns, avail_width, avail_height, border_width)
 	local left_margin = M._center_left_margin(vim.o.columns, layout.visible_count, layout.col_width, border_width)
 	-- left_marginと同じ理由: vim.o.lines基準で計算するため、avail_height/
@@ -843,7 +843,7 @@ render = function(focus_index)
 			row = row,
 			col = x,
 			style = "minimal",
-			border = config.resolve_winborder(),
+			border = config.resolve_border(),
 			title = string.format(" %s (%d) ", column.title, #column.cards),
 			title_pos = "center",
 		})
