@@ -22,6 +22,13 @@ stdpath("data")/gtodo-md/
     └── *.md
 ```
 
+## 必要要件
+
+- Neovim **v0.12.0 以降**
+
+任意の連携先: `snacks.nvim`(入力・ピッカーUI)、`telescope.nvim` または `fzf-lua`
+(検索バックエンド)、`plenary.nvim`(テストスイートの実行にのみ必要)。
+
 ## インストールと設定
 
 ### 1. vim.pack (Neovim v0.12+ 組み込み) の場合
@@ -48,6 +55,7 @@ require("gtodo-md").setup({
   auto_move_inbox_to_today = true, -- Inbox内でタスクを追加・編集した際、期日が「今日・過去」であれば自動的にTodayへ移動するかどうか
   float_ratio = { width = 0.8, height = 0.8 }, -- todo/inbox/done/cancelledのフロートとQueueビューが共有する横幅/高さの比率(画面に対する割合)
   kanban_ratio = { width = 0.9, height = 0.8 }, -- カンバンビュー専用の横幅/高さの比率(float_ratioとは別キー。単一フロートを小さくしてもカンバンの列数が減らないようにするため)
+  border = "auto", -- このプラグインが開く全フローティングウィンドウの罫線スタイル。nvim_open_win の border と同じ値を取る(値の一覧は :h 'winborder' 参照)。"auto" は 'winborder' を設定していればそれに委ね、無ければ "rounded" を使う(カンバンのレイアウト計算も実際に効く罫線に追従する)
   sections = { -- todo.md のセクション名をカスタマイズ(一部のキーだけの上書きも可)
     TODAY = "Today",
     NEXT = "Next",

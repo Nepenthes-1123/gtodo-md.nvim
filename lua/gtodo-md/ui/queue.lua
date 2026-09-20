@@ -355,7 +355,7 @@ local function open_queue_window(lines, hls)
 		col = col,
 		row = row,
 		style = "minimal",
-		border = "rounded",
+		border = config.resolve_border(),
 		title = " Queue ",
 		title_pos = "center",
 	})
@@ -371,7 +371,15 @@ local function open_queue_window(lines, hls)
 	-- ハイライト適用
 	local hl_ns = vim.api.nvim_create_namespace("gtodo_queue")
 	for _, hl in ipairs(hls) do
-		vim.api.nvim_buf_add_highlight(buf, hl_ns, hl[2], hl[1], 0, -1)
+		-- nvim_buf_add_highlight() は 0.11 で非推奨(:h deprecated-0.11)。
+		-- vim.hl.range() は優先度を 200 に固定してしまい旧APIの既定値(4096)から
+		-- 変わるため、優先度を含めて同一の extmark になる set_extmark を使う。
+		-- 旧APIの end_col = -1(行末まで)は「次の行の先頭まで」に対応する。
+		vim.api.nvim_buf_set_extmark(buf, hl_ns, hl[1], 0, {
+			end_row = hl[1] + 1,
+			end_col = 0,
+			hl_group = hl[2],
+		})
 	end
 
 	return buf, queue_win

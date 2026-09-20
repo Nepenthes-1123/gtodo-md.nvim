@@ -116,8 +116,22 @@ function M.ensure_dir(path)
 	return ok and created ~= 0
 end
 
--- bufname を data_dir からの相対パスへ正規化する(絶対パス化・区切り文字統一・小文字化)。
--- data_dir 配下でなければ nil を返す。
+-- bufname を data_dir からの相対パスへ正規化する。data_dir 配下でなければ nil を返す。
+--
+-- 絶対パス化と区切り文字の統一は vim.fs.abspath、"." / ".." の畳み込みは
+-- vim.fs.normalize、祖先判定と相対化は vim.fs.relpath へ委ねる(いずれも Neovim 0.11+)。
+-- relpath は base が祖先でなければ nil を返すため、以前のように data_dir へ "/" を
+-- 足してから前方一致させる(data_dir が /x/gtodo のときに /x/gtodo_backup/... を
+-- 弾くための細工)必要が無くなる。
+--
+-- 小文字化は relpath へ渡す前に**両側へ**掛ける。relpath の祖先判定は大小を区別する
+-- ため、ここを省くと data_dir の表記ゆれで判定が落ちる(従来も両側を小文字化して
+-- 比較していた)。戻り値も小文字なので、呼び出し側の "inbox.md" 等との比較は従来どおり。
+--
+-- **判定がディスクの状態に依存しなくなるのが実質的な差である。** 以前使っていた
+-- vim.fn.fnamemodify(path, ":p") は "." / ".." をパスが実在するときにしか解決せず、
+-- 同じバッファ名でも data_dir を作る前後で判定が変わりえた。vim.fs.normalize は
+-- 純粋な文字列操作として畳むため、この揺れが無くなる。
 local function relative_path(bufname)
 	if not bufname or bufname == "" then
 		return nil
@@ -128,21 +142,11 @@ local function relative_path(bufname)
 		return nil
 	end
 
-	-- 相対パス・ドットパスを絶対パスへ正規化
-	local abs_bufname = vim.fn.fnamemodify(bufname, ":p")
-	local abs_datadir = vim.fn.fnamemodify(data_dir, ":p")
-
-	local norm_bufname = abs_bufname:gsub("\\", "/"):lower()
-	local norm_datadir = abs_datadir:gsub("\\", "/"):lower()
-
-	if norm_datadir:sub(-1) ~= "/" then
-		norm_datadir = norm_datadir .. "/"
+	local function canonical(path)
+		return vim.fs.normalize(vim.fs.abspath(path)):lower()
 	end
 
-	if norm_bufname:sub(1, #norm_datadir) == norm_datadir then
-		return norm_bufname:sub(#norm_datadir + 1)
-	end
-	return nil
+	return vim.fs.relpath(canonical(data_dir), canonical(bufname))
 end
 
 function M.is_gtodo_file(bufname)

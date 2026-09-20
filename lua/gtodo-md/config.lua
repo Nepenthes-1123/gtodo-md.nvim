@@ -24,6 +24,17 @@ M.defaults = {
 	-- しまう副作用が起きるため(カンバンは列数を確保するためになるべく画面全体を
 	-- 使いたく、単一フロートより広めの既定値にしている)。
 	kanban_ratio = { width = 0.9, height = 0.8 },
+	-- このプラグインが開くフローティングウィンドウ(todo/inbox/done/cancelled の
+	-- フロート、Queue、カンバンの各列、タスク分割のポップアップ)の罫線スタイル。
+	-- nvim_open_win の border と同じ値を取る('winborder' の値一覧を参照)。
+	--
+	-- 既定の "auto" は次の順で解決する(M.resolve_border 参照):
+	--   1. ここに具体的な値が設定されていればそれ
+	--   2. Neovim 全体の 'winborder' が設定されていればそれに委ねる
+	--   3. どちらも無ければ "rounded"
+	-- ユーザーが設定している項目があればそちらを優先し、無ければ見た目の
+	-- 既定を用意する、という方針。
+	border = "auto",
 	-- conceal で隠す `key:value` 形式のタグ名。既定は `id` のみ(従来の挙動)。
 	-- 指定できるのは id / created / due / wait / completed_at / done / cancelled / from。
 	-- `+project`/`@context` は `key:value` 形式ではないため対象外。
@@ -90,9 +101,45 @@ local function sanitize_sections(sections)
 	return sanitized
 end
 
+-- nvim_open_win の border が受け付けるプリセット('winborder' と同じ一覧)。
+-- カスタム指定は 8 要素の配列で渡せるため、テーブルは値を検証せず通す
+-- (中身の妥当性は nvim_open_win 側が判定する)。
+local BORDER_PRESETS = {
+	-- "auto" は nvim_open_win の値ではなく、このプラグインの解決方式を表す番兵。
+	auto = true,
+	bold = true,
+	double = true,
+	none = true,
+	rounded = true,
+	shadow = true,
+	single = true,
+	solid = true,
+	[""] = true,
+}
+
+-- 使えない border を既定へ差し戻す。
+--
+-- 素通しにすると nvim_open_win が例外を投げ、フロートを開こうとするたびに
+-- 生のエラーが表面化する(ui/float.lua は pcall していない)。設定ミスを黙って
+-- 壊れた状態にせず、既定へ戻したうえで理由を通知する(sanitize_sections と同じ方針)。
+local function sanitize_border(border)
+	if type(border) == "table" then
+		return border
+	end
+	if type(border) == "string" and BORDER_PRESETS[border] then
+		return border
+	end
+	vim.notify(
+		string.format("[gtodo-md] invalid border %s; falling back to %q", vim.inspect(border), M.defaults.border),
+		vim.log.levels.ERROR
+	)
+	return M.defaults.border
+end
+
 function M.setup(opts)
 	opts = opts or {}
 	M.options = vim.tbl_deep_extend("force", M.defaults, opts)
+	M.options.border = sanitize_border(M.options.border)
 	-- ディレクトリが存在しない場合は作成。
 	-- 失敗を握り潰してはならない — 作成できないまま進むと、以降あらゆる書き込みが
 	-- 失敗し続けるのに原因がどこにも表示されず、ユーザーには「保存が効かない」と
@@ -113,6 +160,33 @@ function M.setup(opts)
 	M.sections = sanitize_sections(vim.tbl_deep_extend("force", M.default_sections, opts.sections or {}))
 
 	state.write_last_sections(M.sections)
+end
+
+-- nvim_open_win の border へ渡す値を解決する。
+-- nil を返した場合は border を**渡さない**こと。Neovim が 'winborder' を適用する。
+--
+-- 解決順は border のコメントを参照。ユーザーが 'winborder' を設定している
+-- 環境では、こちらが border を明示すると 'winborder' を上書きしてしまうため、
+-- あえて渡さずに委ねる。
+function M.resolve_border()
+	local configured = M.get("border")
+	if configured ~= "auto" then
+		return configured
+	end
+	if vim.o.winborder ~= "" then
+		return nil
+	end
+	return "rounded"
+end
+
+-- 実際に描画される罫線の値を返す。カンバンが罫線の消費幅を見積もるために使う
+-- (resolve_border が nil を返す場合、実際に効くのは 'winborder' の値)。
+function M.effective_border()
+	local resolved = M.resolve_border()
+	if resolved ~= nil then
+		return resolved
+	end
+	return vim.o.winborder
 end
 
 -- key(TODAY/NEXT/WAITING/SOMEDAY)に対応する、見出しとして現在有効な
