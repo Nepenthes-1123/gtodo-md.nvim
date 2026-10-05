@@ -29,9 +29,16 @@ stdpath("data")/gtodo-md/
     └── *.md
 ```
 
+## Requirements
+
+- Neovim **v0.12.0 or later**
+
+Optional integrations: `snacks.nvim` (input / picker UI), `telescope.nvim` or
+`fzf-lua` (search backend), `plenary.nvim` (only needed to run the test suite).
+
 ## Installation & Configuration
 
-### 1. vim.pack (Neovim v0.12+)
+### 1. vim.pack (built into Neovim v0.12+)
 Add the following to your `vim.pack.add` block:
 ```lua
 vim.pack.add({
@@ -55,6 +62,7 @@ require("gtodo-md").setup({
   auto_move_inbox_to_today = true, -- Automatically move tasks with due dates of today/overdue from Inbox to Today on creation or edit
   float_ratio = { width = 0.8, height = 0.8 }, -- Width/height ratio (relative to the screen) shared by the todo/inbox/done/cancelled floats and the Queue view
   kanban_ratio = { width = 0.9, height = 0.8 }, -- Width/height ratio for the Kanban view (kept separate from float_ratio so shrinking the single floats doesn't also shrink the number of Kanban columns)
+  border = "auto", -- Border style for every floating window this plugin opens. Takes the same values as nvim_open_win()'s border (see :h 'winborder' for the list). "auto" uses your global 'winborder' when it is set, and falls back to "rounded" otherwise. The Kanban layout accounts for whichever border ends up in effect.
   sections = { -- Customize todo.md section names (partial overrides are fine)
     TODAY = "Today",
     NEXT = "Next",
