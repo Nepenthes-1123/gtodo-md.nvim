@@ -180,5 +180,13 @@ consequences you should be aware of:
 
 Neither applies to files outside `data_dir` — your own settings are left alone.
 
+The autosave that runs when you leave a floating window is an ordinary `:write`. If another
+instance saves the same file while you are editing it in a float, Vim shows its usual
+`WARNING: The file has been changed since reading it!!!` prompt. Answering `y` overwrites
+the other instance's changes, exactly as a plain `:w` would. Answering `n` leaves the file
+untouched and keeps the float open; the buffer is then reloaded from disk as described
+above, and you can press `u` in the float to get your edits back. Note that saving the
+restored edits overwrites the other instance's changes.
+
 ## License
 MIT License
