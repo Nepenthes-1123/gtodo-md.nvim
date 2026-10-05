@@ -44,7 +44,7 @@ require("gtodo-md").setup({
   waiting_warning_days = 2, -- Waiting タスクの期限警告日数 (デフォルト 2 日)
   enable_waiting_warning = true, -- Waiting タスクの期限警告通知を有効にするかどうか (デフォルト true)
   waiting_warning_interval = 3600, -- Waiting タスク警告のチェック間隔 (秒) (デフォルト 3600 秒 = 1時間)
-  enable_project_progress = true, -- プロジェクトファイル最下部に進捗バーを表示するかどうか (デフォルト true)
+  enable_project_progress = true, -- プロジェクトファイルのフロントマター直下に進捗バーを表示するかどうか (デフォルト true)
   auto_move_inbox_to_today = true, -- Inbox内でタスクを追加・編集した際、期日が「今日・過去」であれば自動的にTodayへ移動するかどうか
   float_ratio = { width = 0.8, height = 0.8 }, -- todo/inbox/done/cancelledのフロートとQueueビューが共有する横幅/高さの比率(画面に対する割合)
   kanban_ratio = { width = 0.9, height = 0.8 }, -- カンバンビュー専用の横幅/高さの比率(float_ratioとは別キー。単一フロートを小さくしてもカンバンの列数が減らないようにするため)

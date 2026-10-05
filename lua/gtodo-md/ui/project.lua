@@ -121,6 +121,26 @@ function M.jump_to_project()
 	float_ui.open_float(proj_file, "Project: " .. project_tag)
 end
 
+-- 進捗表示の仮想行を差し込む位置を返す。戻り値は row(0-indexed) と
+-- virt_lines_above の組で、そのまま nvim_buf_set_extmark へ渡せる。
+--
+-- #155: 以前はバッファ最終行の下に置いていたが、本文(Overview/Notes/Reference)が
+-- 伸びるとフロートの表示範囲から押し出され、スクロールしないと進捗が見えなく
+-- なっていた。frontmatter の直下に固定すると、ファイルを開いた時点で必ず視界に入る。
+local function progress_anchor(lines)
+	local end_idx = validate_mod.frontmatter_end_index(lines)
+	if end_idx then
+		-- 終端 `---` の「下」へ置く。frontmatter しか無いファイルでは次の行が
+		-- 存在しないため、次行の上寄せではなく終端行の下寄せで指定する。
+		return end_idx - 1, false
+	end
+	-- frontmatter が無い(手で壊された等)場合は先頭行の上へ。
+	return 0, true
+end
+
+-- テスト用に公開する純関数(tests/spec/project_progress_anchor_spec.lua)。
+M._progress_anchor = progress_anchor
+
 function M.render_project_tasks(bufnr)
 	if not bufnr or bufnr == 0 then
 		bufnr = vim.api.nvim_get_current_buf()
@@ -212,11 +232,9 @@ function M.render_project_tasks(bufnr)
 		return
 	end
 
-	-- 仮想行の組み立て
-	local virt_lines = {
-		{ { "", "" } },
-		{ { "----------------------------------------", "Comment" } },
-	}
+	-- 仮想行の組み立て。frontmatter の直下へ差し込むため、区切り線と空行は
+	-- ブロックの「後ろ」に置いて本文との間を空ける。
+	local virt_lines = {}
 
 	local show_progress = config.get("enable_project_progress")
 	if show_progress == nil then
@@ -265,10 +283,13 @@ function M.render_project_tasks(bufnr)
 		table.insert(virt_lines, { { "[gtodo-md] すべてのタスクが完了しました！", "DiagnosticOk" } })
 	end
 
-	local line_count = vim.api.nvim_buf_line_count(bufnr)
-	vim.api.nvim_buf_set_extmark(bufnr, ns_id, line_count - 1, 0, {
+	table.insert(virt_lines, { { "----------------------------------------", "Comment" } })
+	table.insert(virt_lines, { { "", "" } })
+
+	local row, above = progress_anchor(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false))
+	vim.api.nvim_buf_set_extmark(bufnr, ns_id, row, 0, {
 		virt_lines = virt_lines,
-		virt_lines_above = false,
+		virt_lines_above = above,
 	})
 end
 
