@@ -264,9 +264,10 @@ describe("ui.kanban._compute_layout", function()
 	end)
 end)
 
--- kanban.lua 内のプライベート定数をテスト用に再掲(OUTER_MARGIN/COL_GAP/WIN_BORDER_WIDTH)。
--- 値自体はkanban.lua側が正本であり、ここでは _center_left_margin の入出力を
--- 手計算で検証するために使う。
+-- kanban.lua 内のプライベート定数をテスト用に再掲(MIN_COL_WIDTH/OUTER_MARGIN/
+-- COL_GAP/WIN_BORDER_WIDTH)。値自体はkanban.lua側が正本であり、ここでは
+-- _center_left_margin / _compute_layout の入出力を手計算で検証するために使う。
+local MIN_COL_WIDTH = 20
 local OUTER_MARGIN = 1
 local COL_GAP = 1
 local WIN_BORDER_WIDTH = 2
@@ -365,5 +366,59 @@ describe("ui.kanban._adjacent_card_index", function()
 
 	it("カードが1つも無ければ nil", function()
 		assert.is_nil(kanban._adjacent_card_index({}, 1, 1))
+	end)
+end)
+
+-- #151/#154 の回帰テスト。
+--
+-- _compute_layout は列を並べる領域幅(avail_width)から「一度に表示する列数」と
+-- 「1列あたりの幅」を決めるが、実際に画面が消費するのは col_width だけではなく
+-- ウィンドウ罫線(border="rounded")の左右1文字ずつ(WIN_BORDER_WIDTH)と
+-- 列間の隙間(COL_GAP)も含んだ合計である。列数の見積りから罫線分が抜けると、
+-- 収まらない列数を選んでしまい右端の列が画面外へはみ出す。
+--
+-- 既存の3ケース(幅200/40/5)はどれも visible_count が罫線の有無で変わらない
+-- 幅を突いており、この退行を検出できなかった(実測: 罫線分を落とすと幅41〜44・
+-- 62〜など28通りではみ出す)。特定の幅を決め打ちすると同じ取りこぼしを繰り返すため、
+-- 「消費幅が領域幅を超えない」という不変条件を幅の範囲全体に対して検証する。
+describe("ui.kanban._compute_layout の消費幅", function()
+	-- 1列ぶんの最小消費幅。これを下回る領域幅では「最低1列は出す」方が優先され、
+	-- はみ出しは避けられない(縮退動作として意図的)。
+	local MIN_VIABLE_WIDTH = MIN_COL_WIDTH + WIN_BORDER_WIDTH
+
+	local function used_width(layout)
+		return layout.visible_count * (layout.col_width + WIN_BORDER_WIDTH) + COL_GAP * (layout.visible_count - 1)
+	end
+
+	it(
+		"1列ぶんの幅が確保できる限り、どの領域幅でも消費幅が領域幅を超えない",
+		function()
+			local violations = {}
+			for avail_width = MIN_VIABLE_WIDTH, 500 do
+				local layout = kanban._compute_layout(5, avail_width, 40)
+				local used = used_width(layout)
+				if used > avail_width then
+					table.insert(
+						violations,
+						string.format(
+							"avail=%d visible=%d col_width=%d used=%d",
+							avail_width,
+							layout.visible_count,
+							layout.col_width,
+							used
+						)
+					)
+				end
+			end
+			assert.are.same({}, violations, "列が画面外へはみ出す領域幅がある")
+		end
+	)
+
+	it("罫線ぶんを含めて2列が収まらない幅では2列を選ばない", function()
+		-- 2列ぶんの消費幅にちょうど1足りない幅。定数から導出して、kanban.lua 側の
+		-- 値が変わったときに数値だけ取り残されないようにする。
+		local two_columns = 2 * (MIN_COL_WIDTH + WIN_BORDER_WIDTH) + COL_GAP
+		local layout = kanban._compute_layout(5, two_columns - 1, 40)
+		assert.are.same(1, layout.visible_count)
 	end)
 end)
