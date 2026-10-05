@@ -145,4 +145,36 @@ describe("ui.float の WinLeave 自動保存", function()
 			"通常のウィンドウへ戻ったのにフロートが残っている"
 		)
 	end)
+
+	-- :write は例外にならずに保存されないこともある。他インスタンスが先に書いたときの
+	-- Vim の上書き確認("changed since reading it")に n と答えた場合がそれに当たる。
+	-- この確認は headless では応答できないため、何もしない BufWriteCmd で
+	-- 「例外なしで保存されない :write」を再現する。
+	it("例外なしで保存されなかったときも、通知してウィンドウを残す", function()
+		local probe = vim.api.nvim_create_augroup("GtodoFloatNoSaveProbe", { clear = true })
+		vim.api.nvim_create_autocmd("BufWriteCmd", {
+			group = probe,
+			pattern = proj_path,
+			callback = function() end,
+		})
+
+		local buf, win = edit_in_float_and_leave(function(b)
+			local lines = vim.api.nvim_buf_get_lines(b, 0, -1, false)
+			table.insert(lines, "追記した本文")
+			vim.api.nvim_buf_set_lines(b, 0, -1, false, lines)
+		end)
+		vim.api.nvim_del_augroup_by_id(probe)
+
+		assert.is_false(disk_has("追記した本文"), "前提: 保存されていないこと")
+		assert.is_true(vim.api.nvim_win_is_valid(win), "保存されなかったのにウィンドウを閉じた")
+		assert.is_true(vim.bo[buf].modified, "保存されなかった編集が未保存として残っていない")
+
+		local warned = false
+		for _, n in ipairs(notifications) do
+			if n.level == vim.log.levels.WARN and n.msg:find("not saved", 1, true) then
+				warned = true
+			end
+		end
+		assert.is_true(warned, "保存されなかったことが通知されていない")
+	end)
 end)

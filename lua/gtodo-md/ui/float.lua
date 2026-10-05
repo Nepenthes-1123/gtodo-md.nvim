@@ -112,6 +112,19 @@ function M.open_float(filepath, title)
 					-- 読みにくいため、このプラグインのメッセージ部分だけを出す。
 					local msg = tostring(err)
 					vim.notify(msg:match("%[gtodo%-md%].*") or msg, vim.log.levels.ERROR)
+				elseif vim.bo[file_buf].modified then
+					-- 例外にならずに保存されないこともある。他インスタンスが先に書いたときの
+					-- Vim の上書き確認("changed since reading it")に n と答えた場合など。
+					-- 成否は例外の有無ではなく、書いた後もバッファが未保存のままかで判断する。
+					--
+					-- 上書き確認に n と答えた場合、ディスクは他インスタンスの内容に変わって
+					-- いるため、直後の外部変更リロード(ディスクを正とする方針)で編集は
+					-- 破棄される。破棄された編集は u で戻せるので、その手掛かりを通知に含める。
+					saved = false
+					vim.notify(
+						"[gtodo-md] The file was not saved. The float is kept open; if it was reloaded from disk, press u in it to restore your edits.",
+						vim.log.levels.WARN
+					)
 				end
 			end
 
