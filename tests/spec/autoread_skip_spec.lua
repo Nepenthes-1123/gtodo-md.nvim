@@ -111,6 +111,46 @@ describe("autoread and timer skip for project files", function()
 		assert.is_false(utils.is_gtodo_file(nil))
 	end)
 
+	-- パス正規化の回帰テスト。
+	--
+	-- 相対パス化を vim.fs.abspath / normalize / relpath へ委ねたことで、判定が
+	-- **ディスクの状態に依存しなくなった**。以前の vim.fn.fnamemodify(path, ":p") は
+	-- "." / ".." をパスが実在するときにしか解決しないため、同じバッファ名でも
+	-- data_dir を作る前後で is_gtodo_file の結果が変わりえた。管理対象から漏れると
+	-- autoread・undofile・保存時バリデーションが一切掛からない状態になる。
+	--
+	-- そのため data_dir は**作らずに**設定する(config.setup は data_dir/projects を
+	-- 作ってしまうため options を直接差し替える。daily_rollover_spec と同じ流儀)。
+	local function set_data_dir_without_creating(dir)
+		require("gtodo-md.config").options.data_dir = dir
+	end
+
+	it("is_gtodo_file は . や .. を畳んで判定し、ディスクの有無に依存しない", function()
+		local data_dir = vim.fn.tempname() -- 実在しないパス
+		set_data_dir_without_creating(data_dir)
+		assert.are.same(0, vim.fn.isdirectory(data_dir), "前提: data_dir が存在しないこと")
+
+		assert.is_true(utils.is_gtodo_file(data_dir .. "/./inbox.md"))
+		assert.is_true(utils.is_gtodo_file(data_dir .. "/projects/../todo.md"))
+		assert.is_true(utils.is_gtodo_file(data_dir .. "/./projects/alpha.md"))
+
+		-- 畳んだ結果 data_dir の外へ出るものは拒否する
+		assert.is_false(utils.is_gtodo_file(data_dir .. "/../other/inbox.md"))
+		assert.is_false(utils.is_gtodo_file(data_dir .. "/projects/../../inbox.md"))
+		-- 隣接する同名前置きディレクトリも拒否し続ける
+		assert.is_false(utils.is_gtodo_file(data_dir .. "_backup/inbox.md"))
+	end)
+
+	it("is_history_file も正規化後のパスで判定する", function()
+		local data_dir = vim.fn.tempname()
+		set_data_dir_without_creating(data_dir)
+
+		assert.is_true(utils.is_history_file(data_dir .. "/./done.md"))
+		assert.is_true(utils.is_history_file(data_dir .. "/projects/../cancelled.md"))
+		assert.is_false(utils.is_history_file(data_dir .. "/./todo.md"))
+		assert.is_false(utils.is_history_file(data_dir .. "/../other/done.md"))
+	end)
+
 	-- R1-2/R1-4 回帰テスト: 以前は未保存(dirty)なバッファがあると
 	-- handle_buf_enter は自動処理を丸ごとスキップしていたが、現在は
 	-- dirty かどうかに関わらず常に処理・保存し、未保存編集も失わない。
@@ -361,6 +401,124 @@ describe("autoread and timer skip for project files", function()
 				"サイズが変化しているのに自動処理がスキップされた(mtimeのみの比較に戻っている): "
 					.. vim.inspect(lines)
 			)
+
+			vim.api.nvim_buf_delete(buf, { force = true })
+			vim.fn.delete(data_dir, "rf")
+		end
+	)
+
+	-- R1-2 の回帰テスト(スキップ判定の dirty 分岐そのもの)。
+	--
+	-- handle_buf_enter は mtime/size が前回処理時と同じなら自動処理をスキップするが、
+	-- 「対象バッファ自身が未保存(dirty)」の場合だけは例外としてスキップしない。
+	-- dirty な内容はディスクに一度も反映されていない可能性があり、mtime/size の
+	-- 比較では検知できないためである。
+	--
+	-- 既存の「dirtyなバッファでも自動処理を実行し保存する」テストは、mtimeキャッシュが
+	-- 初期値のままだったため mtime 差分だけでスキップ判定が解除されており、
+	-- dirty 分岐を一度も通っていなかった(この分岐を削除しても通過してしまう)。
+	-- ここでは **mtime と size が一致していることを前提として明示的に表明した上で**、
+	-- dirty であることだけを理由に処理が走ることを確認する。
+	it(
+		"mtime/sizeが前回処理時と同一でも、バッファが未保存(dirty)なら自動処理はスキップされない",
+		function()
+			local main_mod = require("gtodo-md")
+			local config = require("gtodo-md.config")
+			local state_mod = require("gtodo-md.state")
+			local daily_mod = require("gtodo-md.daily")
+
+			local data_dir = vim.fn.tempname()
+			vim.fn.mkdir(data_dir .. "/projects", "p")
+			config.setup({ data_dir = data_dir })
+			state_mod.write_last_opened(os.date("%Y-%m-%d"))
+
+			local inbox_path = data_dir .. "/inbox.md"
+			local todo_path = data_dir .. "/todo.md"
+			vim.fn.writefile({ "# Inbox", "" }, inbox_path)
+			vim.fn.writefile({
+				"# Todo",
+				"",
+				"## Today",
+				"",
+				"- [ ] 既存タスク",
+				"",
+				"## Next",
+				"",
+				"## Waiting",
+				"",
+				"## Someday",
+				"",
+			}, todo_path)
+
+			-- 起動時相当の呼び出しと1回目のBufEnterで mtime/size キャッシュを温める
+			daily_mod.check_daily_rollover()
+			local warmup_buf = vim.api.nvim_create_buf(true, false)
+			vim.api.nvim_buf_set_name(warmup_buf, todo_path)
+			vim.api.nvim_buf_call(warmup_buf, function()
+				vim.cmd("edit!")
+			end)
+			main_mod.handle_buf_enter(warmup_buf)
+			vim.api.nvim_buf_delete(warmup_buf, { force = true })
+
+			-- 温める過程のソートで todo.md が書き換わっている。外部変更検知側のベースラインも
+			-- 追いつかせ、本番の呼び出しでリロードが誘発されないようにする
+			-- (リロードは未保存編集の破棄を伴うため、この前処理が無いと検証したい状態が壊れる)。
+			daily_mod.check_daily_rollover()
+
+			local buf = vim.api.nvim_create_buf(true, false)
+			vim.api.nvim_buf_set_name(buf, todo_path)
+			vim.api.nvim_buf_call(buf, function()
+				vim.cmd("edit!")
+			end)
+
+			-- ディスクには一切触れず、バッファだけを未保存にする
+			local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+			table.insert(lines, 6, "- [ ] 未保存のまま追加したタスク")
+			vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+			assert.is_true(vim.bo[buf].modified, "前提: バッファが未保存であること")
+
+			-- 前提の明示: mtime も size も前回処理時から動いていない。
+			-- したがってスキップ判定を解除しうる理由は dirty であること以外に無い。
+			local cached_mtimes, _, cached_sizes = daily_mod.get_cache()
+			assert.are.same(
+				cached_mtimes.todo,
+				vim.fn.getftime(todo_path),
+				"前提: todo.md の mtime が不変であること"
+			)
+			assert.are.same(
+				cached_sizes.todo,
+				vim.fn.getfsize(todo_path),
+				"前提: todo.md の size が不変であること"
+			)
+			assert.are.same(
+				cached_mtimes.inbox,
+				vim.fn.getftime(inbox_path),
+				"前提: inbox.md の mtime が不変であること"
+			)
+			assert.are.same(
+				cached_sizes.inbox,
+				vim.fn.getfsize(inbox_path),
+				"前提: inbox.md の size が不変であること"
+			)
+
+			main_mod.handle_buf_enter(buf)
+
+			-- 自動処理が走っていれば、未保存分を含む全行がディスクへ書き戻される
+			-- (serialize が id: を発行するので前方一致で確認する)。
+			local disk = vim.fn.readfile(todo_path)
+			local found = false
+			for _, line in ipairs(disk) do
+				if line:match("^%- %[ %] 未保存のまま追加したタスク id:%x+$") then
+					found = true
+					break
+				end
+			end
+			assert.is_true(
+				found,
+				"mtime/sizeが同一のときに dirty 判定が効かず、自動処理がスキップされた: "
+					.. vim.inspect(disk)
+			)
+			assert.is_false(vim.bo[buf].modified, "自動処理後もバッファが未保存のまま")
 
 			vim.api.nvim_buf_delete(buf, { force = true })
 			vim.fn.delete(data_dir, "rf")

@@ -29,9 +29,9 @@ local MIN_COL_WIDTH = 20
 local MAX_COL_WIDTH = 56
 local COL_GAP = 1
 local OUTER_MARGIN = 1
--- ウィンドウの罫線(border="rounded")が左右に1文字ずつ占める幅。5列を並べる際の
--- 必要幅の見積りにこの分を含めないと、実際の画面幅より過大に列数を選んでしまい、
--- 右端の列が画面外へはみ出す。
+-- ウィンドウの罫線が左右に1文字ずつ占める幅。5列を並べる際の必要幅の見積りに
+-- この分を含めないと、実際の画面幅より過大に列数を選んでしまい、右端の列が
+-- 画面外へはみ出す。
 local WIN_BORDER_WIDTH = 2
 
 -- カンバン列の並び順(仕様で固定): Someday / Next / Today / Waiting / Done
@@ -269,14 +269,38 @@ function M._build_columns(todo_data, done_data, sections)
 	return columns
 end
 
+-- 設定された border が左右に消費する表示幅を返す(純関数。テスト用に公開)。
+--
+-- 罫線なし("none" / "" / 全要素が空文字の配列)なら0、それ以外は左右1文字ずつで2。
+-- 判別できない指定は**2(消費する側)として扱う**。実際は0だったとしても余白が
+-- 1列ぶん余るだけで済むが、逆に0と見積もって実際には消費していた場合は
+-- 右端の列が画面外へはみ出すため、安全側へ倒す。
+function M._border_width(border)
+	if border == nil or border == "" or border == "none" then
+		return 0
+	end
+	if type(border) == "table" then
+		for _, piece in ipairs(border) do
+			local char = type(piece) == "table" and piece[1] or piece
+			if type(char) == "string" and char ~= "" then
+				return WIN_BORDER_WIDTH
+			end
+		end
+		return 0
+	end
+	return WIN_BORDER_WIDTH
+end
+
 -- 画面幅から、一度に表示できる列数と1列あたりの幅を決める(純関数)。
--- avail_width は列を並べる領域全体の表示幅で、各列のウィンドウ罫線
--- (WIN_BORDER_WIDTH)ぶんも含めて見積もる(実際に画面へ配置する際の
--- 消費幅と一致させ、右端の列が画面外へはみ出すのを防ぐため)。
-function M._compute_layout(total_columns, avail_width, avail_height)
-	local unit = MIN_COL_WIDTH + WIN_BORDER_WIDTH
+-- avail_width は列を並べる領域全体の表示幅で、各列のウィンドウ罫線ぶんも含めて
+-- 見積もる(実際に画面へ配置する際の消費幅と一致させ、右端の列が画面外へ
+-- はみ出すのを防ぐため)。border_width は設定された border が左右に消費する幅で、
+-- 省略時は罫線ありの既定値を使う(M._border_width 参照)。
+function M._compute_layout(total_columns, avail_width, avail_height, border_width)
+	border_width = border_width or WIN_BORDER_WIDTH
+	local unit = MIN_COL_WIDTH + border_width
 	local visible_count = math.max(1, math.min(total_columns, math.floor((avail_width + COL_GAP) / (unit + COL_GAP))))
-	local col_width = math.floor((avail_width - COL_GAP * (visible_count - 1)) / visible_count) - WIN_BORDER_WIDTH
+	local col_width = math.floor((avail_width - COL_GAP * (visible_count - 1)) / visible_count) - border_width
 	col_width = math.max(MIN_COL_WIDTH, math.min(MAX_COL_WIDTH, col_width))
 	return { visible_count = visible_count, col_width = col_width, height = avail_height }
 end
@@ -287,8 +311,9 @@ end
 -- 縮めた帯自体が左詰めのままになり、本来解消したい余白が残ってしまう。
 -- OUTER_MARGINは最低限確保する縁の余白として残し、置き換えず中央寄せ分を
 -- その上に加算する。
-function M._center_left_margin(screen_width, visible_count, col_width)
-	local used_width = visible_count * (col_width + WIN_BORDER_WIDTH) + COL_GAP * (visible_count - 1)
+function M._center_left_margin(screen_width, visible_count, col_width, border_width)
+	border_width = border_width or WIN_BORDER_WIDTH
+	local used_width = visible_count * (col_width + border_width) + COL_GAP * (visible_count - 1)
 	local extra = math.max(0, screen_width - used_width - OUTER_MARGIN * 2)
 	return OUTER_MARGIN + math.floor(extra / 2)
 end
@@ -444,9 +469,30 @@ local function register_cleanup(win, buf)
 	})
 end
 
+-- nvim_buf_add_highlight() は Neovim 0.11 で非推奨になった(:h deprecated-0.11)。
+-- 代替として示されているのは vim.hl.range() と nvim_buf_set_extmark() の2つだが、
+-- **ここでは nvim_buf_set_extmark を使う**。vim.hl.range は優先度に
+-- vim.hl.priorities.user(200)を明示的に設定するため、旧APIの既定値(4096)から
+-- 変わってしまい、他のハイライトとの重なり順が黙って入れ替わりうる。
+-- extmark 版は実測で旧APIと同一の extmark(優先度を含む)になることを確認済み。
+--
+-- end_col に -1 を渡す「行末まで」という旧APIの表現は、extmark では
+-- 「次の行の先頭まで」(end_row = line + 1, end_col = 0)に対応する。
+-- バッファ最終行でも end_row が範囲外扱いにならないことも確認済み。
+local function add_hl(buf, ns, hl_group, line, start_col, end_col)
+	local opts = { hl_group = hl_group }
+	if end_col == -1 then
+		opts.end_row = line + 1
+		opts.end_col = 0
+	else
+		opts.end_col = end_col
+	end
+	return vim.api.nvim_buf_set_extmark(buf, ns, line, start_col, opts)
+end
+
 local function apply_highlight_spans(buf, spans)
 	for _, s in ipairs(spans) do
-		pcall(vim.api.nvim_buf_add_highlight, buf, kanban_ns, s.hl_group, s.line - 1, s.start_col, s.end_col)
+		pcall(add_hl, buf, kanban_ns, s.hl_group, s.line - 1, s.start_col, s.end_col)
 	end
 end
 
@@ -471,11 +517,11 @@ local function highlight_current_card(buf, win, key)
 	for l = range.start_line, range.end_line do
 		if l == range.start_line or l == range.end_line then
 			-- 罫線のみの行(上端/下端)はそのまま全体を罫線色にする
-			vim.api.nvim_buf_add_highlight(buf, selected_ns, "GTodoKanbanSelectedBorder", l - 1, 0, -1)
+			add_hl(buf, selected_ns, "GTodoKanbanSelectedBorder", l - 1, 0, -1)
 		else
 			local text = vim.api.nvim_buf_get_lines(buf, l - 1, l, false)[1] or ""
-			vim.api.nvim_buf_add_highlight(buf, selected_ns, "GTodoKanbanSelectedBorder", l - 1, 0, border_bytes)
-			vim.api.nvim_buf_add_highlight(
+			add_hl(buf, selected_ns, "GTodoKanbanSelectedBorder", l - 1, 0, border_bytes)
+			add_hl(
 				buf,
 				selected_ns,
 				"GTodoKanbanSelectedBg",
@@ -483,7 +529,7 @@ local function highlight_current_card(buf, win, key)
 				border_bytes,
 				math.max(border_bytes, #text - border_bytes)
 			)
-			vim.api.nvim_buf_add_highlight(
+			add_hl(
 				buf,
 				selected_ns,
 				"GTodoKanbanSelectedBorder",
@@ -714,8 +760,11 @@ render = function(focus_index)
 	local kanban_ratio = config.get("kanban_ratio")
 	local avail_width = math.max(MIN_COL_WIDTH, math.floor(vim.o.columns * kanban_ratio.width) - OUTER_MARGIN * 2)
 	local avail_height = math.max(10, math.floor(vim.o.lines * kanban_ratio.height))
-	local layout = M._compute_layout(#columns, avail_width, avail_height)
-	local left_margin = M._center_left_margin(vim.o.columns, layout.visible_count, layout.col_width)
+	-- 罫線の消費幅は設定(border)によって変わる。列数・列幅・中央寄せ・実際の
+	-- 配置がすべて同じ値を使わないと、右端の列がはみ出したり余白がずれたりする。
+	local border_width = M._border_width(config.effective_border())
+	local layout = M._compute_layout(#columns, avail_width, avail_height, border_width)
+	local left_margin = M._center_left_margin(vim.o.columns, layout.visible_count, layout.col_width, border_width)
 	-- left_marginと同じ理由: vim.o.lines基準で計算するため、avail_height/
 	-- layout.heightが変わらなくてもvim.o.lines自体の変化でrowだけずれ得る。
 	-- fast pathはウィンドウのrow位置を更新しないため、判定条件に含めないと
@@ -786,7 +835,7 @@ render = function(focus_index)
 		-- 巻き戻しができるように見えて誤操作を誘発するため、記録自体を無効化する。
 		vim.bo[buf].undolevels = -1
 
-		local x = left_margin + (i - 1) * (layout.col_width + WIN_BORDER_WIDTH + COL_GAP)
+		local x = left_margin + (i - 1) * (layout.col_width + border_width + COL_GAP)
 		local ok, win = pcall(vim.api.nvim_open_win, buf, false, {
 			relative = "editor",
 			width = layout.col_width,
@@ -794,7 +843,7 @@ render = function(focus_index)
 			row = row,
 			col = x,
 			style = "minimal",
-			border = "rounded",
+			border = config.resolve_border(),
 			title = string.format(" %s (%d) ", column.title, #column.cards),
 			title_pos = "center",
 		})

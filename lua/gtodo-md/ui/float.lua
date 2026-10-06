@@ -61,7 +61,7 @@ function M.open_float(filepath, title)
 		col = col,
 		row = row,
 		style = "minimal",
-		border = "rounded",
+		border = config.resolve_border(),
 		title = " " .. title .. " ",
 		title_pos = "center",
 	}
@@ -90,21 +90,48 @@ function M.open_float(filepath, title)
 	vim.api.nvim_create_autocmd("WinLeave", {
 		group = float_augroup,
 		buffer = file_buf,
+		-- autocmd は既定でネストしないため、nested が無いとコールバック内の :write で
+		-- BufWritePre/BufWritePost が発火しない。その場合、autocmds.lua の保存時
+		-- バリデーションを一切通らずにディスクへ書き込まれる(#164)。
+		nested = true,
 		callback = function()
-			-- フォーカスが外れたらまずは安全のために保存。
+			-- フォーカスが外れたらまずは安全のために保存する。
 			--
-			-- #125: この `:write` は autocmd の中で実行されるため、autocmd が
-			-- 既定でネストしない仕様により BufWritePost が発火しない。つまり
-			-- autocmds.lua の記録契機を素通りし、ディスクだけが進んで io.lua の
-			-- 世代スタンプが取り残される。
-			-- ここで record_stamp を呼んで補ってはならない — `silent!` は失敗を
-			-- 握り潰すため、書き込みが失敗していた場合に「他インスタンスが書いた
-			-- 内容」を同期済みと刻印してしまい、並行更新検出を無効化する。
-			-- 取り残されたスタンプは io.lua の disk_matches_buffer が回収する。
-			vim.cmd("silent! write")
+			-- 編集していなければ書かない。nested にしたことで、ユーザー側の
+			-- BufWritePre/BufWritePost(保存時フォーマット等)もここで走るため、
+			-- 開いて閉じただけで走らせない。
+			--
+			-- `silent!` を使ってはならない。バリデーションが error で保存を止めても
+			-- 握り潰され、保存されなかったことにユーザーが気付けない。
+			local saved = true
+			if vim.bo[file_buf].modified then
+				local ok, err = pcall(vim.cmd, "silent write")
+				if not ok then
+					saved = false
+					-- バリデーションの error はネストした autocmd の呼び出し経路が前に付いて
+					-- 読みにくいため、このプラグインのメッセージ部分だけを出す。
+					local msg = tostring(err)
+					vim.notify(msg:match("%[gtodo%-md%].*") or msg, vim.log.levels.ERROR)
+				elseif vim.bo[file_buf].modified then
+					-- 例外にならずに保存されないこともある。他インスタンスが先に書いたときの
+					-- Vim の上書き確認("changed since reading it")に n と答えた場合など。
+					-- 成否は例外の有無ではなく、書いた後もバッファが未保存のままかで判断する。
+					--
+					-- 上書き確認に n と答えた場合、ディスクは他インスタンスの内容に変わって
+					-- いるため、直後の外部変更リロード(ディスクを正とする方針)で編集は
+					-- 破棄される。破棄された編集は u で戻せるので、その手掛かりを通知に含める。
+					saved = false
+					vim.notify(
+						"[gtodo-md] The file was not saved. The float is kept open; if it was reloaded from disk, press u in it to restore your edits.",
+						vim.log.levels.WARN
+					)
+				end
+			end
 
 			vim.schedule(function()
-				if not vim.api.nvim_win_is_valid(win) then
+				-- 保存できなかった編集を失わないよう、ウィンドウを残す。閉じると
+				-- 'hidden' の下では未保存のまま一覧に出ないバッファとして埋もれる。
+				if not saved or not vim.api.nvim_win_is_valid(win) then
 					return
 				end
 

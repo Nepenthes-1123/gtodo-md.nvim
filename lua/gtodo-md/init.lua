@@ -201,6 +201,26 @@ local function append_task_to_file(path, section_name, new_task, prepare_items)
 	return true
 end
 
+-- 編集を確定する行をバッファから探し直し、行番号と現在のタスクを返す。見つからなければ nil。
+--
+-- 編集ダイアログの応答を待つ間にも、自動処理や外部変更のリロードで行の内容と位置は
+-- 変わりうる。編集開始時の行番号へ確かめずに書くと、そこへ来た別のタスクを上書きする
+-- (#163)。また、ソートで id: が付くなどテキストも変わりうるため、行の完全一致だけでは
+-- 正当な編集まで中断してしまう。同定は editor._find_task_idx と同じ規則
+-- (id → original_line → content + created)に揃える。
+local function find_edited_task_row(lines, original)
+	local items = {}
+	for i, line in ipairs(lines) do
+		local parsed = task_mod.parse(line)
+		items[i] = parsed and { type = "task", task = parsed } or { type = "text", line = line }
+	end
+	local idx = editor_mod._find_task_idx(items, original)
+	if not idx then
+		return nil
+	end
+	return idx, items[idx].task
+end
+
 -- 適応的なタスクの追加または編集 (外部呼び出し可能)
 function M.add_or_edit_task()
 	local target_buf = vim.api.nvim_get_current_buf()
@@ -211,39 +231,33 @@ function M.add_or_edit_task()
 	local todo_path = data_dir .. "/todo.md"
 
 	if filename == "todo.md" or filename == "inbox.md" then
-		local task, row, old_line = editor_mod.get_current_task()
+		local task = editor_mod.get_current_task()
 		if task then
 			-- 編集
+			-- prompt_task は受け取ったタスクをその場で書き換えて返すため、元のタスクを
+			-- 同定するキーは呼ぶ前に写し取っておく(#163)。
+			local original = vim.deepcopy(task)
 			prompt_mod.prompt_task(task, function(updated_task)
 				if not vim.api.nvim_buf_is_valid(target_buf) then
 					return
 				end
-				local newline = task_mod.serialize(updated_task)
-				-- ポップアップ編集中に裏側でソートが走り行番号がズレる対策（文字一致で現在行を再探査）
-				local target_row = nil
-				if old_line then
-					local normalized_old_line = task_mod.serialize(task)
-					local current_lines = vim.api.nvim_buf_get_lines(target_buf, 0, -1, false)
-					for i, l in ipairs(current_lines) do
-						if l == old_line or l == normalized_old_line then
-							target_row = i
-							break
-						end
-					end
-				end
-				target_row = target_row or row
-
 				-- 生の `silent! write` を使ってはならない。io.lua を経由しないため
 				-- アトミック置換が掛からないうえ、`silent!` が BufWritePre の検証エラーを
 				-- 含む一切の失敗を握り潰す。ユーザーには成功したように見えるがディスクへは
 				-- 保存されておらず、次の外部変更リロードで編集内容が静かに失われる。
 				local target_path = vim.api.nvim_buf_get_name(target_buf)
 				local buf_lines = vim.api.nvim_buf_get_lines(target_buf, 0, -1, false)
-				if target_row < 1 or target_row > #buf_lines then
+				local target_row, current = find_edited_task_row(buf_lines, original)
+				if not target_row then
 					vim.notify("[gtodo-md] The edited line no longer exists.", vim.log.levels.ERROR)
 					return
 				end
-				buf_lines[target_row] = newline
+				-- 応答待ちの間に他の処理が付与した id は引き継ぐ。ここで新しく発行すると、
+				-- 既に行へ書かれた id が別の値に置き換わってしまう。
+				if (not updated_task.id or updated_task.id == "") and current.id then
+					updated_task.id = current.id
+				end
+				buf_lines[target_row] = task_mod.serialize(updated_task)
 				local write_ok, write_err = pcall(io_mod.write_lines, target_path, buf_lines)
 				if not write_ok then
 					vim.notify(tostring(write_err), vim.log.levels.ERROR)

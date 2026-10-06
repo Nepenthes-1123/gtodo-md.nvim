@@ -22,6 +22,13 @@ stdpath("data")/gtodo-md/
     └── *.md
 ```
 
+## 必要要件
+
+- Neovim **v0.12.0 以降**
+
+任意の連携先: `snacks.nvim`(入力・ピッカーUI)、`telescope.nvim` または `fzf-lua`
+(検索バックエンド)、`plenary.nvim`(テストスイートの実行にのみ必要)。
+
 ## インストールと設定
 
 ### 1. vim.pack (Neovim v0.12+ 組み込み) の場合
@@ -44,10 +51,11 @@ require("gtodo-md").setup({
   waiting_warning_days = 2, -- Waiting タスクの期限警告日数 (デフォルト 2 日)
   enable_waiting_warning = true, -- Waiting タスクの期限警告通知を有効にするかどうか (デフォルト true)
   waiting_warning_interval = 3600, -- Waiting タスク警告のチェック間隔 (秒) (デフォルト 3600 秒 = 1時間)
-  enable_project_progress = true, -- プロジェクトファイル最下部に進捗バーを表示するかどうか (デフォルト true)
+  enable_project_progress = true, -- プロジェクトファイルのフロントマター直下に進捗バーを表示するかどうか (デフォルト true)
   auto_move_inbox_to_today = true, -- Inbox内でタスクを追加・編集した際、期日が「今日・過去」であれば自動的にTodayへ移動するかどうか
   float_ratio = { width = 0.8, height = 0.8 }, -- todo/inbox/done/cancelledのフロートとQueueビューが共有する横幅/高さの比率(画面に対する割合)
   kanban_ratio = { width = 0.9, height = 0.8 }, -- カンバンビュー専用の横幅/高さの比率(float_ratioとは別キー。単一フロートを小さくしてもカンバンの列数が減らないようにするため)
+  border = "auto", -- このプラグインが開く全フローティングウィンドウの罫線スタイル。nvim_open_win の border と同じ値を取る(値の一覧は :h 'winborder' 参照)。"auto" は 'winborder' を設定していればそれに委ね、無ければ "rounded" を使う(カンバンのレイアウト計算も実際に効く罫線に追従する)
   sections = { -- todo.md のセクション名をカスタマイズ(一部のキーだけの上書きも可)
     TODAY = "Today",
     NEXT = "Next",
@@ -179,6 +187,8 @@ vim.keymap.set('n', '<Leader>ta', function() require('gtodo-md').add_or_edit_tas
 - **これらのバッファでは永続 undo（`'undofile'`）を無効にします。** undo ファイルはプロセス間でロックされないため、複数インスタンスが同じファイルをリロードすると同一の undo ファイルを奪い合い、`E828: Cannot open undo file for writing` が発生します。バッファ内の undo は従来どおり使えます。
 
 いずれも `data_dir` 配下のファイルにのみ適用され、それ以外のファイルの設定には影響しません。
+
+フロートを離れたときの自動保存は、通常の `:write` です。フロートで編集している間に他のインスタンスが同じファイルを保存すると、Vim の `WARNING: The file has been changed since reading it!!!` という確認が出ます。`y` と答えると、通常の `:w` と同じく他のインスタンスの変更を上書きします。`n` と答えるとファイルは書き換えず、フロートは開いたまま残ります。その後、前述のとおりディスクの内容へ再読み込みされますが、フロート内で `u` を押すと編集を戻せます。ただし、戻した編集を保存すると他のインスタンスの変更は上書きされます。
 
 ## ライセンス
 MIT License
