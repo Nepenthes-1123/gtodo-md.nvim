@@ -269,8 +269,11 @@ function M.render_project_tasks(bufnr)
 			table.insert(line_parts, { "  - [ ] ", "Comment" })
 			table.insert(line_parts, { task.content, "Comment" })
 
-			if task.context then
-				table.insert(line_parts, { " @" .. task.context, "Comment" })
+			-- task.parse は context を `@` 付きのまま格納するため、無条件に前置すると
+			-- `@@office` になる(#162)。ui/kanban.lua と同じく無いときだけ補う。
+			if task.context and task.context ~= "" then
+				local ctx = task.context
+				table.insert(line_parts, { " " .. (ctx:match("^@") and ctx or ("@" .. ctx)), "Comment" })
 			end
 
 			if task.due then
