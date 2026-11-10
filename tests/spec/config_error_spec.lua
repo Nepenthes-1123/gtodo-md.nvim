@@ -148,5 +148,154 @@ describe("設定・環境エラーの通知", function()
 
 			assert.are.same({}, require("gtodo-md.validate").missing_todo_sections(lines))
 		end)
+
+		-- 2つのキーが同じ見出しを指すと、parse_markdown が両方の見出しを同じ名前へ
+		-- 正規化して1つのセクションとして読み、write_todo_file がそのまま1つの見出しで
+		-- 書き戻す。セクションの区別がディスクから無通知で失われる。
+		describe("重複の検証", function()
+			local function setup_and_capture(sections)
+				return capture_notifications(function()
+					config.setup({ data_dir = data_dir, sections = sections })
+				end)
+			end
+
+			it(
+				"2つのキーに同じ名前を付けたら両方をデフォルトへ差し戻し、通知する",
+				function()
+					local captured = setup_and_capture({ TODAY = "やること", NEXT = "やること" })
+
+					assert.are.equal(config.default_sections.TODAY, config.sections.TODAY)
+					assert.are.equal(config.default_sections.NEXT, config.sections.NEXT)
+					assert.is_true(has_error_matching(captured, "section names must be unique"))
+					assert.is_true(
+						has_error_matching(captured, "NEXT, TODAY"),
+						"どのキーを差し戻したかが通知から読み取れない: " .. vim.inspect(captured)
+					)
+				end
+			)
+
+			it("前後の空白を落とした結果が重なる場合も差し戻す", function()
+				setup_and_capture({ TODAY = "  やること  ", NEXT = "やること" })
+
+				assert.are.equal(config.default_sections.TODAY, config.sections.TODAY)
+				assert.are.equal(config.default_sections.NEXT, config.sections.NEXT)
+			end)
+
+			it("他のキーが使っているデフォルト名を付けたら差し戻す", function()
+				local captured = setup_and_capture({ TODAY = "Next" })
+
+				assert.are.equal(config.default_sections.TODAY, config.sections.TODAY)
+				assert.are.equal(config.default_sections.NEXT, config.sections.NEXT)
+				-- NEXT は元からデフォルト名で、利用者が設定したものではない。
+				-- 差し戻したキーとして挙げると、設定していない項目を直せと言うことになる。
+				assert.is_true(has_error_matching(captured, "defaults for: TODAY"))
+				assert.is_false(has_error_matching(captured, "NEXT"))
+			end)
+
+			-- デフォルト名は別名として受理され続けるため、相手が名前を変えていても
+			-- 既存ファイルの `## Next` がどちらのセクションか決まらなくなる。
+			it(
+				"他のキーのデフォルト名は、そのキーが別の名前へ変えていても使えない",
+				function()
+					local captured = setup_and_capture({ TODAY = "Next", NEXT = "あとで" })
+
+					assert.are.equal(config.default_sections.TODAY, config.sections.TODAY)
+					assert.are.equal("あとで", config.sections.NEXT)
+					assert.is_true(has_error_matching(captured, "defaults for: TODAY"))
+				end
+			)
+
+			it("重なっていないキーのカスタム名は保たれる", function()
+				setup_and_capture({ TODAY = "やること", NEXT = "やること", SOMEDAY = "いつか" })
+
+				assert.are.equal("いつか", config.sections.SOMEDAY)
+				assert.are.equal(config.default_sections.WAITING, config.sections.WAITING)
+			end)
+
+			-- 差し戻した先のデフォルト名を別のキーが使っていると、差し戻しが新しい重複を作る。
+			it("差し戻した結果どうしも重ならない", function()
+				setup_and_capture({ TODAY = "やること", NEXT = "やること", WAITING = "Today" })
+
+				local seen = {}
+				for key, name in pairs(config.sections) do
+					assert.is_nil(seen[name], key .. " と " .. tostring(seen[name]) .. " が同じ名前: " .. name)
+					seen[name] = key
+				end
+				assert.are.same(config.default_sections, config.sections)
+			end)
+
+			it("空の名前の差し戻し先を別のキーが使っている場合も差し戻す", function()
+				local captured = setup_and_capture({ TODAY = "", NEXT = "Today" })
+
+				assert.are.same(config.default_sections, config.sections)
+				assert.is_true(has_error_matching(captured, "section names must be non-empty"))
+				assert.is_true(has_error_matching(captured, "section names must be unique"))
+			end)
+
+			it("自分のデフォルト名を明示しても重複として扱わない", function()
+				local captured = setup_and_capture({ TODAY = "Today", NEXT = "次" })
+
+				assert.are.equal("Today", config.sections.TODAY)
+				assert.are.equal("次", config.sections.NEXT)
+				assert.is_false(has_error_matching(captured, "section names must be unique"))
+			end)
+
+			it("重なりの無いカスタム名では通知しない", function()
+				local captured =
+					setup_and_capture({ TODAY = "今日", NEXT = "次", WAITING = "待ち", SOMEDAY = "いつか" })
+
+				assert.are.same(
+					{ TODAY = "今日", NEXT = "次", WAITING = "待ち", SOMEDAY = "いつか" },
+					config.sections
+				)
+				assert.are.same({}, captured)
+			end)
+
+			it(
+				"重複した設定でも、Today と Next の見出しは別のセクションとして読み書きされる",
+				function()
+					setup_and_capture({ TODAY = "やること", NEXT = "やること" })
+					local io_mod = require("gtodo-md.io")
+
+					local data = io_mod.parse_markdown({
+						"# Todo",
+						"",
+						"## Today",
+						"",
+						"- [ ] 今日のタスク",
+						"",
+						"## Next",
+						"",
+						"- [ ] 次のタスク",
+						"",
+						"## Waiting",
+						"",
+						"## Someday",
+					})
+
+					assert.are.equal(1, #data.sections[config.sections.TODAY])
+					assert.are.equal(1, #data.sections[config.sections.NEXT])
+					assert.are.equal("今日のタスク", data.sections[config.sections.TODAY][1].task.content)
+					assert.are.equal("次のタスク", data.sections[config.sections.NEXT][1].task.content)
+
+					local todo_path = data_dir .. "/todo.md"
+					io_mod.write_todo_file(todo_path, data)
+					local headings = vim.tbl_filter(function(line)
+						return line:match("^## ") ~= nil
+					end, vim.fn.readfile(todo_path))
+					assert.are.same({ "## Today", "## Next", "## Waiting", "## Someday" }, headings)
+				end
+			)
+
+			-- 重複したままの名前を「前回の名前」として覚えると、設定を直した後も
+			-- 1つの見出しが2つのキーの別名になり続ける。
+			it("前回の名前として記憶するのは差し戻した後の名前", function()
+				setup_and_capture({ TODAY = "やること", NEXT = "やること" })
+
+				local last = require("gtodo-md.state").read_last_sections()
+				assert.are.equal(config.default_sections.TODAY, last.TODAY)
+				assert.are.equal(config.default_sections.NEXT, last.NEXT)
+			end)
+		end)
 	end)
 end)

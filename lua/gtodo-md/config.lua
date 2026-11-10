@@ -98,6 +98,46 @@ local function sanitize_sections(sections)
 			vim.log.levels.ERROR
 		)
 	end
+
+	-- 他のセクションと同じ見出しを指す名前もデフォルトへ差し戻す。
+	--
+	-- 2つのキーが同じ見出しを指すと、`parse_markdown` が両方の見出しを同じ名前へ
+	-- 正規化して1つのセクションとして読み、`write_todo_file` がそのまま1つの見出しで
+	-- 書き戻す。セクションの区別がディスクから無通知で失われる。
+	-- 他のキーのデフォルト名も、そのキーが別の名前へ変えていても使わせない —
+	-- デフォルト名は別名として受理され続けるため(`section_aliases`)、既存ファイルの
+	-- その見出しがどちらのセクションか決まらなくなる。
+	--
+	-- 判定は差し戻す前の名前どうしで行い、差し戻しは最後にまとめて行う。途中で
+	-- 差し戻すと、同じ名前の2つのうち `pairs` が先に返した方だけが差し戻され、
+	-- もう一方がその名前を使い続ける。
+	-- デフォルト名のままのキーは対象にしない。利用者が設定した名前ではなく、
+	-- 差し戻しても何も変わらないため、通知に挙げると直す場所を誤らせる。
+	local duplicated = {}
+	for key, name in pairs(sanitized) do
+		if name ~= M.default_sections[key] then
+			for other, other_default in pairs(M.default_sections) do
+				if other ~= key and (sanitized[other] == name or other_default == name) then
+					table.insert(duplicated, key)
+					break
+				end
+			end
+		end
+	end
+	if #duplicated > 0 then
+		for _, key in ipairs(duplicated) do
+			sanitized[key] = M.default_sections[key]
+		end
+		table.sort(duplicated)
+		vim.notify(
+			string.format(
+				"[gtodo-md] section names must be unique and must not reuse another section's default name; "
+					.. "falling back to defaults for: %s",
+				table.concat(duplicated, ", ")
+			),
+			vim.log.levels.ERROR
+		)
+	end
 	return sanitized
 end
 

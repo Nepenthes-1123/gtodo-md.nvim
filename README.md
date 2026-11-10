@@ -78,6 +78,9 @@ require("gtodo-md").setup({
 > [!NOTE]
 > If you customize `sections` after already using the plugin, existing `## Today`/`## Next`/`## Waiting`/`## Someday` headings in your `todo.md` keep working — no manual renaming needed. They're automatically recognized and rewritten to your custom names the next time the file is saved.
 
+> [!NOTE]
+> Each section needs its own name. A name that another section already uses, or that is another section's default name (e.g. `TODAY = "Next"`, even if you also rename `NEXT`), is rejected: that section falls back to its default name and an error is shown. Two sections sharing one heading would be read as a single section and written back merged.
+
 ### 2. lazy.nvim
 ```lua
 {
