@@ -443,6 +443,37 @@ function M.section_aliases(key)
 	return aliases
 end
 
+-- 見出しの名前(前後の空白は除いたもの)が指すセクションのキーを返す。どれでもなければ nil。
+--
+-- 全セクションの現在の名前 → デフォルト名 → 前回の名前、の順に照合する。
+-- キーごとに section_aliases をまとめて照合してはならない。あるセクションの前回の名前が
+-- 別のセクションの現在の名前やデフォルト名と同じとき(名前を入れ替えた直後など)、
+-- どちらのセクションとして読むかが pairs の順で変わり、見出しが別のセクションへ移る。
+-- 現在の名前が他のセクションの現在の名前・デフォルト名と重なる設定は、setup() が
+-- 差し戻しているため、前の2段では1つに決まる。CLI (gtodo) も同じ順で照合する。
+function M.section_key_of(heading)
+	for _, names in ipairs({ M.sections, M.default_sections, M.last_sections }) do
+		for _, key in ipairs(M.section_order) do
+			local name = names[key]
+			if type(name) == "string" and name ~= "" and name == heading then
+				return key
+			end
+		end
+	end
+	return nil
+end
+
+-- 見出しの名前を、そのセクションの現在の名前へ揃える。管理対象のセクションでなければそのまま返す。
+-- 既存ファイルの見出しがデフォルト名や前回の名前のままでも、読むときに現在の名前として扱い、
+-- 書くときに現在の名前で書き戻す(見出しを利用者に手でリネームさせないため、#94)。
+function M.normalize_section_name(heading)
+	local key = M.section_key_of(heading)
+	if key then
+		return M.sections[key]
+	end
+	return heading
+end
+
 -- オプション値を取得する。未設定の場合はデフォルト値を返す
 function M.get(key)
 	local val = M.options[key]

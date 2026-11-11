@@ -89,7 +89,7 @@ describe("logic.check_dues boundary conditions", function()
 		local updated_inbox = io_mod.read_todo_file(inbox_path)
 		local updated_todo = io_mod.read_todo_file(todo_path)
 
-		local inbox_items = updated_inbox.sections["default"] or {}
+		local inbox_items = updated_inbox.sections[io_mod.PREAMBLE] or {}
 		local today_items = updated_todo.sections["Today"] or {}
 
 		assert.are.same(1, #inbox_items)
@@ -137,7 +137,7 @@ describe("logic.check_dues boundary conditions", function()
 		logic_mod.check_dues(inbox_path, todo_path)
 
 		local updated_inbox = io_mod.read_todo_file(inbox_path)
-		local inbox_items = updated_inbox.sections["default"] or {}
+		local inbox_items = updated_inbox.sections[io_mod.PREAMBLE] or {}
 		assert.are.same(1, #inbox_items, "未来期日のタスクがInboxから消えている")
 		assert.are.same("未来のタスク", inbox_items[1].task.content)
 

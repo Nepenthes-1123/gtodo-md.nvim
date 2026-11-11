@@ -51,8 +51,8 @@ function M.check_dues(inbox_path, todo_path)
 	local inbox_changed = false
 	local items_to_move = {}
 
-	if inbox_data.sections["default"] then
-		local sec_items = inbox_data.sections["default"]
+	if inbox_data.sections[io_mod.PREAMBLE] then
+		local sec_items = inbox_data.sections[io_mod.PREAMBLE]
 		local remaining = {}
 		for _, item in ipairs(sec_items) do
 			if item.type == "task" and item.task.status ~= "x" and item.task.due then
@@ -74,7 +74,7 @@ function M.check_dues(inbox_path, todo_path)
 				table.insert(remaining, item)
 			end
 		end
-		inbox_data.sections["default"] = remaining
+		inbox_data.sections[io_mod.PREAMBLE] = remaining
 	end
 
 	local persist = config.get("due_notification_persist")

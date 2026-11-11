@@ -17,8 +17,8 @@ function M.move_completed_tasks(inbox_path, todo_path, done_path)
 	-- 1. inbox.md から完了タスクを抽出する(この時点では書き込まない)
 	local inbox_data = io_mod.read_todo_file(inbox_path)
 	local inbox_changed = false
-	if inbox_data.sections["default"] then
-		local sec_items = inbox_data.sections["default"]
+	if inbox_data.sections[io_mod.PREAMBLE] then
+		local sec_items = inbox_data.sections[io_mod.PREAMBLE]
 		local remaining = {}
 		for _, item in ipairs(sec_items) do
 			if item.type == "task" and item.task.status == "x" then
@@ -28,7 +28,7 @@ function M.move_completed_tasks(inbox_path, todo_path, done_path)
 				table.insert(remaining, item)
 			end
 		end
-		inbox_data.sections["default"] = remaining
+		inbox_data.sections[io_mod.PREAMBLE] = remaining
 	end
 
 	-- 2. todo.md から完了タスクを抽出する(この時点では書き込まない)

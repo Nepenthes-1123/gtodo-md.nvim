@@ -68,13 +68,12 @@ function M.missing_todo_sections(lines)
 	for _, line in ipairs(lines) do
 		local sec = line:match("^##%s+(.*)$")
 		if sec then
-			sec = vim.trim(sec)
-			for _, key in ipairs(SECTION_KEYS) do
-				for _, alias in ipairs(config.section_aliases(key)) do
-					if sec == alias then
-						found[key] = true
-					end
-				end
+			-- 読むときと同じ規則で、見出しを1つのセクションにだけ数える
+			-- (config.section_key_of)。別名ごとに数えると、ある見出しが2つのセクションの
+			-- 両方を満たし、片方の見出しが欠けていても保存が通ってしまう。
+			local key = config.section_key_of(vim.trim(sec))
+			if key then
+				found[key] = true
 			end
 		end
 	end

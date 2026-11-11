@@ -600,20 +600,29 @@ function M.read_todo_file(filepath)
 	return M.parse_markdown(lines)
 end
 
--- #94: 見出しが config.section_aliases(key) に含まれる名前(デフォルト名/
--- 前回の設定名)であれば、その場で現在のカスタム名へ正規化する。これにより
--- due.lua等の既存の config.sections.* 参照箇所は一切変更せずに動作し続け、
--- 既存ファイルの見出しをユーザーに手動でリネームさせる必要もない
--- (次回保存時に write_todo_file が新しい名前で書き戻す)。
-local function normalize_section_name(name)
-	for key, _ in pairs(config.default_sections) do
-		for _, alias in ipairs(config.section_aliases(key)) do
-			if name == alias then
-				return config.sections[key]
-			end
+-- 最初の `## ` 見出しより前にあるタスクを入れるセクションの名前(inbox.md のタスクはすべてここ)。
+--
+-- 見出しの名前と衝突しない値でなければならない。以前は "default" だったため、
+-- `## default` という見出しがあると同じセクションとして扱われ、見出しが消えて
+-- その下のタスクが先頭へ移っていた。見出しの名前は前後の空白を取り除いて読むので、
+-- 空白で始まる名前は見出しからは作られない。
+M.PREAMBLE = " preamble"
+
+-- セクションを取り出す。無ければ作り、書き出す順序の末尾に加える。
+--
+-- data.sections にだけ加えて section_order に加えないと、write_todo_file が
+-- そのセクションを書かず、加えたタスクが消える(見出しの無いセクションへの追加・
+-- inbox.md からの移動で起きていた)。
+function M.ensure_section(data, name)
+	local items = data.sections[name]
+	if not items then
+		items = {}
+		data.sections[name] = items
+		if name ~= M.PREAMBLE then
+			table.insert(data.section_order, name)
 		end
 	end
-	return name
+	return items
 end
 
 function M.parse_markdown(lines)
@@ -623,7 +632,7 @@ function M.parse_markdown(lines)
 		section_order = {},
 	}
 
-	local current_section = "default"
+	local current_section = M.PREAMBLE
 	data.sections[current_section] = {}
 
 	local header_done = false
@@ -634,7 +643,9 @@ function M.parse_markdown(lines)
 		local task = task_mod.parse(line)
 
 		if sec_name then
-			sec_name = normalize_section_name(vim.trim(sec_name))
+			-- #94: デフォルト名や前回の名前の見出しも、現在の名前のセクションとして読む
+			-- (次回保存時に write_todo_file が現在の名前で書き戻す)。
+			sec_name = config.normalize_section_name(vim.trim(sec_name))
 			current_section = sec_name
 			if not data.sections[current_section] then
 				data.sections[current_section] = {}
@@ -730,8 +741,8 @@ function M.write_todo_file(filepath, data)
 		table.insert(lines, l)
 	end
 
-	-- default セクション（## なし領域）の書き出し
-	local default_items = data.sections["default"] or {}
+	-- 最初の見出しより前のタスクの書き出し
+	local default_items = data.sections[M.PREAMBLE] or {}
 	if #default_items > 0 then
 		if #lines > 0 and lines[#lines] ~= "" then
 			table.insert(lines, "")
