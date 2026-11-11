@@ -97,12 +97,23 @@ describe("lock.with_automation_lock", function()
 		assert.is_truthy(notes[1].msg:find("taken over", 1, true), notes[1].msg)
 	end)
 
-	it("既に消されていても失敗しない", function()
-		local acquired = lock_mod.with_automation_lock(dir, function()
+	-- 持っている間に 60 秒を超え、他のプロセスが残骸として消した場合。排他が崩れていたことを
+	-- 知らせる(CLI も同じく知らせる)。
+	it("既に消されていたら、失敗はさせずに知らせる", function()
+		local notes = {}
+		local saved = vim.notify
+		vim.notify = function(msg, level)
+			table.insert(notes, { msg = tostring(msg), level = level })
+		end
+		local ok, acquired = pcall(lock_mod.with_automation_lock, dir, function()
 			os.remove(lock_path)
 		end)
+		vim.notify = saved
+		assert(ok, acquired)
 
 		assert.is_true(acquired)
 		assert.is_nil(uv.fs_stat(lock_path))
+		assert.are.equal(1, #notes, vim.inspect(notes))
+		assert.is_truthy(notes[1].msg:find("removed by another process", 1, true), notes[1].msg)
 	end)
 end)

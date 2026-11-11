@@ -65,6 +65,17 @@ local function release(lock_path, token)
 			),
 			vim.log.levels.WARN
 		)
+	else
+		-- 消されていた。他のプロセスが残骸とみなして消したので、持っている間の排他は崩れていた
+		-- 可能性がある(CLI も同じく知らせる)。
+		vim.notify(
+			string.format(
+				"[gtodo-md] %s was removed by another process (held for more than %d seconds)",
+				lock_path,
+				STALE_SECONDS
+			),
+			vim.log.levels.WARN
+		)
 	end
 end
 
