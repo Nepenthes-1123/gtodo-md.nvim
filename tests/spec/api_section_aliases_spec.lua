@@ -69,4 +69,34 @@ describe("api.get_stats: config.section_aliasesへの追従", function()
 			assert.are.same(1, stats.today, "section_aliasesに追従していれば1になるはず")
 		end
 	)
+
+	-- Today の見出しを決めるのは config.section_key_of だけ(読むとき・保存時の検証と同じ規則)。
+	-- 別名ごとに前方一致で探すと、名前を入れ替えた直後に Next の見出しを Today として数えたり、
+	-- `## Today-archive` のような別の見出しまで数えたりする。
+	it("見出しは読むときと同じ規則で Today と判定する", function()
+		vim.fn.writefile(
+			{ vim.json.encode({ last_sections = { TODAY = "A", NEXT = "B" } }) },
+			data_dir .. "/.state.json"
+		)
+		config.setup({ data_dir = data_dir, sections = { TODAY = "B", NEXT = "A" } })
+		vim.fn.writefile({ "# Inbox", "" }, data_dir .. "/inbox.md")
+		vim.fn.writefile({
+			"# Todo",
+			"",
+			"## B",
+			"",
+			"- [ ] 今日やる",
+			"",
+			"## A",
+			"",
+			"- [ ] 次にやる1",
+			"- [ ] 次にやる2",
+			"",
+			"## Today-archive",
+			"",
+			"- [ ] 別の見出し",
+		}, data_dir .. "/todo.md")
+
+		assert.are.same(1, api_mod.get_stats().today)
+	end)
 end)
