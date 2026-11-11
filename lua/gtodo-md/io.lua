@@ -23,8 +23,14 @@ function M.find_buf(path)
 end
 
 -- 並行更新(lost update)検出用のスタンプ表。
--- key: 正規化した絶対パス, value: { sec, nsec, size }
+-- key: 正規化した絶対パス, value: { sec, nsec, size } または MISSING
 local read_stamps = {}
+
+-- 同期した時点でファイルが無かったことを表すスタンプ。
+-- これが無いと「無いファイルを読んだ」ことを覚えておけず、書く直前までに他のプロセスが
+-- 作ったファイル(cancelled.md / done.md を初めて作る瞬間など)を照合せずに上書きし、
+-- 先に作った側の内容を消していた。
+local MISSING = {}
 
 local function norm_path(path)
 	return vim.fn.fnamemodify(path, ":p")
@@ -40,11 +46,14 @@ end
 
 -- 「このパスの内容をディスクと同期した」と言える時点の stat を記録する。
 --
--- 記録してよい契機は次の4つだけ:
---   1. read_lines がディスクから読んだ直後
+-- 記録してよい契機は次の5つだけ:
+--   1. read_lines がディスクから読んだ直後(ファイルが無かった場合も含む)
 --   2. BufReadPost (autocmds.lua から)
 --   3. BufWritePost (autocmds.lua から。ユーザーの :w もここで拾う)
---   4. 自身の write_lines が成功した直後
+--   4. FileChangedShellPost (autocmds.lua から)
+--   5. 自身の write_lines / atomic_write が成功した直後
+--
+-- ファイルが無ければ MISSING を記録する(無いことも同期した状態の一つ)。
 --
 -- read_lines がバッファ優先で読んだときに記録してはならない。バッファの内容は
 -- 「読んだ瞬間のディスク」ではなく「最後にディスクと同期した時点」の写しであり、
@@ -52,7 +61,7 @@ end
 -- 誤って宣言することになる。その状態で全行置換すると、他インスタンスがその間に
 -- 追記した行を検出できないまま消してしまう。
 function M.record_stamp(path)
-	read_stamps[norm_path(path)] = stat_stamp(path)
+	read_stamps[norm_path(path)] = stat_stamp(path) or MISSING
 end
 
 -- 既に追跡中のパスに限ってスタンプを更新する。
@@ -114,10 +123,16 @@ local function assert_not_changed_since_read(path)
 	end
 	local current = stat_stamp(path)
 	if not current then
-		-- ファイルが存在しない。新規作成として扱い、書き込みを許す。
+		-- ファイルが存在しない(読んだ後に消された場合を含む)。新規作成として扱い、書き込みを許す。
 		return
 	end
-	if current.sec == recorded.sec and current.nsec == recorded.nsec and current.size == recorded.size then
+	local created_since_read = recorded == MISSING
+	if
+		not created_since_read
+		and current.sec == recorded.sec
+		and current.nsec == recorded.nsec
+		and current.size == recorded.size
+	then
 		return
 	end
 
@@ -133,9 +148,11 @@ local function assert_not_changed_since_read(path)
 
 	error(
 		string.format(
-			"[gtodo-md] %s は他のプロセスによって更新されています。書き込みを中止しました。\n"
+			"[gtodo-md] %s は%s。書き込みを中止しました。\n"
 				.. "バッファを再読み込み(:checktime または :e)してから操作をやり直してください。",
-			path
+			path,
+			created_since_read and "読み込んだ後に他のプロセスによって作られています"
+				or "他のプロセスによって更新されています"
 		),
 		0
 	)
@@ -151,6 +168,9 @@ function M.read_lines(path)
 		local lines = {}
 		local f = io.open(path, "r")
 		if not f then
+			-- 無かったことも記録する。書く直前までに他のプロセスが作っていれば、
+			-- それを上書きせずに検出するため(MISSING 参照)。
+			M.record_stamp(path)
 			return lines
 		end
 		-- 読み始める前に記録する。読んでいる最中に書き換えられた場合も
@@ -276,12 +296,20 @@ end
 -- 置換先にすると、リンク自体が実体ファイルで置き換わって消え、ユーザーが構築した
 -- 外部同期や共有の仕組みが警告なく壊れる。実体側のディレクトリに一時ファイルを
 -- 作るため、実体が別ファイルシステムにあっても rename は同一FS内で完結する。
+--
+-- 実体の無いリンクには書かず、nil と理由を返す。以前はリンクそのものを置換先にして、
+-- リンクを通常のファイルに置き換えていた。同期先がまだマウントされていないなど、
+-- 実体が一時的に見えないだけかもしれず、リンクを壊すよりは書かない方が安全(CLI も同じ)。
 local function resolve_link(path)
 	local lst = uv.fs_lstat(path)
 	if not lst or lst.type ~= "link" then
 		return path
 	end
-	return uv.fs_realpath(path) or path
+	local real = uv.fs_realpath(path)
+	if not real then
+		return nil, string.format("refusing to replace symbolic link %s: its target does not exist", path)
+	end
+	return real
 end
 
 -- 一時ファイルを O_EXCL で作る。名前が衝突しても既存ファイルを壊さず EEXIST で
@@ -378,7 +406,10 @@ local function content_unchanged(target, data)
 end
 
 local function atomic_replace(path, data)
-	local target = resolve_link(path)
+	local target, link_err = resolve_link(path)
+	if not target then
+		return nil, link_err
+	end
 
 	-- 内容が変わらないなら書かない。
 	-- 書けば mtime が動き、同じ data_dir を開いている全インスタンスが checktime で
@@ -435,7 +466,13 @@ end
 -- 成功なら true、失敗なら nil とエラー文字列を返す(error は投げない —
 -- 呼び出し元の失敗時の振る舞いがそれぞれ異なるため判断を委ねる)。
 function M.atomic_write(path, data)
-	return atomic_replace(path, data)
+	local ok, err = atomic_replace(path, data)
+	if ok then
+		-- 自分の書き込みを新しい同期点にする(write_lines と同じ)。無いファイルを読んだ後に
+		-- ここで作ったファイルを、他のプロセスが作ったものと誤って判定しないため。
+		M.refresh_stamp_if_tracked(path)
+	end
+	return ok, err
 end
 
 -- rename_with_retry の公開ラッパー。src を dst へ移動する。成功なら true、
@@ -797,7 +834,7 @@ function M.ensure_files()
 			-- 作成失敗を握り潰すと、以降の読み取りが「空ファイル」と区別できないまま
 			-- 進み、原因の分からない不具合として表面化する。1件ずつ通知して続行する
 			-- (1つ失敗しても他のファイルは作れる可能性があるため中断はしない)。
-			local ok, err = atomic_replace(f.path, f.title .. "\n")
+			local ok, err = M.atomic_write(f.path, f.title .. "\n")
 			if not ok then
 				vim.notify(
 					string.format("[gtodo-md] failed to create %s: %s", f.path, tostring(err)),

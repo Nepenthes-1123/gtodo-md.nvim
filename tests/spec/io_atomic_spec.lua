@@ -121,6 +121,24 @@ describe("io の書き込みはアトミックである", function()
 			-- 実体側に書かれていること
 			assert.are.same({ "after" }, vim.fn.readfile(real))
 		end)
+
+		-- 実体の無いリンク(同期先がまだマウントされていない等)へ書くと、以前はリンクが
+		-- 通常のファイルに置き換わり、利用者が作った同期や共有の仕組みが壊れていた。
+		-- 同期先が一時的に見えないだけかもしれないので、リンクを壊すより書かない方を選ぶ。
+		it("実体の無いシンボリックリンクには書かず、リンクを残す", function()
+			local link = dir .. "/dangling.md"
+			assert.is_true(uv.fs_symlink(dir .. "/missing/real.md", link) ~= nil)
+
+			local ok, err = pcall(io_mod.write_lines, link, { "after" })
+
+			assert.is_false(ok)
+			assert.is_truthy(tostring(err):find("symbolic link", 1, true), tostring(err))
+			assert.are.equal("link", uv.fs_lstat(link).type)
+			local written, write_err = io_mod.atomic_write(link, "after\n")
+			assert.is_nil(written)
+			assert.is_string(write_err)
+			assert.are.equal("link", uv.fs_lstat(link).type)
+		end)
 	end
 end)
 
