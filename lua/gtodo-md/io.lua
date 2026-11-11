@@ -453,6 +453,49 @@ local function atomic_replace(path, data)
 	return true
 end
 
+-- path が無いときだけ、data を中身とするファイルとして作る。
+-- 作れば true、既にあれば false(何も書かない)、失敗すれば nil とエラー文字列。
+--
+-- 無いことを確かめてから atomic_replace で作ると、確かめてから作るまでの間に他のプロセス
+-- (別の Neovim や CLI)が作って書き込んだ内容を置き換えて消す。一時ファイルに書いてから
+-- ハードリンクを張ると、置換先が既にあれば EEXIST で失敗するので、確かめることと作ることが
+-- 1回の syscall になる。ハードリンクを作れないファイルシステム(FAT など)では、置換先を
+-- O_EXCL で確保してから rename する(move_file_no_replace)。
+local function create_new_file(path, data)
+	local dir = vim.fn.fnamemodify(path, ":h")
+	local base = vim.fn.fnamemodify(path, ":t")
+	local fd, tmp_path, open_err = create_tmp(dir, base)
+	if not fd then
+		return nil, string.format("open: %s", tostring(open_err))
+	end
+	local written, write_err = write_and_sync(fd, data)
+	uv.fs_close(fd)
+	if not written then
+		uv.fs_unlink(tmp_path)
+		return nil, string.format("write: %s", tostring(write_err))
+	end
+
+	local linked, link_msg, link_code = uv.fs_link(tmp_path, path)
+	if linked then
+		uv.fs_unlink(tmp_path)
+		return true
+	end
+	if err_code(link_msg, link_code) == "EEXIST" then
+		uv.fs_unlink(tmp_path)
+		return false
+	end
+
+	local moved, move_err = M.move_file_no_replace(tmp_path, path)
+	if moved then
+		return true
+	end
+	uv.fs_unlink(tmp_path)
+	if move_err == "EEXIST" then
+		return false
+	end
+	return nil, string.format("rename: %s", tostring(move_err))
+end
+
 -- 行リストを指定の改行コードでアトミックに書き出す。
 local function write_lines_to_disk(path, lines, use_crlf)
 	local nl = use_crlf and "\r\n" or "\n"
@@ -837,8 +880,11 @@ function M.ensure_files()
 			-- 作成失敗を握り潰すと、以降の読み取りが「空ファイル」と区別できないまま
 			-- 進み、原因の分からない不具合として表面化する。1件ずつ通知して続行する
 			-- (1つ失敗しても他のファイルは作れる可能性があるため中断はしない)。
-			local ok, err = M.atomic_write(f.path, f.title .. "\n")
-			if not ok then
+			-- 確かめた後に他のプロセスが作っていれば、そちらを残す(false が返る)。
+			local ok, err = create_new_file(f.path, f.title .. "\n")
+			if ok then
+				M.refresh_stamp_if_tracked(f.path)
+			elseif ok == nil then
 				vim.notify(
 					string.format("[gtodo-md] failed to create %s: %s", f.path, tostring(err)),
 					vim.log.levels.ERROR

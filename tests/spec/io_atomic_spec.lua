@@ -142,6 +142,48 @@ describe("io の書き込みはアトミックである", function()
 	end
 end)
 
+-- 無いことを確かめてから作るまでの間に、他のプロセス(別の Neovim や CLI)が同じファイルを
+-- 作って書き込むことがある。以前は無条件に置き換えていたため、相手の内容が消えていた。
+describe("io.ensure_files は他のプロセスが作ったファイルを上書きしない", function()
+	local dir
+	local config = require("gtodo-md.config")
+
+	before_each(function()
+		dir = vim.fn.tempname()
+		vim.fn.mkdir(dir .. "/projects", "p")
+		config.setup({ data_dir = dir })
+	end)
+
+	after_each(function()
+		vim.fn.delete(dir, "rf")
+	end)
+
+	it("確かめた後にできていたファイルは残す", function()
+		local done = dir .. "/done.md"
+		vim.fn.writefile({ "# Done", "", "## 2026-11", "", "- [x] 他のプロセス" }, done)
+		-- 確かめた時点では無かったことにする
+		local saved = vim.fn.filereadable
+		vim.fn.filereadable = function(path)
+			if path == done then
+				return 0
+			end
+			return saved(path)
+		end
+		local ok, err = pcall(io_mod.ensure_files)
+		vim.fn.filereadable = saved
+		assert(ok, err)
+
+		assert.are.same({ "# Done", "", "## 2026-11", "", "- [x] 他のプロセス" }, vim.fn.readfile(done))
+	end)
+
+	it("無いファイルは作り、一時ファイルを残さない", function()
+		io_mod.ensure_files()
+
+		assert.are.same({ "# Inbox", "" }, vim.fn.readfile(dir .. "/inbox.md"))
+		assert.are.same({}, vim.fn.glob(dir .. "/.*.tmp", false, true))
+	end)
+end)
+
 describe("io.ensure_files の一時ファイル掃除", function()
 	local dir
 	local config = require("gtodo-md.config")
