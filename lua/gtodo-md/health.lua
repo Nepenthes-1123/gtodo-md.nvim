@@ -55,6 +55,13 @@ function M.check()
 	-- (CLI/TUI と共有する設定が優先される項目がある)。setup() より前は sources が空。
 	local sources = config.sources
 	local data_dir = config.get("data_dir")
+	-- 既定の場所は setup() のときに決まる(共有設定と、新旧どちらの既定があるかで変わる)。
+	if not data_dir then
+		vim.health.warn("setup() has not been called, so data_dir is not decided yet", {
+			'Call require("gtodo-md").setup() in your config.',
+		})
+		return
+	end
 	if sources.data_dir then
 		vim.health.ok(string.format("data_dir is set to: %s (from %s)", data_dir, sources.data_dir))
 	else

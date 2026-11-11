@@ -34,7 +34,9 @@ Neovim v0.12.0 以降が必要です。
 >lua
     require("gtodo-md").setup({
       -- タスクファイルの保存先ディレクトリ
-      data_dir = vim.fn.stdpath("data") .. "/gtodo-md",
+      -- 省略すると $GTODO_DATA_DIR、config.json、~/.local/share/gtodo-md の順に
+      -- 決まる (|gtodo-md-shared-settings|)
+      data_dir = nil,
 
       -- デフォルトのキーバインドを有効化するかどうか
       use_default_keymaps = true,
@@ -109,7 +111,10 @@ setup() を実行するときの 1 回だけです。
     1. setup() に渡した `data_dir`
     2. 環境変数 `$GTODO_DATA_DIR`
     3. `config.json` の `data_dir`
-    4. 既定の `stdpath("data") .. "/gtodo-md"`
+    4. 既定の `$XDG_DATA_HOME/gtodo-md` (`~/.local/share/gtodo-md`。Windows は
+       `%LOCALAPPDATA%\gtodo-md`)。これが無く、以前の既定
+       `stdpath("data") .. "/gtodo-md"` があれば、そちらを使う。既存のデータは
+       移さずにそのまま使える。両方ある場合は新しい既定を使い、警告を出す。
 setup() を最優先にしているのは、プロジェクトごとに変えた `data_dir` が全体の
 設定ファイルに上書きされないようにするためです。setup() の指定が 2・3 と違う
 場所を指していると警告を出します。`gtodo` は setup() を読まないので、別の場所を

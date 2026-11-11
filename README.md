@@ -18,9 +18,9 @@ A lightweight GTD (Getting Things Done) oriented Todo management plugin for Neov
   - **Advanced Picker Integrations**: Supercharged task search via `snacks.picker`, `telescope`, or `fzf-lua`. Features multi-select (`<Tab>`) and instant task toggle (`x` or `<C-x>`) directly from the search window!
 
 ## Directory Structure
-The following structure is automatically generated under your specified `data_dir` (default: `stdpath("data") .. "/gtodo-md"`):
+The following structure is automatically generated under your specified `data_dir` (default: `~/.local/share/gtodo-md`, see [Shared settings](#shared-settings-configjson--gtodojson)):
 ```
-stdpath("data")/gtodo-md/
+~/.local/share/gtodo-md/
 ├── inbox.md
 ├── todo.md
 ├── done.md
@@ -49,7 +49,7 @@ Then, call setup in your configuration file:
 ```lua
 require("gtodo-md").setup({
   -- Options (defaults are shown below)
-  data_dir = vim.fn.stdpath("data") .. "/gtodo-md", -- When omitted, GTODO_DATA_DIR and config.json are consulted first (see "Shared settings")
+  data_dir = nil, -- Where your tasks live. When omitted: GTODO_DATA_DIR, config.json, then ~/.local/share/gtodo-md (see "Shared settings")
   use_default_keymaps = true,
   picker = "auto", -- "auto" | "snacks" | "telescope" | "fzf-lua" | "builtin"
   keymap_prefix = "<Leader>t", -- Prefix for default keymaps
@@ -197,7 +197,10 @@ Both files are read once, when `setup()` runs. Restart Neovim after editing them
 1. `data_dir` passed to `setup()`
 2. the `GTODO_DATA_DIR` environment variable
 3. `data_dir` in `config.json`
-4. the default, `stdpath("data") .. "/gtodo-md"`
+4. the default, `$XDG_DATA_HOME/gtodo-md` (`~/.local/share/gtodo-md`; `%LOCALAPPDATA%\gtodo-md` on Windows).
+   If it does not exist but the old default `stdpath("data") .. "/gtodo-md"` (usually
+   `~/.local/share/nvim/gtodo-md`) does, the old one is used, so existing data keeps working without
+   being moved. If both exist, the new one is used and a warning is shown.
 
 `setup()` wins so that a per-project `data_dir` is not overridden by your global file. If it
 names a different directory than 2 or 3, a warning is shown at startup, because `gtodo` does not

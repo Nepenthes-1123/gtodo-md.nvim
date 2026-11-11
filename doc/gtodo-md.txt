@@ -33,8 +33,9 @@ The default options are as follows:
 
 >lua
     require("gtodo-md").setup({
-      -- Directory to save task files
-      data_dir = vim.fn.stdpath("data") .. "/gtodo-md",
+      -- Directory to save task files. When omitted: $GTODO_DATA_DIR,
+      -- config.json, then ~/.local/share/gtodo-md (|gtodo-md-shared-settings|)
+      data_dir = nil,
 
       -- Whether to enable default keymaps
       use_default_keymaps = true,
@@ -117,7 +118,11 @@ chosen in this order:
     1. `data_dir` passed to setup()
     2. the `$GTODO_DATA_DIR` environment variable
     3. `data_dir` in `config.json`
-    4. the default, `stdpath("data") .. "/gtodo-md"`
+    4. the default, `$XDG_DATA_HOME/gtodo-md` (`~/.local/share/gtodo-md`;
+       `%LOCALAPPDATA%\gtodo-md` on Windows). If it does not exist but the old
+       default `stdpath("data") .. "/gtodo-md"` does, the old one is used, so
+       existing data keeps working without being moved. If both exist, the
+       new one is used and a warning is shown.
 setup() wins so that a per-project `data_dir` is not overridden by your global
 file. A warning is shown when it names a different directory than 2 or 3,
 because `gtodo` does not see setup() and will use the other directory.

@@ -93,6 +93,26 @@ function M.config_path(env, windows)
 	return vim.fs.joinpath(base, APP_DIR, "config.json"), false
 end
 
+-- 既定の data_dir (新しい既定)。CLI と同じ規則で決める。ホームディレクトリが分からなければ nil。
+-- `$XDG_DATA_HOME/gtodo-md`。XDG_DATA_HOME が無ければ Unix (macOS を含む) は
+-- `~/.local/share/gtodo-md`、Windows は `%LOCALAPPDATA%\gtodo-md`。
+-- 旧い既定 (stdpath("data") .. "/gtodo-md") へ戻るかどうかは呼び出し元が決める。
+function M.default_data_dir(env, windows)
+	local base = absolute_var(env, "XDG_DATA_HOME", windows)
+	if not base then
+		local home = home_dir(env, windows)
+		if windows then
+			base = env("LOCALAPPDATA") or (home and vim.fs.joinpath(home, "AppData", "Local"))
+		else
+			base = home and vim.fs.joinpath(home, ".local", "share")
+		end
+	end
+	if not base then
+		return nil
+	end
+	return vim.fs.joinpath(base, APP_DIR)
+end
+
 -- GTODO_DATA_DIR の値(先頭の `~` は展開する)。未設定なら nil。
 -- 展開できなければ nil と理由を返す。
 function M.env_data_dir(env, windows)

@@ -102,6 +102,44 @@ describe("共有設定の場所", function()
 		end)
 	end)
 
+	describe("既定の data_dir", function()
+		it("Unix の既定は ~/.local/share/gtodo-md", function()
+			assert.are.equal(
+				"/home/me/.local/share/gtodo-md",
+				shared.default_data_dir(env({ HOME = "/home/me" }), false)
+			)
+		end)
+
+		it("XDG_DATA_HOME があれば、どの OS でもそちらを使う", function()
+			local vars = { HOME = "/home/me", USERPROFILE = "C:/Users/me", LOCALAPPDATA = "C:/Local" }
+			vars.XDG_DATA_HOME = "/xdg/data"
+			assert.are.equal("/xdg/data/gtodo-md", shared.default_data_dir(env(vars), false))
+			vars.XDG_DATA_HOME = "D:/xdg"
+			assert.are.equal("D:/xdg/gtodo-md", shared.default_data_dir(env(vars), true))
+		end)
+
+		it("相対パスの XDG_DATA_HOME は無視する", function()
+			local vars = { HOME = "/home/me", XDG_DATA_HOME = "relative/data" }
+			assert.are.equal("/home/me/.local/share/gtodo-md", shared.default_data_dir(env(vars), false))
+		end)
+
+		it(
+			"Windows の既定は %LOCALAPPDATA%\\gtodo-md、無ければプロファイルから組み立てる",
+			function()
+				local vars = { USERPROFILE = "C:/Users/me", LOCALAPPDATA = "C:/Users/me/AppData/Local" }
+				assert.are.equal("C:/Users/me/AppData/Local/gtodo-md", shared.default_data_dir(env(vars), true))
+				assert.are.equal(
+					"C:/Users/me/AppData/Local/gtodo-md",
+					shared.default_data_dir(env({ USERPROFILE = "C:/Users/me" }), true)
+				)
+			end
+		)
+
+		it("ホームディレクトリが分からなければ nil", function()
+			assert.is_nil(shared.default_data_dir(env({}), false))
+		end)
+	end)
+
 	describe("GTODO_DATA_DIR", function()
 		it("未設定なら nil を返す", function()
 			assert.is_nil((shared.env_data_dir(env({ HOME = "/home/me" }), false)))

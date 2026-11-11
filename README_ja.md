@@ -11,9 +11,9 @@ GTD（Getting Things Done）の軽量版を Neovim 内で Markdown を使用し�
 - **AND絞り込み検索**: クイックフィックスリストを利用した、タグ・コンテキスト・完了状態でのAND検索が可能です。
 
 ## ディレクトリ構成
-指定した `data_dir`（未指定時のデフォルト: `stdpath("data") .. "/gtodo-md"`）配下に以下の構造が自動生成されます。
+指定した `data_dir`（未指定時のデフォルト: `~/.local/share/gtodo-md`。[共有設定](#共有設定-configjson--gtodojson)を参照）配下に以下の構造が自動生成されます。
 ```
-stdpath("data")/gtodo-md/
+~/.local/share/gtodo-md/
 ├── inbox.md
 ├── todo.md
 ├── done.md
@@ -42,7 +42,7 @@ vim.pack.add({
 ```lua
 require("gtodo-md").setup({
   -- オプション (省略した場合はデフォルト値が使用されます)
-  data_dir = vim.fn.stdpath("data") .. "/gtodo-md", -- 省略すると、先に GTODO_DATA_DIR と config.json を見ます(「共有設定」を参照)
+  data_dir = nil, -- タスクを置く場所。省略すると GTODO_DATA_DIR、config.json、~/.local/share/gtodo-md の順に決まります(「共有設定」を参照)
   use_default_keymaps = true,
   picker = "auto", -- "auto" | "snacks" | "telescope" | "fzf-lua" | "builtin"
   keymap_prefix = "<Leader>t", -- キーマップの接頭辞 (他のプラグインと競合する場合は変更してください)
@@ -201,7 +201,8 @@ gtodo-md は、任意で置ける 2 つの JSON ファイルを読みます。�
 1. `setup()` に渡した `data_dir`
 2. 環境変数 `GTODO_DATA_DIR`
 3. `config.json` の `data_dir`
-4. 既定の `stdpath("data") .. "/gtodo-md"`
+4. 既定の `$XDG_DATA_HOME/gtodo-md` (`~/.local/share/gtodo-md`。Windows は `%LOCALAPPDATA%\gtodo-md`)。
+   これが無く、以前の既定 `stdpath("data") .. "/gtodo-md"` (通常は `~/.local/share/nvim/gtodo-md`) があれば、そちらを使います。既存のデータは移さずにそのまま使えます。両方ある場合は新しい既定を使い、警告を出します。
 
 `setup()` を最優先にしているのは、プロジェクトごとに変えた `data_dir` が全体の設定ファイルに上書きされないようにするためです。`setup()` の指定が 2・3 と違う場所を指していると、起動時に警告を出します。`gtodo` は `setup()` を読まないので、別の場所を使うためです。共有設定に任せるなら、`setup()` から `data_dir` を消してください。
 

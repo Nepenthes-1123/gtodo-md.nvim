@@ -3,9 +3,9 @@ local shared = require("gtodo-md.shared")
 local M = {}
 
 M.defaults = {
-	-- デフォルトはNeovimのデータディレクトリ。setup() で指定しなければ、CLI/TUI と
-	-- 共有する設定 (GTODO_DATA_DIR・config.json) が先に使われる(resolve_data_dir 参照)。
-	data_dir = vim.fn.stdpath("data") .. "/gtodo-md",
+	-- 既定の場所は setup() のときに決まる(resolve_data_dir 参照)。setup() で指定しなければ、
+	-- CLI/TUI と共有する設定 (GTODO_DATA_DIR・config.json)、既定の場所の順に使う。
+	data_dir = nil,
 	use_default_keymaps = true,
 	picker = "auto", -- ピッカー指定 ("auto" | "snacks" | "telescope" | "fzf-lua" | "builtin")
 	keymap_prefix = "<Leader>t", -- キーマップ of プレフィックス接頭辞
@@ -199,6 +199,43 @@ local function same_path(a, b)
 	return canonical(a) == canonical(b)
 end
 
+-- 既定の data_dir を決める。
+--
+-- 新しい既定 ($XDG_DATA_HOME/gtodo-md) があればそれを、無くて旧い既定
+-- (stdpath("data") .. "/gtodo-md") があればそれを使う。どちらも無ければ新しい既定。
+-- Neovim に依存しない場所にして、CLI/TUI と同じ場所を見るため。旧い既定に
+-- データがある利用者は、移さずに使い続けられる。CLI (gtodo) も同じ順で決める。
+--
+-- 新しい既定を作るのは、どちらも無いとき(setup() がデータディレクトリを作る)だけ。
+-- 旧い既定があるのに新しい既定を作ると、以後は新しい既定(空)が選ばれ、
+-- タスクが消えたように見える。両方あるときは、旧い既定が使われないことを警告する。
+local function default_data_dir(env, windows)
+	local new = shared.default_data_dir(env, windows)
+	local legacy = vim.fn.stdpath("data") .. "/gtodo-md"
+	local function is_dir(path)
+		return path ~= nil and vim.fn.isdirectory(path) == 1
+	end
+	if is_dir(new) then
+		if is_dir(legacy) and not same_path(new, legacy) then
+			notify(
+				string.format(
+					"both %s and the old default %s exist; using %s. "
+						.. "Move your tasks there and remove the old directory, or set data_dir",
+					new,
+					legacy,
+					new
+				),
+				vim.log.levels.WARN
+			)
+		end
+		return new
+	end
+	if is_dir(legacy) or not new then
+		return legacy
+	end
+	return new
+end
+
 -- data_dir を決め、その値をどこから取ったかと併せて返す。
 --
 -- 優先順は setup() → GTODO_DATA_DIR → config.json → 既定。
@@ -254,7 +291,7 @@ local function resolve_data_dir(explicit)
 	if shared_dir then
 		return shared_dir, shared_source
 	end
-	return M.defaults.data_dir, "default"
+	return default_data_dir(env, windows), "default"
 end
 
 -- gtodo.json の "sections" から4つのセクション名を決める。使えなければ nil と理由を返す。

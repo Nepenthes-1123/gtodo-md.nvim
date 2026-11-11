@@ -40,12 +40,15 @@ local function has_notification(captured, level, ...)
 end
 
 -- テストが書き換える環境変数。
-local ENV_NAMES = { "GTODO_CONFIG", "GTODO_DATA_DIR", "XDG_CONFIG_HOME", "HOME" }
+local ENV_NAMES = { "GTODO_CONFIG", "GTODO_DATA_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "HOME" }
 
 describe("共有設定と setup() の関係", function()
 	local root
 	local saved_env
-	local saved_default_data_dir
+	-- 既定の data_dir (新しい既定)。XDG_DATA_HOME で root の下へ向ける。
+	local default_dir
+	-- 旧い既定 (stdpath("data") .. "/gtodo-md")。stdpath も XDG_DATA_HOME に従う。
+	local legacy_dir
 
 	local function write(path, content)
 		vim.fn.mkdir(vim.fn.fnamemodify(path, ":h"), "p")
@@ -74,8 +77,10 @@ describe("共有設定と setup() の関係", function()
 			saved_env[name] = vim.env[name]
 		end
 		-- 既定の data_dir は利用者の実データなので、テストの間は別の場所へ向ける。
-		saved_default_data_dir = config.defaults.data_dir
-		config.defaults.data_dir = root .. "/default"
+		vim.env.XDG_DATA_HOME = root .. "/xdg-data"
+		default_dir = root .. "/xdg-data/gtodo-md"
+		legacy_dir = vim.fn.stdpath("data") .. "/gtodo-md"
+		assert(vim.startswith(legacy_dir, root), legacy_dir)
 		use_config("{}")
 		vim.env.GTODO_DATA_DIR = nil
 	end)
@@ -86,7 +91,6 @@ describe("共有設定と setup() の関係", function()
 			vim.env[name] = saved_env[name]
 		end
 		config.setup({ data_dir = root .. "/restore" }) -- 次のテストへ影響しないよう既定に戻す
-		config.defaults.data_dir = saved_default_data_dir
 		vim.fn.delete(root, "rf")
 	end)
 
@@ -125,8 +129,75 @@ describe("共有設定と setup() の関係", function()
 		it("何も無ければ既定の場所を使う", function()
 			local captured = setup_and_capture({})
 
-			assert.are.equal(root .. "/default", config.get("data_dir"))
+			assert.are.equal(default_dir, config.get("data_dir"))
 			assert.are.equal("default", config.sources.data_dir)
+			assert.are.same({}, captured)
+		end)
+	end)
+
+	-- 既定の場所は $XDG_DATA_HOME/gtodo-md (無ければ ~/.local/share/gtodo-md、Windows は
+	-- %LOCALAPPDATA%\gtodo-md)。Neovim に依存しない場所にして、CLI と同じ場所を見る。
+	-- 以前の既定 (stdpath("data") .. "/gtodo-md") にデータがある利用者は、移さずに使い続けられる。
+	describe("既定の場所", function()
+		it("どちらも無ければ新しい既定を作って使う", function()
+			local captured = setup_and_capture({})
+
+			assert.are.equal(default_dir, config.get("data_dir"))
+			assert.are.equal(1, vim.fn.isdirectory(default_dir .. "/projects"))
+			assert.are.equal(0, vim.fn.isdirectory(legacy_dir))
+			assert.are.same({}, captured)
+		end)
+
+		it("旧い既定だけがあれば、旧い既定を使い、新しい既定は作らない", function()
+			vim.fn.mkdir(legacy_dir, "p")
+
+			local captured = setup_and_capture({})
+
+			assert.are.equal(legacy_dir, config.get("data_dir"))
+			assert.are.equal("default", config.sources.data_dir)
+			assert.are.equal(0, vim.fn.isdirectory(default_dir))
+			assert.are.same({}, captured)
+		end)
+
+		it("新しい既定があれば、旧い既定より優先する", function()
+			vim.fn.mkdir(default_dir, "p")
+
+			local captured = setup_and_capture({})
+
+			assert.are.equal(default_dir, config.get("data_dir"))
+			assert.are.same({}, captured)
+		end)
+
+		-- 両方あると、旧い既定のデータは使われなくなる。黙っていると、タスクが消えたように見える。
+		it("両方あれば新しい既定を使い、旧い既定が使われないことを警告する", function()
+			vim.fn.mkdir(default_dir, "p")
+			vim.fn.mkdir(legacy_dir, "p")
+
+			local captured = setup_and_capture({})
+
+			assert.are.equal(default_dir, config.get("data_dir"))
+			assert.is_true(
+				has_notification(captured, WARN, default_dir, legacy_dir),
+				"両方の場所が通知から読み取れない: " .. vim.inspect(captured)
+			)
+		end)
+
+		it("相対パスの XDG_DATA_HOME は無視し、~/.local/share を使う", function()
+			vim.env.XDG_DATA_HOME = "relative/data"
+			vim.env.HOME = root .. "/home"
+
+			setup_and_capture({})
+
+			assert.are.equal(root .. "/home/.local/share/gtodo-md", config.get("data_dir"))
+		end)
+
+		it("既定の場所は setup() や共有設定の指定より後にしか使わない", function()
+			vim.fn.mkdir(default_dir, "p")
+			vim.fn.mkdir(legacy_dir, "p")
+
+			local captured = setup_and_capture({ data_dir = root .. "/from-setup" })
+
+			assert.are.equal(root .. "/from-setup", config.get("data_dir"))
 			assert.are.same({}, captured)
 		end)
 
@@ -145,7 +216,7 @@ describe("共有設定と setup() の関係", function()
 			setup_and_capture({})
 
 			assert.are.equal(1, vim.fn.isdirectory(root .. "/from-config/projects"))
-			assert.are.equal(0, vim.fn.isdirectory(root .. "/default"))
+			assert.are.equal(0, vim.fn.isdirectory(default_dir))
 		end)
 
 		-- GTODO_DATA_DIR があるとき CLI は config.json を読まない。こちらだけ読んで
@@ -166,7 +237,7 @@ describe("共有設定と setup() の関係", function()
 
 			local captured = setup_and_capture({})
 
-			assert.are.equal(root .. "/default", config.get("data_dir"))
+			assert.are.equal(default_dir, config.get("data_dir"))
 			assert.are.same({}, captured)
 		end)
 	end)
@@ -215,7 +286,7 @@ describe("共有設定と setup() の関係", function()
 
 			local captured = setup_and_capture({})
 
-			assert.are.equal(root .. "/default", config.get("data_dir"))
+			assert.are.equal(default_dir, config.get("data_dir"))
 			assert.is_true(has_notification(captured, ERROR, "invalid config file", vim.env.GTODO_CONFIG))
 		end)
 
@@ -234,7 +305,7 @@ describe("共有設定と setup() の関係", function()
 
 			local captured = setup_and_capture({})
 
-			assert.are.equal(root .. "/default", config.get("data_dir"))
+			assert.are.equal(default_dir, config.get("data_dir"))
 			assert.is_true(has_notification(captured, ERROR, "failed to read config file"))
 		end)
 
