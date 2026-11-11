@@ -52,4 +52,57 @@ describe("lock.with_automation_lock", function()
 		assert.is_true(acquired)
 		assert.is_nil(uv.fs_stat(lock_path))
 	end)
+
+	-- ロックの中身は、取ったプロセスを見分ける印(プロセス ID と取得した時刻)。
+	-- CLI/TUI (gtodo) も同じ形で書き、解放するときに自分の印かを確かめる。
+	local function read_lock()
+		local f = io.open(lock_path, "rb")
+		if not f then
+			return nil
+		end
+		local content = f:read("*a")
+		f:close()
+		return content
+	end
+
+	it("中身はプロセス ID で始まり、取得した時刻を添える", function()
+		local content
+		lock_mod.with_automation_lock(dir, function()
+			content = read_lock()
+		end)
+
+		local pid, nanos = content:match("^(%d+) (%d+)$")
+		assert.are.equal(tostring(vim.fn.getpid()), pid, content)
+		assert.is_true(#nanos >= 18, content)
+	end)
+
+	-- 60 秒を超えて持った場合など、他のプロセスが残骸とみなして取り直したロックを
+	-- 消すと、その相手の排他まで崩れる。以前は確かめずに消していた。
+	it("他のプロセスに取り直されていたら消さない", function()
+		local notes = {}
+		local saved = vim.notify
+		vim.notify = function(msg, level)
+			table.insert(notes, { msg = tostring(msg), level = level })
+		end
+		local ok, err = pcall(lock_mod.with_automation_lock, dir, function()
+			local f = assert(io.open(lock_path, "wb"))
+			f:write("99999 1")
+			f:close()
+		end)
+		vim.notify = saved
+		assert(ok, err)
+
+		assert.are.equal("99999 1", read_lock())
+		assert.are.equal(1, #notes, vim.inspect(notes))
+		assert.is_truthy(notes[1].msg:find("taken over", 1, true), notes[1].msg)
+	end)
+
+	it("既に消されていても失敗しない", function()
+		local acquired = lock_mod.with_automation_lock(dir, function()
+			os.remove(lock_path)
+		end)
+
+		assert.is_true(acquired)
+		assert.is_nil(uv.fs_stat(lock_path))
+	end)
 end)
