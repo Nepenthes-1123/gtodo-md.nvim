@@ -273,6 +273,30 @@ describe("共有設定と setup() の関係", function()
 			assert.are.same({}, captured)
 		end)
 
+		-- Windows のパスは大文字小文字を区別しない。区別すると、同じディレクトリを指していても
+		-- 起動のたびに警告が出る。
+		it("Windows では大文字小文字だけの違いを同じ場所とみなす", function()
+			local shared = require("gtodo-md.shared")
+			local saved = shared.is_windows
+			vim.env.GTODO_DATA_DIR = root .. "/Data"
+			shared.is_windows = function()
+				return true
+			end
+			local ok, captured = pcall(setup_and_capture, { data_dir = root .. "/data" })
+			shared.is_windows = saved
+			assert(ok, captured)
+
+			assert.is_false(has_notification(captured, WARN, "differs"), vim.inspect(captured))
+		end)
+
+		it("Windows 以外では大文字小文字の違いを別の場所とみなす", function()
+			vim.env.GTODO_DATA_DIR = root .. "/Data"
+
+			local captured = setup_and_capture({ data_dir = root .. "/data" })
+
+			assert.is_true(has_notification(captured, WARN, "differs"), vim.inspect(captured))
+		end)
+
 		it("共有設定が data_dir を決めていなければ警告しない", function()
 			local captured = setup_and_capture({ data_dir = root .. "/from-setup" })
 

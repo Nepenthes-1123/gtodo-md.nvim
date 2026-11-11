@@ -192,9 +192,12 @@ local function sanitize_border(border)
 end
 
 -- 2つのパスが同じ場所を指すか。末尾の区切りや `..` のような書き方の違いは無視する。
+-- Windows では大文字小文字の違いも無視する(同じディレクトリを指す)。
 local function same_path(a, b)
+	local windows = shared.is_windows()
 	local function canonical(path)
-		return vim.fs.normalize(vim.fs.abspath(path))
+		local p = vim.fs.normalize(vim.fs.abspath(path))
+		return windows and p:lower() or p
 	end
 	return canonical(a) == canonical(b)
 end
