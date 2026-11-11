@@ -335,3 +335,63 @@ describe("ui.queue 純関数の既定引数", function()
 		assert.is_truthy(vim.tbl_contains(lines, expected_label))
 	end)
 end)
+
+-- 日付として解釈できない期日 (`due:someday`・存在しない日付 `due:2026-02-30`)。
+-- 以前は前者があると例外で Queue 自体を開けず、後者は os.time が補正した別の日付
+-- (3/2) で日数や期限切れを判定しながら、見出しには書いたとおりの日付を出していた。
+-- CLI (gtodo queue) と同じく、落とさず別のグループとして見せる。
+describe("ui.queue 解釈できない期日", function()
+	local entries = {
+		entry("- [ ] いつか due:someday", nil, 1),
+		entry("- [ ] 存在しない日付 due:2025-02-30", nil, 2),
+		entry("- [ ] 13月 due:2025-13-01", nil, 3),
+		entry("- [ ] 明日 due:2025-06-11", nil, 4),
+		entry("- [ ] 期限切れ due:2025-06-01", nil, 5),
+	}
+
+	it("別のグループへ分け、期限切れや日付のグループには入れない", function()
+		local groups = queue._group_entries(entries, "due", TODAY_TIME)
+		assert.are.same({ "いつか", "存在しない日付", "13月" }, contents(groups.invalid))
+		assert.are.same({ "期限切れ" }, contents(groups.overdue))
+		assert.are.same({ "2025-06-11" }, groups.sorted_dates)
+	end)
+
+	it("見出しと、書かれていた期日を表示する", function()
+		local groups = queue._group_entries(entries, "due", TODAY_TIME)
+		local lines, _, line_map = queue._build_display("due", groups, TODAY_STR, TODAY_TIME)
+		local heading
+		for i, l in ipairs(lines) do
+			if l == " 期日を解釈できない" then
+				heading = i
+			end
+		end
+		assert.is_not_nil(heading, vim.inspect(lines))
+		assert.are.same("  ▶ いつか (due:someday)", lines[heading + 2])
+		assert.are.same("  ▶ 存在しない日付 (due:2025-02-30)", lines[heading + 3])
+		-- ジャンプ先も他のグループと同じく持つ
+		assert.are.same(1, line_map[heading + 1].lnum)
+	end)
+
+	it("解釈できない期日だけでも「期限付きタスクはありません」にしない", function()
+		local groups = queue._group_entries({ entries[1] }, "due", TODAY_TIME)
+		local lines = queue._build_display("due", groups, TODAY_STR, TODAY_TIME)
+		assert.is_false(vim.tbl_contains(lines, "  期限付きタスクはありません"))
+	end)
+end)
+
+describe("utils.date_to_time", function()
+	it("日付として解釈できない値には nil を返す", function()
+		assert.is_nil(utils.date_to_time("someday"))
+		assert.is_nil(utils.date_to_time("2025-02-30"))
+		assert.is_nil(utils.date_to_time("2025-13-01"))
+		assert.is_nil(utils.date_to_time("2025-00-10"))
+		assert.is_nil(utils.date_to_time("2025-06-10x"))
+		assert.is_nil(utils.date_to_time(""))
+		assert.is_nil(utils.date_to_time(nil))
+	end)
+
+	it("実在する日付はその日の 0 時を返す", function()
+		assert.are.equal(os.time({ year = 2024, month = 2, day = 29, hour = 0 }), utils.date_to_time("2024-02-29"))
+		assert.are.equal("2025-06-10", os.date("%Y-%m-%d", utils.date_to_time("2025-06-10")))
+	end)
+end)

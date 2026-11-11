@@ -136,13 +136,16 @@ end
 -- 収集済みエントリを表示グループへ振り分け、表示順へソートする(純関数)。
 -- entries: { { task=..., filepath=..., lnum=..., mark_id=..., bufnr=... }, ... }
 -- today_time: 「今日」の 00:00 を指すエポック秒(省略時は実際の今日)
--- 戻り値: { overdue, by_date, sorted_dates, by_person, sorted_persons }
+-- 戻り値: { overdue, by_date, sorted_dates, invalid, by_person, sorted_persons }
+-- invalid は期日を日付として解釈できないエントリ(`due:someday`・`due:2026-02-30` など。入力の順)。
+-- 期限切れや日付のグループに入れると、書かれていない日付で判定することになるため分ける。
 function M._group_entries(entries, mode, today_time)
 	today_time = today_time or utils.date_to_time(default_today_str())
 
 	-- due モード用のグループ分け
 	local overdue = {}
 	local by_date = {}
+	local invalid = {}
 
 	-- wait モード用のグループ分け
 	local by_person = {}
@@ -150,7 +153,9 @@ function M._group_entries(entries, mode, today_time)
 	for _, entry in ipairs(entries) do
 		if mode == "due" then
 			local due_time = utils.date_to_time(entry.task.due)
-			if due_time < today_time then
+			if not due_time then
+				table.insert(invalid, entry)
+			elseif due_time < today_time then
 				table.insert(overdue, entry)
 			else
 				if not by_date[entry.task.due] then
@@ -191,6 +196,7 @@ function M._group_entries(entries, mode, today_time)
 		overdue = overdue,
 		by_date = by_date,
 		sorted_dates = sorted_dates,
+		invalid = invalid,
 		by_person = by_person,
 		sorted_persons = sorted_persons,
 	}
@@ -301,8 +307,20 @@ function M._build_display(mode, groups, today_str, today_time)
 			end
 		end
 
+		-- 期日を日付として解釈できないもの。日数は出さず、書かれていた期日を見せる
+		-- (直す手掛かりにするため)。
+		local invalid = groups.invalid or {}
+		if #invalid > 0 then
+			add("", nil)
+			add(" 期日を解釈できない", "DiagnosticWarn")
+			add(sep, "Comment")
+			for _, entry in ipairs(invalid) do
+				add(task_line(entry) .. string.format(" (due:%s)", entry.task.due), nil, source_of(entry))
+			end
+		end
+
 		-- タスクがひとつもない場合
-		if #groups.overdue == 0 and #groups.sorted_dates == 0 then
+		if #groups.overdue == 0 and #groups.sorted_dates == 0 and #invalid == 0 then
 			add("", nil)
 			add("  期限付きタスクはありません", "DiagnosticOk")
 		end
