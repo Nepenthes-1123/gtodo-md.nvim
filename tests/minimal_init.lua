@@ -21,6 +21,15 @@ end
 -- ヘッダレスのテストにクラッシュ復旧は不要なので、そもそも作らせない。
 vim.opt.swapfile = false
 
+-- 利用者自身の共有設定 (GTODO_DATA_DIR・config.json) をテストに読ませない。
+-- 読ませると、data_dir を渡さない setup() が利用者の実データを対象にし、
+-- data_dir を渡す setup() も食い違いの警告を出して、通知を確かめるテストが落ちる。
+-- 空の config.json を GTODO_CONFIG で指し、既定の場所のファイルを読ませないようにする。
+vim.env.GTODO_DATA_DIR = nil
+local empty_config = vim.fn.tempname() .. "-gtodo-config.json"
+vim.fn.writefile({ "{}" }, empty_config)
+vim.env.GTODO_CONFIG = empty_config
+
 -- plenary のパスを追加
 local plenary_path = vim.fn.stdpath("data") .. "/site/pack/core/opt/plenary.nvim"
 local local_plenary = vim.fn.getcwd() .. "/plenary"

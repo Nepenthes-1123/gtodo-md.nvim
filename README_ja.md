@@ -42,7 +42,7 @@ vim.pack.add({
 ```lua
 require("gtodo-md").setup({
   -- オプション (省略した場合はデフォルト値が使用されます)
-  data_dir = vim.fn.stdpath("data") .. "/gtodo-md", 
+  data_dir = vim.fn.stdpath("data") .. "/gtodo-md", -- 省略すると、先に GTODO_DATA_DIR と config.json を見ます(「共有設定」を参照)
   use_default_keymaps = true,
   picker = "auto", -- "auto" | "snacks" | "telescope" | "fzf-lua" | "builtin"
   keymap_prefix = "<Leader>t", -- キーマップの接頭辞 (他のプラグインと競合する場合は変更してください)
@@ -181,6 +181,45 @@ vim.keymap.set('n', '<Leader>ta', function() require('gtodo-md').add_or_edit_tas
 - `:GtodoSort` : `todo.md` を手動で期日順にソートします。
 - `:GtodoSearch` : タグやコンテキストでタスクをAND絞り込み検索します。
 - `:GtodoQueue` : Queue ビューを開きます。期限付き未完了タスクを「期限切れ / 今日〜7日後 / それ以降」のグループで一覧表示します。
+
+## 共有設定 (`config.json` / `gtodo.json`)
+
+gtodo-md は、任意で置ける 2 つの JSON ファイルを読みます。同じデータを扱うツールどうしで揃えておく必要がある設定を書くファイルで、同じファイルを扱うコマンドラインツール `gtodo` (開発中) も読みます。**作らなければ、何も変わりません。** プラグインがこれらのファイルを作ることはなく、`setup()` は今までどおり使えます。
+
+どちらのファイルも、読むのは `setup()` を実行するときの 1 回だけです。書き換えたら Neovim を再起動してください。
+
+### データの場所: `config.json`
+
+`~/.config/gtodo-md/config.json` (Windows は `%APPDATA%\gtodo-md\config.json`)。`XDG_CONFIG_HOME` を設定していれば、どの OS でも `$XDG_CONFIG_HOME/gtodo-md/config.json` を使います。環境変数 `GTODO_CONFIG` で別のファイルを指定できます。
+
+```json
+{ "data_dir": "~/Documents/gtodo-md" }
+```
+
+`data_dir` には絶対パスか `~` で始まるパスを書きます。データディレクトリは次の順で決まります。
+
+1. `setup()` に渡した `data_dir`
+2. 環境変数 `GTODO_DATA_DIR`
+3. `config.json` の `data_dir`
+4. 既定の `stdpath("data") .. "/gtodo-md"`
+
+`setup()` を最優先にしているのは、プロジェクトごとに変えた `data_dir` が全体の設定ファイルに上書きされないようにするためです。`setup()` の指定が 2・3 と違う場所を指していると、起動時に警告を出します。`gtodo` は `setup()` を読まないので、別の場所を使うためです。共有設定に任せるなら、`setup()` から `data_dir` を消してください。
+
+### データに付く設定: `<data_dir>/gtodo.json`
+
+```json
+{
+  "sections": { "today": "Today", "next": "Next", "waiting": "Waiting", "someday": "Someday" },
+  "auto_move_inbox_to_today": true
+}
+```
+
+- `sections`: `setup()` の `sections` と同じです。キーは小文字で書きます。これがあると 4 つの名前はすべてここから決まり、書かなかったセクションは `setup()` の名前ではなく既定の名前になります。
+- `auto_move_inbox_to_today`: `setup()` の同じ名前のオプションと同じです。
+
+**`gtodo.json` に書いた項目は、`setup()` より優先されます。** これらはそのディレクトリのファイルの形を決める設定で、2 つのツールが別のセクション名を使うと、保存のたびに互いの見出しを書き換え続けるためです。`setup()` が別の値を指定していれば警告を出します。`gtodo.json` に書いていない項目は、今までどおり `setup()` の値を使います。
+
+知らないキーは警告して無視します。使えないファイル (JSON として読めない・値の型が違う・セクション名が空または重複している) はエラーを出し、ファイル全体を無視します。`data_dir` をどこから決めたか、どの設定を `gtodo.json` が決めたかは `:checkhealth gtodo-md` で確かめられます。
 
 ## 複数の Neovim を同時に使う場合
 
