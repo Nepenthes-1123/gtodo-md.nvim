@@ -42,6 +42,21 @@ function M.date_to_time(date_str)
 	return os.time({ year = y, month = m, day = d, hour = 0, min = 0, sec = 0 })
 end
 
+-- 入力欄やテンプレートの基準日で受け付ける期日を返す。受け付けられなければ nil。
+--
+-- parse_due_date は 2/30 のような実在しない日付も 2026-02-30 のように組み立てて返す
+-- (タスク行の読み取り(task.parse)では書かれていた値をそのまま残すため、そちらは変えない)。
+-- 入力で受け付けると、受け付けたはずの期日が Queue で「期日を解釈できない」に入り、
+-- テンプレートの基準日は date_to_time が nil を返して黙って今日に置き換わる。
+-- CLI (gtodo add) も実在しない日付はエラーにする。
+function M.normalize_due_input(str, base_time)
+	local normalized = M.parse_due_date(str, base_time)
+	if normalized and M.date_to_time(normalized) then
+		return normalized
+	end
+	return nil
+end
+
 -- base_time(epoch秒)を省略した場合は従来通り os.time()(実際の今)を基準にする。
 -- テンプレート機能(ui/template.lua)が「挿入時点の実日付」ではなく
 -- 「ユーザーが指定した基準日」から相対指定を解決するために利用する。

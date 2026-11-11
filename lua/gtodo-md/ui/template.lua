@@ -469,7 +469,7 @@ function M.insert_template()
 				if trimmed == "" then
 					trimmed = "today"
 				end
-				local resolved_date = utils_mod.parse_due_date(trimmed)
+				local resolved_date = utils_mod.normalize_due_input(trimmed)
 				if not resolved_date then
 					vim.notify("[gtodo-md] Invalid base date: " .. input, vim.log.levels.ERROR)
 					return

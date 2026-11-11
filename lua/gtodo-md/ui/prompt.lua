@@ -51,7 +51,7 @@ function M.prompt_task(initial_task, callback)
 			local final_due = nil
 			if due_input and vim.trim(due_input) ~= "" then
 				due_input = vim.trim(due_input)
-				local normalized = require("gtodo-md.utils").parse_due_date(due_input)
+				local normalized = require("gtodo-md.utils").normalize_due_input(due_input)
 				if not normalized then
 					vim.notify("Invalid date format. Skipping due date.", vim.log.levels.WARN)
 				else
