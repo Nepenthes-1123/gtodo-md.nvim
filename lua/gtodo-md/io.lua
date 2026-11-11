@@ -650,12 +650,15 @@ M.PREAMBLE = " preamble"
 -- data.sections にだけ加えて section_order に加えないと、write_todo_file が
 -- そのセクションを書かず、加えたタスクが消える(見出しの無いセクションへの追加・
 -- inbox.md からの移動で起きていた)。
+--
+-- 書き出す順序に既にある名前は加えない。空の todo.md へ移すときのように、順序だけを
+-- 先に組み立てる呼び出し元があり、二重に加えると同じ見出しを2回書き、タスクも重複する。
 function M.ensure_section(data, name)
 	local items = data.sections[name]
 	if not items then
 		items = {}
 		data.sections[name] = items
-		if name ~= M.PREAMBLE then
+		if name ~= M.PREAMBLE and not vim.tbl_contains(data.section_order, name) then
 			table.insert(data.section_order, name)
 		end
 	end

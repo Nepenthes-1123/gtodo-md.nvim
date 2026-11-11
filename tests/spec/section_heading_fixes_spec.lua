@@ -240,6 +240,23 @@ describe("セクション見出しの扱い", function()
 			assert.are.same({}, outline(vim.fn.readfile(inbox_path)))
 		end)
 
+		-- 空の todo.md へ移すときは、4つの見出しを書き出す順序に先に並べてからセクションを作る。
+		-- そこへもう一度加えると、同じ見出しを2回書き、タスクも重複する。
+		it("見出しが1つも無い todo.md へ移しても、見出しもタスクも重複しない", function()
+			vim.fn.writefile({ "# Todo" }, todo_path)
+			open(inbox_path, { "# Inbox", "", "- [ ] 受信 id:cccccc" })
+			put_cursor_on("受信")
+
+			silence(function()
+				editor_mod.move_current_task_to(config.sections.NEXT)
+			end)
+
+			assert.are.same(
+				{ "## Today", "## Next", "  受信", "## Waiting", "## Someday" },
+				outline(vim.fn.readfile(todo_path))
+			)
+		end)
+
 		it("見出しの無いセクションへ追加しても、タスクが消えない", function()
 			vim.fn.writefile({ "# Inbox" }, inbox_path)
 			open(todo_path, { "# Todo", "", "## Next", "", "## Waiting", "", "## Someday" })
