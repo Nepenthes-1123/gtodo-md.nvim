@@ -140,6 +140,24 @@ describe("共有設定の場所", function()
 		end)
 	end)
 
+	describe("既定の名前 (nvim) の Neovim の以前の既定", function()
+		it("Unix は ~/.local/share/nvim/gtodo-md、XDG_DATA_HOME があればその下", function()
+			assert.are.equal(
+				"/home/me/.local/share/nvim/gtodo-md",
+				shared.default_neovim_data_dir(env({ HOME = "/home/me" }), false)
+			)
+			assert.are.equal(
+				"/xdg/nvim/gtodo-md",
+				shared.default_neovim_data_dir(env({ HOME = "/home/me", XDG_DATA_HOME = "/xdg" }), false)
+			)
+		end)
+
+		it("Windows は %LOCALAPPDATA%\\nvim-data\\gtodo-md", function()
+			local vars = { USERPROFILE = "C:/Users/me", LOCALAPPDATA = "C:/Local" }
+			assert.are.equal("C:/Local/nvim-data/gtodo-md", shared.default_neovim_data_dir(env(vars), true))
+		end)
+	end)
+
 	describe("GTODO_DATA_DIR", function()
 		it("未設定なら nil を返す", function()
 			assert.is_nil((shared.env_data_dir(env({ HOME = "/home/me" }), false)))

@@ -202,7 +202,7 @@ gtodo-md は、任意で置ける 2 つの JSON ファイルを読みます。�
 2. 環境変数 `GTODO_DATA_DIR`
 3. `config.json` の `data_dir`
 4. 既定の `$XDG_DATA_HOME/gtodo-md` (`~/.local/share/gtodo-md`。Windows は `%LOCALAPPDATA%\gtodo-md`)。
-   これが無く、以前の既定 `stdpath("data") .. "/gtodo-md"` (通常は `~/.local/share/nvim/gtodo-md`) があれば、そちらを使います。既存のデータは移さずにそのまま使えます。両方ある場合は新しい既定を使い、警告を出します。
+   これが無く、以前の既定 `stdpath("data") .. "/gtodo-md"` (通常は `~/.local/share/nvim/gtodo-md`) があれば、そちらを使います。既存のデータは移さずにそのまま使えます。`NVIM_APPNAME` を設定していればそのプロファイルの以前の既定を先に、次に既定の名前 (`nvim`) のものを探します。新しい既定と以前の既定の両方がある場合は新しい既定を使い、警告を出します (新しい既定が以前の既定へのシンボリックリンクなら同じ場所として扱います)。
 
 `setup()` を最優先にしているのは、プロジェクトごとに変えた `data_dir` が全体の設定ファイルに上書きされないようにするためです。`setup()` の指定が 2・3 と違う場所を指していると、起動時に警告を出します。`gtodo` は `setup()` を読まないので、別の場所を使うためです。共有設定に任せるなら、`setup()` から `data_dir` を消してください。
 

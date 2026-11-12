@@ -182,6 +182,63 @@ describe("共有設定と setup() の関係", function()
 			)
 		end)
 
+		-- 新しい既定を以前の既定へのシンボリックリンクにして共有している場合、両方あると判定して
+		-- 「以前の既定は使われない」と警告すると、実体である以前の既定のデータを手放させることになる。
+		it("新しい既定が以前の既定へのリンクなら、両方あるとは扱わない", function()
+			vim.fn.mkdir(legacy_dir, "p")
+			vim.fn.mkdir(vim.fn.fnamemodify(default_dir, ":h"), "p")
+			assert(vim.uv.fs_symlink(legacy_dir, default_dir))
+
+			local captured = setup_and_capture({})
+
+			assert.are.equal(vim.uv.fs_realpath(legacy_dir), vim.uv.fs_realpath(config.get("data_dir")))
+			assert.are.same({}, captured)
+		end)
+
+		-- 別の名前 (NVIM_APPNAME) で起動した Neovim では、そのプロファイルの以前の既定が無い。
+		-- それだけで新しい既定を作ると、以後は通常の Neovim も CLI も新しい既定 (空) を使い、
+		-- 既定の名前 (nvim) の以前の既定にあるタスクが消えたように見える。
+		describe("別の名前で起動した Neovim", function()
+			local saved_stdpath
+
+			before_each(function()
+				saved_stdpath = vim.fn.stdpath
+				vim.fn.stdpath = function(what)
+					if what == "data" then
+						return root .. "/xdg-data/lazyvim"
+					end
+					return saved_stdpath(what)
+				end
+			end)
+
+			after_each(function()
+				vim.fn.stdpath = saved_stdpath
+			end)
+
+			it(
+				"自分の以前の既定が無ければ、既定の名前の以前の既定を使い、新しい既定を作らない",
+				function()
+					local nvim_legacy = root .. "/xdg-data/nvim/gtodo-md"
+					vim.fn.mkdir(nvim_legacy, "p")
+
+					local captured = setup_and_capture({})
+
+					assert.are.equal(nvim_legacy, config.get("data_dir"))
+					assert.are.equal(0, vim.fn.isdirectory(default_dir))
+					assert.are.same({}, captured)
+				end
+			)
+
+			it("自分の以前の既定があれば、そちらを先に使う", function()
+				vim.fn.mkdir(root .. "/xdg-data/nvim/gtodo-md", "p")
+				vim.fn.mkdir(root .. "/xdg-data/lazyvim/gtodo-md", "p")
+
+				setup_and_capture({})
+
+				assert.are.equal(root .. "/xdg-data/lazyvim/gtodo-md", config.get("data_dir"))
+			end)
+		end)
+
 		it("相対パスの XDG_DATA_HOME は無視し、~/.local/share を使う", function()
 			vim.env.XDG_DATA_HOME = "relative/data"
 			vim.env.HOME = root .. "/home"

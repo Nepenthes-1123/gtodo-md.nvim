@@ -200,7 +200,9 @@ Both files are read once, when `setup()` runs. Restart Neovim after editing them
 4. the default, `$XDG_DATA_HOME/gtodo-md` (`~/.local/share/gtodo-md`; `%LOCALAPPDATA%\gtodo-md` on Windows).
    If it does not exist but the old default `stdpath("data") .. "/gtodo-md"` (usually
    `~/.local/share/nvim/gtodo-md`) does, the old one is used, so existing data keeps working without
-   being moved. If both exist, the new one is used and a warning is shown.
+   being moved. With `NVIM_APPNAME`, the old default of that profile is tried first, then the one of the
+   default `nvim` profile. If both the new and an old default exist, the new one is used and a warning is
+   shown (a new default that is a symlink to the old one counts as the same directory).
 
 `setup()` wins so that a per-project `data_dir` is not overridden by your global file. If it
 names a different directory than 2 or 3, a warning is shown at startup, because `gtodo` does not

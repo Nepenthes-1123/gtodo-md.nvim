@@ -212,18 +212,42 @@ end
 -- 新しい既定を作るのは、どちらも無いとき(setup() がデータディレクトリを作る)だけ。
 -- 旧い既定があるのに新しい既定を作ると、以後は新しい既定(空)が選ばれ、
 -- タスクが消えたように見える。両方あるときは、旧い既定が使われないことを警告する。
+--
+-- 以前の既定の候補は、このプロファイルのもの (stdpath("data") .. "/gtodo-md") と、既定の名前
+-- (NVIM_APPNAME 無し) で起動した Neovim のもの。後者も探さないと、別の名前で起動した Neovim は
+-- 自分の以前の既定が無いために新しい既定を作り、以後は通常の Neovim も CLI も新しい既定 (空) を
+-- 使って、タスクが消えたように見える。
+--
+-- 両方あるかどうかは実体で比べる。新しい既定を以前の既定へのシンボリックリンクにして共有している
+-- 場合に「両方ある」と警告すると、実体である以前の既定のデータを手放させることになる。
+-- 警告は以前の既定を消すようには促さない(そちらにしかデータが無いこともあるため)。
 local function default_data_dir(env, windows)
 	local new = shared.default_data_dir(env, windows)
-	local legacy = vim.fn.stdpath("data") .. "/gtodo-md"
 	local function is_dir(path)
 		return path ~= nil and vim.fn.isdirectory(path) == 1
 	end
+	local candidates = { vim.fn.stdpath("data") .. "/gtodo-md" }
+	local default_app = shared.default_neovim_data_dir(env, windows)
+	if default_app and not same_path(default_app, candidates[1]) then
+		table.insert(candidates, default_app)
+	end
+	local legacy
+	for _, dir in ipairs(candidates) do
+		if is_dir(dir) then
+			legacy = dir
+			break
+		end
+	end
+
 	if is_dir(new) then
-		if is_dir(legacy) and not same_path(new, legacy) then
+		local real_new, real_legacy = legacy and vim.uv.fs_realpath(new), legacy and vim.uv.fs_realpath(legacy)
+		if legacy and not (real_new and real_new == real_legacy) then
 			notify(
 				string.format(
-					"both %s and the old default %s exist; using %s. "
-						.. "Move your tasks there and remove the old directory, or set data_dir",
+					"both %s and the old default %s exist; using %s. Tasks in %s are not used: "
+						.. "move them to %s, or set data_dir to keep using it",
+					new,
+					legacy,
 					new,
 					legacy,
 					new
@@ -233,8 +257,8 @@ local function default_data_dir(env, windows)
 		end
 		return new
 	end
-	if is_dir(legacy) or not new then
-		return legacy
+	if legacy or not new then
+		return legacy or candidates[1]
 	end
 	return new
 end

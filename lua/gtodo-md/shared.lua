@@ -113,6 +113,25 @@ function M.default_data_dir(env, windows)
 	return vim.fs.joinpath(base, APP_DIR)
 end
 
+-- 既定の名前 (NVIM_APPNAME 無し) で起動した Neovim の stdpath("data") .. "/gtodo-md" を、CLI と
+-- 同じ規則で組み立てる。ホームディレクトリが分からなければ nil。
+-- 別の名前で起動した Neovim が、このディレクトリのデータを見落として新しい既定を作らないために使う。
+function M.default_neovim_data_dir(env, windows)
+	local base = absolute_var(env, "XDG_DATA_HOME", windows)
+	if not base then
+		local home = home_dir(env, windows)
+		if windows then
+			base = env("LOCALAPPDATA") or (home and vim.fs.joinpath(home, "AppData", "Local"))
+		else
+			base = home and vim.fs.joinpath(home, ".local", "share")
+		end
+	end
+	if not base then
+		return nil
+	end
+	return vim.fs.joinpath(base, windows and "nvim-data" or "nvim", APP_DIR)
+end
+
 -- GTODO_DATA_DIR の値(先頭の `~` は展開する)。未設定なら nil。
 -- 展開できなければ nil と理由を返す。
 function M.env_data_dir(env, windows)
