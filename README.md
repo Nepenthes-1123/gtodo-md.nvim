@@ -18,9 +18,9 @@ A lightweight GTD (Getting Things Done) oriented Todo management plugin for Neov
   - **Advanced Picker Integrations**: Supercharged task search via `snacks.picker`, `telescope`, or `fzf-lua`. Features multi-select (`<Tab>`) and instant task toggle (`x` or `<C-x>`) directly from the search window!
 
 ## Directory Structure
-The following structure is automatically generated under your specified `data_dir` (default: `stdpath("data") .. "/gtodo-md"`):
+The following structure is automatically generated under your specified `data_dir` (default: `~/.local/share/gtodo-md`, see [Shared settings](#shared-settings-configjson--gtodojson)):
 ```
-stdpath("data")/gtodo-md/
+~/.local/share/gtodo-md/
 ├── inbox.md
 ├── todo.md
 ├── done.md
@@ -49,7 +49,7 @@ Then, call setup in your configuration file:
 ```lua
 require("gtodo-md").setup({
   -- Options (defaults are shown below)
-  data_dir = vim.fn.stdpath("data") .. "/gtodo-md", 
+  data_dir = nil, -- Where your tasks live. When omitted: GTODO_DATA_DIR, config.json, then ~/.local/share/gtodo-md (see "Shared settings")
   use_default_keymaps = true,
   picker = "auto", -- "auto" | "snacks" | "telescope" | "fzf-lua" | "builtin"
   keymap_prefix = "<Leader>t", -- Prefix for default keymaps
@@ -77,6 +77,9 @@ require("gtodo-md").setup({
 
 > [!NOTE]
 > If you customize `sections` after already using the plugin, existing `## Today`/`## Next`/`## Waiting`/`## Someday` headings in your `todo.md` keep working — no manual renaming needed. They're automatically recognized and rewritten to your custom names the next time the file is saved.
+
+> [!NOTE]
+> Each section needs its own name. A name that another section already uses, or that is another section's default name (e.g. `TODAY = "Next"`, even if you also rename `NEXT`), is rejected: that section falls back to its default name and an error is shown. Two sections sharing one heading would be read as a single section and written back merged.
 
 ### 2. lazy.nvim
 ```lua
@@ -169,6 +172,65 @@ If `use_default_keymaps = true`, the prefix is `<Leader>t`.
 - `:GtodoCancelled` - Open `cancelled.md`
 - `:GtodoSort` - Manually sort tasks by due date and priority
 - `:GtodoQueue` - Open Queue view
+
+## Shared settings (`config.json` / `gtodo.json`)
+
+gtodo-md reads two optional JSON files. They hold the settings that every tool working on the
+same data has to agree on, and are also read by `gtodo`, a companion command-line tool for the
+same files (still in development). **If you don't create them, nothing changes** — the plugin
+never creates them for you, and `setup()` keeps working as before.
+
+Both files are read once, when `setup()` runs. Restart Neovim after editing them.
+
+### Where the data lives: `config.json`
+
+`~/.config/gtodo-md/config.json` (`%APPDATA%\gtodo-md\config.json` on Windows). When
+`XDG_CONFIG_HOME` is set, `$XDG_CONFIG_HOME/gtodo-md/config.json` is used on every OS. Set the
+`GTODO_CONFIG` environment variable to use a different file.
+
+```json
+{ "data_dir": "~/Documents/gtodo-md" }
+```
+
+`data_dir` must be an absolute path or start with `~`. The directory is chosen in this order:
+
+1. `data_dir` passed to `setup()`
+2. the `GTODO_DATA_DIR` environment variable
+3. `data_dir` in `config.json`
+4. the default, `$XDG_DATA_HOME/gtodo-md` (`~/.local/share/gtodo-md`; `%LOCALAPPDATA%\gtodo-md` on Windows).
+   If it does not exist but the old default `stdpath("data") .. "/gtodo-md"` (usually
+   `~/.local/share/nvim/gtodo-md`) does, the old one is used, so existing data keeps working without
+   being moved. With `NVIM_APPNAME`, the old default of that profile is tried first, then the one of the
+   default `nvim` profile. If both the new and an old default exist, the new one is used and a warning is
+   shown (a new default that is a symlink to the old one counts as the same directory).
+
+`setup()` wins so that a per-project `data_dir` is not overridden by your global file. If it
+names a different directory than 2 or 3, a warning is shown at startup, because `gtodo` does not
+see `setup()` and will use the other directory. Remove `data_dir` from `setup()` to let the
+shared setting decide.
+
+### Settings that belong to the data: `<data_dir>/gtodo.json`
+
+```json
+{
+  "sections": { "today": "Today", "next": "Next", "waiting": "Waiting", "someday": "Someday" },
+  "auto_move_inbox_to_today": true
+}
+```
+
+- `sections`: the same as `sections` in `setup()`, with lowercase keys. When it is present it
+  decides all four names: a section you leave out gets its default name, not the name from
+  `setup()`.
+- `auto_move_inbox_to_today`: the same as the `setup()` option.
+
+**What is written in `gtodo.json` takes precedence over `setup()`.** These settings describe the
+files in that directory; if two tools used different section names, each would rewrite the
+headings every time it saved. A warning is shown when `setup()` asks for something else.
+Anything `gtodo.json` does not mention still comes from `setup()`.
+
+Unknown keys are reported and ignored. A file that cannot be used (invalid JSON, a value of the
+wrong type, an empty or duplicated section name) is reported as an error and ignored as a whole.
+`:checkhealth gtodo-md` shows where `data_dir` came from and which settings `gtodo.json` decided.
 
 ## Using multiple Neovim instances
 

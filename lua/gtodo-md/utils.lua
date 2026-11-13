@@ -20,16 +20,41 @@ local function add_months(year, month, day, delta_months)
 	return new_year, new_month, new_day
 end
 
--- 日付文字列 (YYYY-MM-DD) → os.time に変換する
+-- 日付文字列 (YYYY-MM-DD) を、その日の 0 時の os.time に変換する。
+-- 日付として解釈できない値(`someday` などの書式違い・`2026-02-30` のような実在しない日付)は nil。
+--
+-- 実在しない日付を os.time にそのまま渡してはならない。os.time は黙って補正する
+-- (2/30 → 3/2)ため、書かれたとおりの日付を表示しながら、日数や期限切れを別の日付で
+-- 判定することになる。書式違いは os.time が例外を投げ、Queue やカンバンが開けなくなっていた。
+-- 呼び出し元は nil を「期日を解釈できない」として扱うこと(CLI の gtodo も同じ扱い)。
 function M.date_to_time(date_str)
-	return os.time({
-		year = tonumber(date_str:sub(1, 4)),
-		month = tonumber(date_str:sub(6, 7)),
-		day = tonumber(date_str:sub(9, 10)),
-		hour = 0,
-		min = 0,
-		sec = 0,
-	})
+	if type(date_str) ~= "string" then
+		return nil
+	end
+	local y, m, d = date_str:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)$")
+	if not y then
+		return nil
+	end
+	y, m, d = tonumber(y), tonumber(m), tonumber(d)
+	if m < 1 or m > 12 or d < 1 or d > days_in_month(y, m) then
+		return nil
+	end
+	return os.time({ year = y, month = m, day = d, hour = 0, min = 0, sec = 0 })
+end
+
+-- 入力欄やテンプレートの基準日で受け付ける期日を返す。受け付けられなければ nil。
+--
+-- parse_due_date は 2/30 のような実在しない日付も 2026-02-30 のように組み立てて返す
+-- (タスク行の読み取り(task.parse)では書かれていた値をそのまま残すため、そちらは変えない)。
+-- 入力で受け付けると、受け付けたはずの期日が Queue で「期日を解釈できない」に入り、
+-- テンプレートの基準日は date_to_time が nil を返して黙って今日に置き換わる。
+-- CLI (gtodo add) も実在しない日付はエラーにする。
+function M.normalize_due_input(str, base_time)
+	local normalized = M.parse_due_date(str, base_time)
+	if normalized and M.date_to_time(normalized) then
+		return normalized
+	end
+	return nil
 end
 
 -- base_time(epoch秒)を省略した場合は従来通り os.time()(実際の今)を基準にする。

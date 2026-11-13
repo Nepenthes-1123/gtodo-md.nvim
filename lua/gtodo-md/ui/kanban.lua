@@ -68,6 +68,10 @@ end
 -- 対象になる生のmarkdown行ではないため、ここでは値から直接組み立てる)。
 local function due_tag_text(due_date, today_time)
 	local t = utils.date_to_time(due_date)
+	if not t then
+		-- 日付として解釈できない期日は、日数を出さずにそのまま見せる。
+		return "due:" .. due_date
+	end
 	local diff = math.floor((t - today_time) / 86400)
 	if diff < 0 then
 		return string.format("due:%s (%d日超過)", due_date, -diff)
@@ -83,6 +87,9 @@ end
 -- due日付の色分け(既存の highlight.lua が定義するハイライトグループをそのまま使う)。
 local function due_hl(due_date, today_time)
 	local t = utils.date_to_time(due_date)
+	if not t then
+		return "GTodoDate"
+	end
 	local diff = math.floor((t - today_time) / 86400)
 	if diff < 0 then
 		return "GTodoDateError"

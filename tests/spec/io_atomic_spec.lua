@@ -121,7 +121,67 @@ describe("io の書き込みはアトミックである", function()
 			-- 実体側に書かれていること
 			assert.are.same({ "after" }, vim.fn.readfile(real))
 		end)
+
+		-- 実体の無いリンク(同期先がまだマウントされていない等)へ書くと、以前はリンクが
+		-- 通常のファイルに置き換わり、利用者が作った同期や共有の仕組みが壊れていた。
+		-- 同期先が一時的に見えないだけかもしれないので、リンクを壊すより書かない方を選ぶ。
+		it("実体の無いシンボリックリンクには書かず、リンクを残す", function()
+			local link = dir .. "/dangling.md"
+			assert.is_true(uv.fs_symlink(dir .. "/missing/real.md", link) ~= nil)
+
+			local ok, err = pcall(io_mod.write_lines, link, { "after" })
+
+			assert.is_false(ok)
+			assert.is_truthy(tostring(err):find("symbolic link", 1, true), tostring(err))
+			assert.are.equal("link", uv.fs_lstat(link).type)
+			local written, write_err = io_mod.atomic_write(link, "after\n")
+			assert.is_nil(written)
+			assert.is_string(write_err)
+			assert.are.equal("link", uv.fs_lstat(link).type)
+		end)
 	end
+end)
+
+-- 無いことを確かめてから作るまでの間に、他のプロセス(別の Neovim や CLI)が同じファイルを
+-- 作って書き込むことがある。以前は無条件に置き換えていたため、相手の内容が消えていた。
+describe("io.ensure_files は他のプロセスが作ったファイルを上書きしない", function()
+	local dir
+	local config = require("gtodo-md.config")
+
+	before_each(function()
+		dir = vim.fn.tempname()
+		vim.fn.mkdir(dir .. "/projects", "p")
+		config.setup({ data_dir = dir })
+	end)
+
+	after_each(function()
+		vim.fn.delete(dir, "rf")
+	end)
+
+	it("確かめた後にできていたファイルは残す", function()
+		local done = dir .. "/done.md"
+		vim.fn.writefile({ "# Done", "", "## 2026-11", "", "- [x] 他のプロセス" }, done)
+		-- 確かめた時点では無かったことにする
+		local saved = vim.fn.filereadable
+		vim.fn.filereadable = function(path)
+			if path == done then
+				return 0
+			end
+			return saved(path)
+		end
+		local ok, err = pcall(io_mod.ensure_files)
+		vim.fn.filereadable = saved
+		assert(ok, err)
+
+		assert.are.same({ "# Done", "", "## 2026-11", "", "- [x] 他のプロセス" }, vim.fn.readfile(done))
+	end)
+
+	it("無いファイルは作り、一時ファイルを残さない", function()
+		io_mod.ensure_files()
+
+		assert.are.same({ "# Inbox", "" }, vim.fn.readfile(dir .. "/inbox.md"))
+		assert.are.same({}, vim.fn.glob(dir .. "/.*.tmp", false, true))
+	end)
 end)
 
 describe("io.ensure_files の一時ファイル掃除", function()

@@ -178,7 +178,10 @@ describe("状態遷移: 期日到達による自動昇格", function()
 
 			local inbox_data = io_mod.read_todo_file(inbox_path)
 			local todo_data = io_mod.read_todo_file(todo_path)
-			assert.is_not_nil(task_in(inbox_data.sections["default"], "受信タスク"), "Inbox から消えている")
+			assert.is_not_nil(
+				task_in(inbox_data.sections[io_mod.PREAMBLE], "受信タスク"),
+				"Inbox から消えている"
+			)
 			assert.is_nil(
 				task_in(todo_data.sections[config.sections.TODAY], "受信タスク"),
 				"Today へ移動している"
@@ -194,7 +197,7 @@ describe("状態遷移: 期日到達による自動昇格", function()
 
 			local inbox_data = io_mod.read_todo_file(inbox_path)
 			local todo_data = io_mod.read_todo_file(todo_path)
-			assert.is_nil(task_in(inbox_data.sections["default"], "受信タスク"), "Inbox に残っている")
+			assert.is_nil(task_in(inbox_data.sections[io_mod.PREAMBLE], "受信タスク"), "Inbox に残っている")
 			assert.is_not_nil(
 				task_in(todo_data.sections[config.sections.TODAY], "受信タスク"),
 				"Today へ移動していない"
