@@ -33,8 +33,9 @@ The default options are as follows:
 
 >lua
     require("gtodo-md").setup({
-      -- Directory to save task files
-      data_dir = vim.fn.stdpath("data") .. "/gtodo-md",
+      -- Directory to save task files. When omitted: $GTODO_DATA_DIR,
+      -- config.json, then ~/.local/share/gtodo-md (|gtodo-md-shared-settings|)
+      data_dir = nil,
 
       -- Whether to enable default keymaps
       use_default_keymaps = true,
@@ -97,6 +98,59 @@ The default options are as follows:
 *NOTE*: Even if you save files like `todo.md` under another name (e.g., `:w
 backup.md`), the plugin's automated processes, keymaps, and checks will
 always target the original task files located in `data_dir`.
+
+SHARED SETTINGS                                     *gtodo-md-shared-settings*
+
+Two optional JSON files hold the settings that every tool working on the same
+data has to agree on. They are also read by `gtodo`, a companion command-line
+tool for the same files (still in development). If you do not create them,
+nothing changes: the plugin never creates them, and setup() keeps working as
+before. Both files are read once, when setup() runs.
+
+`config.json` tells where the data lives. It is looked up at
+`~/.config/gtodo-md/config.json` (`%APPDATA%\gtodo-md\config.json` on
+Windows; `$XDG_CONFIG_HOME/gtodo-md/config.json` on any OS when that variable
+is set). Set `$GTODO_CONFIG` to use a different file. >json
+    { "data_dir": "~/Documents/gtodo-md" }
+<
+`data_dir` must be an absolute path or start with `~`. The data directory is
+chosen in this order:
+    1. `data_dir` passed to setup()
+    2. the `$GTODO_DATA_DIR` environment variable
+    3. `data_dir` in `config.json`
+    4. the default, `$XDG_DATA_HOME/gtodo-md` (`~/.local/share/gtodo-md`;
+       `%LOCALAPPDATA%\gtodo-md` on Windows). If it does not exist but the old
+       default `stdpath("data") .. "/gtodo-md"` does, the old one is used, so
+       existing data keeps working without being moved. With $NVIM_APPNAME,
+       the old default of that profile is tried first, then the one of the
+       default `nvim` profile. If both the new and an old default exist, the
+       new one is used and a warning is shown (a symlink to the old one
+       counts as the same directory).
+setup() wins so that a per-project `data_dir` is not overridden by your global
+file. A warning is shown when it names a different directory than 2 or 3,
+because `gtodo` does not see setup() and will use the other directory.
+
+`<data_dir>/gtodo.json` holds the settings that belong to the data. >json
+    {
+      "sections": { "today": "Today", "next": "Next",
+                    "waiting": "Waiting", "someday": "Someday" },
+      "auto_move_inbox_to_today": true
+    }
+<
+- `sections`: the same as `sections` in setup(), with lowercase keys. When it
+  is present it decides all four names: a section you leave out gets its
+  default name, not the name from setup().
+- `auto_move_inbox_to_today`: the same as the setup() option.
+
+What is written in `gtodo.json` takes precedence over setup(), and a warning
+is shown when setup() asks for something else. If two tools used different
+section names, each would rewrite the headings every time it saved. Anything
+`gtodo.json` does not mention still comes from setup().
+
+Unknown keys are reported and ignored. A file that cannot be used (invalid
+JSON, a value of the wrong type, an empty or duplicated section name) is
+reported as an error and ignored as a whole. `:checkhealth gtodo-md` shows
+where `data_dir` came from and which settings `gtodo.json` decided.
 
 ==============================================================================
 3. Commands                                                *gtodo-md-commands*

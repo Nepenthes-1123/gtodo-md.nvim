@@ -34,27 +34,19 @@ function M.get_stats()
 		local stats = { today = 0, inbox = 0 }
 
 		-- todo.md から Today の未完了タスク数を高速カウント
-		-- config.section_aliases("TODAY")(#94のセクション名カスタマイズ)に追従させる。
-		-- 現在のカスタム名だけでなく、デフォルト名・前回のsetup()名も候補に含めないと、
-		-- カスタム化した直後でまだ保存し直していないtodo.md(見出しが旧名のまま)の
-		-- Today件数を取りこぼす。
+		-- どの見出しが Today かは、読むとき(io.parse_markdown)・保存時の検証と同じく
+		-- config.section_key_of で決める。デフォルト名や前回の名前の見出し(#94、名前を変えた
+		-- 直後でまだ保存し直していない todo.md)も Today として数える。別名ごとに前方一致で
+		-- 探していた以前の実装は、名前を入れ替えた直後に Next の見出しを Today として数え、
+		-- `## Today-archive` のような別の見出しまで数えていた。
 		if vim.fn.filereadable(todo_path) == 1 then
-			local today_pats = {}
-			for _, name in ipairs(config.section_aliases("TODAY")) do
-				table.insert(today_pats, "^## " .. vim.pesc(name))
-			end
 			local f = io.open(todo_path, "r")
 			if f then
 				local in_today = false
 				for line in f:lines() do
-					if line:match("^## ") then
-						in_today = false
-						for _, pat in ipairs(today_pats) do
-							if line:match(pat) then
-								in_today = true
-								break
-							end
-						end
+					local heading = line:match("^##%s+(.*)$")
+					if heading then
+						in_today = config.section_key_of(vim.trim(heading)) == "TODAY"
 					end
 					if in_today and task_mod.is_todo_line(line) then
 						stats.today = stats.today + 1

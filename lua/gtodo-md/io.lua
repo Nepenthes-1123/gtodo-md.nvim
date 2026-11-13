@@ -23,8 +23,14 @@ function M.find_buf(path)
 end
 
 -- 並行更新(lost update)検出用のスタンプ表。
--- key: 正規化した絶対パス, value: { sec, nsec, size }
+-- key: 正規化した絶対パス, value: { sec, nsec, size } または MISSING
 local read_stamps = {}
+
+-- 同期した時点でファイルが無かったことを表すスタンプ。
+-- これが無いと「無いファイルを読んだ」ことを覚えておけず、書く直前までに他のプロセスが
+-- 作ったファイル(cancelled.md / done.md を初めて作る瞬間など)を照合せずに上書きし、
+-- 先に作った側の内容を消していた。
+local MISSING = {}
 
 local function norm_path(path)
 	return vim.fn.fnamemodify(path, ":p")
@@ -40,11 +46,14 @@ end
 
 -- 「このパスの内容をディスクと同期した」と言える時点の stat を記録する。
 --
--- 記録してよい契機は次の4つだけ:
---   1. read_lines がディスクから読んだ直後
+-- 記録してよい契機は次の5つだけ:
+--   1. read_lines がディスクから読んだ直後(ファイルが無かった場合も含む)
 --   2. BufReadPost (autocmds.lua から)
 --   3. BufWritePost (autocmds.lua から。ユーザーの :w もここで拾う)
---   4. 自身の write_lines が成功した直後
+--   4. FileChangedShellPost (autocmds.lua から)
+--   5. 自身の write_lines / atomic_write が成功した直後
+--
+-- ファイルが無ければ MISSING を記録する(無いことも同期した状態の一つ)。
 --
 -- read_lines がバッファ優先で読んだときに記録してはならない。バッファの内容は
 -- 「読んだ瞬間のディスク」ではなく「最後にディスクと同期した時点」の写しであり、
@@ -52,7 +61,7 @@ end
 -- 誤って宣言することになる。その状態で全行置換すると、他インスタンスがその間に
 -- 追記した行を検出できないまま消してしまう。
 function M.record_stamp(path)
-	read_stamps[norm_path(path)] = stat_stamp(path)
+	read_stamps[norm_path(path)] = stat_stamp(path) or MISSING
 end
 
 -- 既に追跡中のパスに限ってスタンプを更新する。
@@ -114,10 +123,16 @@ local function assert_not_changed_since_read(path)
 	end
 	local current = stat_stamp(path)
 	if not current then
-		-- ファイルが存在しない。新規作成として扱い、書き込みを許す。
+		-- ファイルが存在しない(読んだ後に消された場合を含む)。新規作成として扱い、書き込みを許す。
 		return
 	end
-	if current.sec == recorded.sec and current.nsec == recorded.nsec and current.size == recorded.size then
+	local created_since_read = recorded == MISSING
+	if
+		not created_since_read
+		and current.sec == recorded.sec
+		and current.nsec == recorded.nsec
+		and current.size == recorded.size
+	then
 		return
 	end
 
@@ -133,9 +148,11 @@ local function assert_not_changed_since_read(path)
 
 	error(
 		string.format(
-			"[gtodo-md] %s は他のプロセスによって更新されています。書き込みを中止しました。\n"
+			"[gtodo-md] %s は%s。書き込みを中止しました。\n"
 				.. "バッファを再読み込み(:checktime または :e)してから操作をやり直してください。",
-			path
+			path,
+			created_since_read and "読み込んだ後に他のプロセスによって作られています"
+				or "他のプロセスによって更新されています"
 		),
 		0
 	)
@@ -151,6 +168,9 @@ function M.read_lines(path)
 		local lines = {}
 		local f = io.open(path, "r")
 		if not f then
+			-- 無かったことも記録する。書く直前までに他のプロセスが作っていれば、
+			-- それを上書きせずに検出するため(MISSING 参照)。
+			M.record_stamp(path)
 			return lines
 		end
 		-- 読み始める前に記録する。読んでいる最中に書き換えられた場合も
@@ -276,12 +296,20 @@ end
 -- 置換先にすると、リンク自体が実体ファイルで置き換わって消え、ユーザーが構築した
 -- 外部同期や共有の仕組みが警告なく壊れる。実体側のディレクトリに一時ファイルを
 -- 作るため、実体が別ファイルシステムにあっても rename は同一FS内で完結する。
+--
+-- 実体の無いリンクには書かず、nil と理由を返す。以前はリンクそのものを置換先にして、
+-- リンクを通常のファイルに置き換えていた。同期先がまだマウントされていないなど、
+-- 実体が一時的に見えないだけかもしれず、リンクを壊すよりは書かない方が安全(CLI も同じ)。
 local function resolve_link(path)
 	local lst = uv.fs_lstat(path)
 	if not lst or lst.type ~= "link" then
 		return path
 	end
-	return uv.fs_realpath(path) or path
+	local real = uv.fs_realpath(path)
+	if not real then
+		return nil, string.format("refusing to replace symbolic link %s: its target does not exist", path)
+	end
+	return real
 end
 
 -- 一時ファイルを O_EXCL で作る。名前が衝突しても既存ファイルを壊さず EEXIST で
@@ -378,7 +406,10 @@ local function content_unchanged(target, data)
 end
 
 local function atomic_replace(path, data)
-	local target = resolve_link(path)
+	local target, link_err = resolve_link(path)
+	if not target then
+		return nil, link_err
+	end
 
 	-- 内容が変わらないなら書かない。
 	-- 書けば mtime が動き、同じ data_dir を開いている全インスタンスが checktime で
@@ -422,6 +453,49 @@ local function atomic_replace(path, data)
 	return true
 end
 
+-- path が無いときだけ、data を中身とするファイルとして作る。
+-- 作れば true、既にあれば false(何も書かない)、失敗すれば nil とエラー文字列。
+--
+-- 無いことを確かめてから atomic_replace で作ると、確かめてから作るまでの間に他のプロセス
+-- (別の Neovim や CLI)が作って書き込んだ内容を置き換えて消す。一時ファイルに書いてから
+-- ハードリンクを張ると、置換先が既にあれば EEXIST で失敗するので、確かめることと作ることが
+-- 1回の syscall になる。ハードリンクを作れないファイルシステム(FAT など)では、置換先を
+-- O_EXCL で確保してから rename する(move_file_no_replace)。
+local function create_new_file(path, data)
+	local dir = vim.fn.fnamemodify(path, ":h")
+	local base = vim.fn.fnamemodify(path, ":t")
+	local fd, tmp_path, open_err = create_tmp(dir, base)
+	if not fd then
+		return nil, string.format("open: %s", tostring(open_err))
+	end
+	local written, write_err = write_and_sync(fd, data)
+	uv.fs_close(fd)
+	if not written then
+		uv.fs_unlink(tmp_path)
+		return nil, string.format("write: %s", tostring(write_err))
+	end
+
+	local linked, link_msg, link_code = uv.fs_link(tmp_path, path)
+	if linked then
+		uv.fs_unlink(tmp_path)
+		return true
+	end
+	if err_code(link_msg, link_code) == "EEXIST" then
+		uv.fs_unlink(tmp_path)
+		return false
+	end
+
+	local moved, move_err = M.move_file_no_replace(tmp_path, path)
+	if moved then
+		return true
+	end
+	uv.fs_unlink(tmp_path)
+	if move_err == "EEXIST" then
+		return false
+	end
+	return nil, string.format("rename: %s", tostring(move_err))
+end
+
 -- 行リストを指定の改行コードでアトミックに書き出す。
 local function write_lines_to_disk(path, lines, use_crlf)
 	local nl = use_crlf and "\r\n" or "\n"
@@ -435,7 +509,13 @@ end
 -- 成功なら true、失敗なら nil とエラー文字列を返す(error は投げない —
 -- 呼び出し元の失敗時の振る舞いがそれぞれ異なるため判断を委ねる)。
 function M.atomic_write(path, data)
-	return atomic_replace(path, data)
+	local ok, err = atomic_replace(path, data)
+	if ok then
+		-- 自分の書き込みを新しい同期点にする(write_lines と同じ)。無いファイルを読んだ後に
+		-- ここで作ったファイルを、他のプロセスが作ったものと誤って判定しないため。
+		M.refresh_stamp_if_tracked(path)
+	end
+	return ok, err
 end
 
 -- rename_with_retry の公開ラッパー。src を dst へ移動する。成功なら true、
@@ -600,20 +680,32 @@ function M.read_todo_file(filepath)
 	return M.parse_markdown(lines)
 end
 
--- #94: 見出しが config.section_aliases(key) に含まれる名前(デフォルト名/
--- 前回の設定名)であれば、その場で現在のカスタム名へ正規化する。これにより
--- due.lua等の既存の config.sections.* 参照箇所は一切変更せずに動作し続け、
--- 既存ファイルの見出しをユーザーに手動でリネームさせる必要もない
--- (次回保存時に write_todo_file が新しい名前で書き戻す)。
-local function normalize_section_name(name)
-	for key, _ in pairs(config.default_sections) do
-		for _, alias in ipairs(config.section_aliases(key)) do
-			if name == alias then
-				return config.sections[key]
-			end
+-- 最初の `## ` 見出しより前にあるタスクを入れるセクションの名前(inbox.md のタスクはすべてここ)。
+--
+-- 見出しの名前と衝突しない値でなければならない。以前は "default" だったため、
+-- `## default` という見出しがあると同じセクションとして扱われ、見出しが消えて
+-- その下のタスクが先頭へ移っていた。見出しの名前は前後の空白を取り除いて読むので、
+-- 空白で始まる名前は見出しからは作られない。
+M.PREAMBLE = " preamble"
+
+-- セクションを取り出す。無ければ作り、書き出す順序の末尾に加える。
+--
+-- data.sections にだけ加えて section_order に加えないと、write_todo_file が
+-- そのセクションを書かず、加えたタスクが消える(見出しの無いセクションへの追加・
+-- inbox.md からの移動で起きていた)。
+--
+-- 書き出す順序に既にある名前は加えない。空の todo.md へ移すときのように、順序だけを
+-- 先に組み立てる呼び出し元があり、二重に加えると同じ見出しを2回書き、タスクも重複する。
+function M.ensure_section(data, name)
+	local items = data.sections[name]
+	if not items then
+		items = {}
+		data.sections[name] = items
+		if name ~= M.PREAMBLE and not vim.tbl_contains(data.section_order, name) then
+			table.insert(data.section_order, name)
 		end
 	end
-	return name
+	return items
 end
 
 function M.parse_markdown(lines)
@@ -623,7 +715,7 @@ function M.parse_markdown(lines)
 		section_order = {},
 	}
 
-	local current_section = "default"
+	local current_section = M.PREAMBLE
 	data.sections[current_section] = {}
 
 	local header_done = false
@@ -634,7 +726,9 @@ function M.parse_markdown(lines)
 		local task = task_mod.parse(line)
 
 		if sec_name then
-			sec_name = normalize_section_name(vim.trim(sec_name))
+			-- #94: デフォルト名や前回の名前の見出しも、現在の名前のセクションとして読む
+			-- (次回保存時に write_todo_file が現在の名前で書き戻す)。
+			sec_name = config.normalize_section_name(vim.trim(sec_name))
 			current_section = sec_name
 			if not data.sections[current_section] then
 				data.sections[current_section] = {}
@@ -730,8 +824,8 @@ function M.write_todo_file(filepath, data)
 		table.insert(lines, l)
 	end
 
-	-- default セクション（## なし領域）の書き出し
-	local default_items = data.sections["default"] or {}
+	-- 最初の見出しより前のタスクの書き出し
+	local default_items = data.sections[M.PREAMBLE] or {}
 	if #default_items > 0 then
 		if #lines > 0 and lines[#lines] ~= "" then
 			table.insert(lines, "")
@@ -786,8 +880,11 @@ function M.ensure_files()
 			-- 作成失敗を握り潰すと、以降の読み取りが「空ファイル」と区別できないまま
 			-- 進み、原因の分からない不具合として表面化する。1件ずつ通知して続行する
 			-- (1つ失敗しても他のファイルは作れる可能性があるため中断はしない)。
-			local ok, err = atomic_replace(f.path, f.title .. "\n")
-			if not ok then
+			-- 確かめた後に他のプロセスが作っていれば、そちらを残す(false が返る)。
+			local ok, err = create_new_file(f.path, f.title .. "\n")
+			if ok then
+				M.refresh_stamp_if_tracked(f.path)
+			elseif ok == nil then
 				vim.notify(
 					string.format("[gtodo-md] failed to create %s: %s", f.path, tostring(err)),
 					vim.log.levels.ERROR

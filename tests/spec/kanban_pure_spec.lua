@@ -422,3 +422,18 @@ describe("ui.kanban._compute_layout の消費幅", function()
 		assert.are.same(1, layout.visible_count)
 	end)
 end)
+
+-- 日付として解釈できない期日でカードを作れずにカンバンが開けなくなっていた
+-- (`due:someday` で例外)。日数は出さず、期日をそのまま表示する。
+describe("ui.kanban 解釈できない期日", function()
+	it("例外にせず、期日をそのまま表示する", function()
+		for _, due in ipairs({ "someday", "2026-02-30" }) do
+			local ok, lines = pcall(kanban._card_body_lines, task("- [ ] x due:" .. due), 40, TODAY_TIME)
+			assert.is_true(ok, tostring(lines))
+			local text = table.concat(lines, "\n")
+			assert.is_truthy(text:find("due:" .. due, 1, true), text)
+			assert.is_falsy(text:find("日超過", 1, true), text)
+			assert.is_falsy(text:find("日後", 1, true), text)
+		end
+	end)
+end)

@@ -9,23 +9,33 @@ local function get_state_path()
 	return data_dir .. "/.state.json"
 end
 
+-- 読んだ内容を返す。ファイルが無い・空なら空のテーブル。
+-- 壊れていれば、空のテーブルと理由を返す(読む側は空として処理を続けてよい)。
 local function read_state()
 	local path = get_state_path()
-	local f = io.open(path, "r")
+	local f = io.open(path, "rb")
 	if not f then
 		return {}
 	end
 	local content = f:read("*all")
 	f:close()
-	if not content or content == "" then
+	if not content or vim.trim(content) == "" then
 		return {}
 	end
 	local ok, data = pcall(vim.json.decode, content)
-	if ok and type(data) == "table" then
-		return data
+	if not ok then
+		return {}, tostring(data)
 	end
-	return {}
+	-- 空のテーブルは vim.json.encode が "[]" と書くので、空の状態として読む。
+	if type(data) ~= "table" or (next(data) ~= nil and vim.islist(data)) then
+		return {}, "top level is not an object"
+	end
+	return data
 end
+
+-- 壊れていると通知済みのパス。setup() のたび・期日通知のたびに書きに来るため、
+-- 毎回通知すると止まらない。書けたら消して、また壊れたときに通知し直す。
+local reported_broken = {}
 
 local function write_state(data)
 	local path = get_state_path()
@@ -51,7 +61,36 @@ local function write_state(data)
 	local written, err = io_mod.atomic_write(path, content)
 	if not written then
 		vim.notify(string.format("[gtodo-md] failed to write %s: %s", path, err), vim.log.levels.ERROR)
+		return
 	end
+	reported_broken[path] = nil
+end
+
+-- 読んで fn で書き換え、書き戻す。
+--
+-- 壊れたファイルは書き戻さない。以前は空として扱ってそのまま上書きしていたため、
+-- 中身(CLI など他のツールが書いた知らないキーを含む)が消え、壊れていたことにも
+-- 誰も気づけなかった。読む側は空として扱い続けるので、処理は止まらない
+-- (日次ロールオーバーは記録できないが、同じセッションの中では1日1回に保たれる)。
+local function update_state(fn)
+	local data, broken = read_state()
+	if broken then
+		local path = get_state_path()
+		if not reported_broken[path] then
+			reported_broken[path] = true
+			vim.notify(
+				string.format(
+					"[gtodo-md] %s is not a valid state file (%s); not overwriting it. Fix or remove the file.",
+					path,
+					broken
+				),
+				vim.log.levels.ERROR
+			)
+		end
+		return
+	end
+	fn(data)
+	write_state(data)
 end
 
 function M.read_last_opened()
@@ -60,9 +99,9 @@ function M.read_last_opened()
 end
 
 function M.write_last_opened(date_str)
-	local state = read_state()
-	state.last_opened = date_str
-	write_state(state)
+	update_state(function(state)
+		state.last_opened = date_str
+	end)
 end
 
 -- #94: 前回の setup() で使われていたセクション名(config.sections)を記憶する。
@@ -77,9 +116,9 @@ function M.read_last_sections()
 end
 
 function M.write_last_sections(sections)
-	local state = read_state()
-	state.last_sections = sections
-	write_state(state)
+	update_state(function(state)
+		state.last_sections = sections
+	end)
 end
 
 function M.read_notify_state()
@@ -88,10 +127,10 @@ function M.read_notify_state()
 end
 
 function M.write_notify_state(time, content)
-	local state = read_state()
-	state.last_notify_time = time
-	state.last_notify_content = content
-	write_state(state)
+	update_state(function(state)
+		state.last_notify_time = time
+		state.last_notify_content = content
+	end)
 end
 
 return M

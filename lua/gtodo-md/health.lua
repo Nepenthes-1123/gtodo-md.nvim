@@ -51,8 +51,28 @@ function M.check()
 		return
 	end
 
+	-- setup() に書いた値が効いていないとき、どこの値が使われたのかをここで確かめられるようにする
+	-- (CLI/TUI と共有する設定が優先される項目がある)。setup() より前は sources が空。
+	local sources = config.sources
 	local data_dir = config.get("data_dir")
-	vim.health.ok("data_dir is set to: " .. data_dir)
+	-- 既定の場所は setup() のときに決まる(共有設定と、新旧どちらの既定があるかで変わる)。
+	if not data_dir then
+		vim.health.warn("setup() has not been called, so data_dir is not decided yet", {
+			'Call require("gtodo-md").setup() in your config.',
+		})
+		return
+	end
+	if sources.data_dir then
+		vim.health.ok(string.format("data_dir is set to: %s (from %s)", data_dir, sources.data_dir))
+	else
+		vim.health.ok("data_dir is set to: " .. data_dir)
+	end
+	for _, key in ipairs({ "sections", "auto_move_inbox_to_today" }) do
+		local source = sources[key]
+		if source and source ~= "setup()" and source ~= "default" then
+			vim.health.info(string.format("%s is set by %s (setup() is not used for it)", key, source))
+		end
+	end
 
 	if vim.fn.isdirectory(data_dir) == 1 then
 		vim.health.ok("data_dir directory exists")

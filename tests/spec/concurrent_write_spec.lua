@@ -135,4 +135,49 @@ describe("io の並行更新検出", function()
 			assert.are.same({ "# Todo", "- [ ] a", "- [ ] 他" }, vim.fn.readfile(path))
 		end
 	)
+
+	-- 読んだ時点で無かったファイルが、書く直前までに他のプロセスによって作られていた場合。
+	-- 以前は照合せずに上書きしていたため、先に作った側の内容が消えていた
+	-- (cancelled.md / done.md を初めて作る瞬間に、2つのインスタンスが同時に書く場合など)。
+	describe("読んだ時点で無かったファイル", function()
+		it(
+			"書く直前までに作られていたら書き込みを中止し、作られた内容が残る",
+			function()
+				assert.are.same({}, io_mod.read_lines(path))
+
+				vim.fn.writefile({ "# Cancelled", "", "## 2026-11", "", "- [ ] 他インスタンス" }, path)
+
+				local ok, err = pcall(io_mod.write_lines, path, { "# Cancelled", "", "## 2026-11", "", "- [ ] 自分" })
+
+				assert.is_false(ok)
+				assert.is_truthy(
+					tostring(err):find("他のプロセスによって作られています", 1, true),
+					tostring(err)
+				)
+				assert.are.same(
+					{ "# Cancelled", "", "## 2026-11", "", "- [ ] 他インスタンス" },
+					vim.fn.readfile(path)
+				)
+			end
+		)
+
+		it("書く直前まで無いままなら、これまでどおり新しく作る", function()
+			assert.are.same({}, io_mod.read_lines(path))
+
+			io_mod.write_lines(path, { "# Cancelled" })
+
+			assert.are.same({ "# Cancelled" }, vim.fn.readfile(path))
+		end)
+
+		-- ensure_files が作ったファイルは自分が作ったもの。他のプロセスが作ったと誤って
+		-- 判定すると、起動直後の書き込みがすべて拒まれる。
+		it("自分で作った後は書ける", function()
+			assert.are.same({}, io_mod.read_lines(path))
+			io_mod.write_lines(path, { "# Cancelled" })
+
+			io_mod.write_lines(path, { "# Cancelled", "", "- [ ] 次" })
+
+			assert.are.same({ "# Cancelled", "", "- [ ] 次" }, vim.fn.readfile(path))
+		end)
+	end)
 end)

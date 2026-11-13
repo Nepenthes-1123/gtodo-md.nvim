@@ -107,3 +107,31 @@ describe("utils.parse_due_date 第2引数(base_time)による基準日の明示�
 		end)
 	end)
 end)
+
+-- 入力欄やテンプレートの基準日として受け付ける期日。parse_due_date は 2/30 のような
+-- 実在しない日付も 2026-02-30 のように組み立てて返すため、そのまま使うと、受け付けた
+-- はずの期日が Queue で「期日を解釈できない」に入り、テンプレートの基準日は黙って
+-- 今日に置き換わる。実在する日付だけを受け付ける。
+describe("utils.normalize_due_input", function()
+	it("実在しない日付は受け付けない", function()
+		with_fixed_now(2026, 1, 15, 12, function()
+			for _, input in ipairs({ "2/30", "2026-02-30", "2026/13/01", "13/45", "2027-02-29", "someday", "" }) do
+				assert.is_nil(utils.normalize_due_input(input), input)
+			end
+		end)
+	end)
+
+	it("実在する日付・相対指定は正規化して返す", function()
+		with_fixed_now(2026, 1, 15, 12, function()
+			assert.are.same("2026-02-28", utils.normalize_due_input("2/28"))
+			assert.are.same("2028-02-29", utils.normalize_due_input("2028-02-29"))
+			assert.are.same("2026-01-18", utils.normalize_due_input("+3d"))
+			assert.are.same("2026-01-15", utils.normalize_due_input("today"))
+		end)
+	end)
+
+	it("基準日を渡すと、相対指定はその日から解決する", function()
+		local base = os.time({ year = 2026, month = 8, day = 20, hour = 0 })
+		assert.are.same("2026-08-23", utils.normalize_due_input("+3d", base))
+	end)
+end)

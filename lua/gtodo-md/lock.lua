@@ -10,19 +10,73 @@ local STALE_SECONDS = 60
 -- これにより複数インスタンスが同時に取得を試みる競合を防ぐ。
 -- 動作: Linux/macOS = open(2) の O_EXCL、Windows = CreateFileW の CREATE_NEW
 -- ネットワークFS（NFS/SMB等）ではアトミック性が保証されないため非対応。
+--
+-- 中身は取ったプロセスを見分ける印(プロセス ID と取得した時刻のナノ秒)で、解放するときに
+-- 自分のロックかを確かめるのに使う。プロセス ID だけでは、コンテナや WSL と Windows のように
+-- ID の空間が別のプロセスと一致しうる。CLI/TUI (gtodo) も同じ形で書く。
+-- 取得できれば印を、できなければ nil を返す。
+local function owner_token()
+	local now = uv.clock_gettime("realtime")
+	return string.format("%d %d%09d", vim.fn.getpid(), now.sec, now.nsec)
+end
+
 local function try_acquire(lock_path)
 	local fd = uv.fs_open(lock_path, "wx", 384) -- 0o600
 	if not fd then
-		return false
+		return nil
 	end
-	-- PID を書き込んでおくことでデバッグ時に保持インスタンスを特定しやすくする
-	uv.fs_write(fd, tostring(vim.fn.getpid()), 0)
+	local token = owner_token()
+	local written = uv.fs_write(fd, token, 0)
 	uv.fs_close(fd)
-	return true
+	if written ~= #token then
+		-- 印を書けなかったロックは、解放するときに自分のものと確かめられない。
+		-- 残すと 60 秒間すべての自動処理が止まるので、取れなかったことにする。
+		uv.fs_unlink(lock_path)
+		return nil
+	end
+	return token
 end
 
-local function release(lock_path)
-	uv.fs_unlink(lock_path)
+local function read_file(path)
+	local fd = uv.fs_open(path, "r", 384)
+	if not fd then
+		return nil
+	end
+	local content = uv.fs_read(fd, 4096, 0)
+	uv.fs_close(fd)
+	return content
+end
+
+-- 自分のロックである場合だけ消す。
+--
+-- 確かめずに消してはならない。持っている間に 60 秒を超え、他のプロセスが残骸とみなして
+-- 取り直していた場合、その相手のロックを消して排他を崩す。確かめてから消すまでの間に
+-- 取り直されることは防げない(CLI も同じ)。
+local function release(lock_path, token)
+	local content = read_file(lock_path)
+	if content == token then
+		uv.fs_unlink(lock_path)
+	elseif content ~= nil then
+		vim.notify(
+			string.format(
+				"[gtodo-md] %s was taken over by another process (held for more than %d seconds); left it in place",
+				lock_path,
+				STALE_SECONDS
+			),
+			vim.log.levels.WARN
+		)
+	else
+		-- 消されていた。他のプロセスが残骸とみなして消したので、持っている間の排他は崩れていた
+		-- 可能性がある(CLI も同じく知らせる)。
+		vim.notify(
+			string.format(
+				"[gtodo-md] %s was removed by another process (held for more than %d seconds)",
+				lock_path,
+				STALE_SECONDS
+			),
+			vim.log.levels.WARN
+		)
+	end
 end
 
 -- クラッシュ等でロックが残留した場合の安全弁。
@@ -54,7 +108,8 @@ function M.with_automation_lock(data_dir, fn)
 	local lock_path = data_dir .. "/.gtodo.lock"
 	cleanup_stale(lock_path)
 
-	if not try_acquire(lock_path) then
+	local token = try_acquire(lock_path)
+	if not token then
 		return false
 	end
 
@@ -69,7 +124,7 @@ function M.with_automation_lock(data_dir, fn)
 		require("gtodo-md.daily").reload_managed_bufs()
 		fn()
 	end)
-	release(lock_path)
+	release(lock_path, token)
 
 	if not ok then
 		vim.notify("[gtodo-md] Automatic processing failed: " .. tostring(err), vim.log.levels.ERROR)

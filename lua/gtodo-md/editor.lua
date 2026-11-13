@@ -16,7 +16,13 @@ function M.get_current_task()
 	return task, row, line
 end
 
--- カーソル位置のセクションを特定する
+-- カーソル位置のセクションの名前を、io.parse_markdown が読むときと同じ名前で返す。
+-- 最初の見出しより上なら io.PREAMBLE。
+--
+-- 見出しの名前をそのまま返してはならない。見出しがデフォルト名や前回の名前のまま
+-- (setup() で名前を変えた直後)だと、読んだデータでは現在の名前に揃っているため
+-- セクションが見つからず、完了・移動は何もせず、キャンセルは cancelled.md への
+-- 追記だけが済んでタスクが重複していた。
 function M.get_current_section()
 	local cursor = vim.api.nvim_win_get_cursor(0)
 	local row = cursor[1]
@@ -24,10 +30,10 @@ function M.get_current_section()
 	for i = #lines, 1, -1 do
 		local sec_name = lines[i]:match("^##%s+(.*)$")
 		if sec_name then
-			return vim.trim(sec_name)
+			return config.normalize_section_name(vim.trim(sec_name))
 		end
 	end
-	return "default"
+	return io_mod.PREAMBLE
 end
 
 -- BUG-5/BUG-15対応: todo.md内のタスク検索・更新の共通ヘルパー
@@ -229,10 +235,7 @@ function M._execute_move(task, row, target_section)
 				return config.sections[key]
 			end, config.section_order)
 		end
-		if not todo_data.sections[target_section] then
-			todo_data.sections[target_section] = {}
-		end
-		table.insert(todo_data.sections[target_section], { type = "task", task = task })
+		table.insert(io_mod.ensure_section(todo_data, target_section), { type = "task", task = task })
 		todo_data.sections[target_section] = logic_mod.sort_section_tasks(todo_data.sections[target_section])
 
 		-- todo.md への追記が先、inbox.md からの削除が後(logic/write_pair 参照)。
@@ -291,22 +294,7 @@ function M.move_task_between_sections(task, current_section, target_section)
 	local moved = false
 	local ok, reason = update_task_in_todo(task, current_section, function(todo_data, section, idx, sec_items)
 		table.remove(sec_items, idx)
-
-		if not todo_data.sections[target_section] then
-			todo_data.sections[target_section] = {}
-			local has_sec = false
-			for _, s in ipairs(todo_data.section_order) do
-				if s == target_section then
-					has_sec = true
-					break
-				end
-			end
-			if not has_sec then
-				table.insert(todo_data.section_order, target_section)
-			end
-		end
-
-		table.insert(todo_data.sections[target_section], { type = "task", task = task })
+		table.insert(io_mod.ensure_section(todo_data, target_section), { type = "task", task = task })
 		todo_data.sections[section] = logic_mod.sort_section_tasks(todo_data.sections[section] or {})
 		todo_data.sections[target_section] = logic_mod.sort_section_tasks(todo_data.sections[target_section])
 		moved = true

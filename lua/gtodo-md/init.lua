@@ -184,11 +184,7 @@ end
 -- error を投げるが、この経路は lock.with_automation_lock の外側で誰も pcall していない)。
 local function append_task_to_file(path, section_name, new_task, prepare_items)
 	local data = io_mod.read_todo_file(path)
-	local items = data.sections[section_name]
-	if not items then
-		items = {}
-		data.sections[section_name] = items
-	end
+	local items = io_mod.ensure_section(data, section_name)
 	if prepare_items then
 		prepare_items(items)
 	end
@@ -291,7 +287,7 @@ function M.add_or_edit_task()
 
 		if not routed_to_inbox then
 			local target_sec = editor_mod.get_current_section()
-			if target_sec == "default" then
+			if target_sec == io_mod.PREAMBLE then
 				target_sec = config.sections.TODAY
 			end
 
@@ -302,7 +298,7 @@ function M.add_or_edit_task()
 				logic_mod.sort_todo_file(todo_path)
 			end)
 		else
-			if not append_task_to_file(inbox_path, "default", new_task, trim_trailing_blank_items) then
+			if not append_task_to_file(inbox_path, io_mod.PREAMBLE, new_task, trim_trailing_blank_items) then
 				return
 			end
 			check_dues_and_sort(data_dir, inbox_path, todo_path, false)
