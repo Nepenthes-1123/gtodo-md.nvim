@@ -6,6 +6,8 @@
 
 A lightweight GTD (Getting Things Done) oriented Todo management plugin for Neovim, using pure Markdown.
 
+A companion command-line tool and terminal UI, [`gtodo`](https://github.com/Nepenthes-1123/gtodo-md), works on the same files and can be used while Neovim is open (see [Command-line tool](#command-line-tool-gtodo)).
+
 ## Features
 - **Data Isolation**: Easily separate private and work tasks by changing the `data_dir` configuration.
 - **GTD Oriented**: Structured with `inbox.md`, `todo.md` (Today / Next / Waiting / Someday), `done.md`, `cancelled.md`, and project files.
@@ -173,11 +175,23 @@ If `use_default_keymaps = true`, the prefix is `<Leader>t`.
 - `:GtodoSort` - Manually sort tasks by due date and priority
 - `:GtodoQueue` - Open Queue view
 
+## Command-line tool (`gtodo`)
+
+[gtodo](https://github.com/Nepenthes-1123/gtodo-md) is a command-line tool and terminal UI for the same files, for
+when you are not in Neovim (scripts, another terminal, a machine without your Neovim setup). It finds the same
+`data_dir` by the same rules (see [Shared settings](#shared-settings-configjson--gtodojson)) and gives the same results
+for sorting, due-date promotion and the daily rollover. See its README for installation (GitHub Releases or mise).
+
+You can use it while Neovim is open. Both take the same lock for automatic processing, and `gtodo` does not write a file
+that changed after it read it. When `gtodo` changes a file you have open in Neovim, the buffer is reloaded and unsaved
+edits in it are discarded, as with another Neovim instance (see
+[Using multiple Neovim instances](#using-multiple-neovim-instances)).
+
 ## Shared settings (`config.json` / `gtodo.json`)
 
 gtodo-md reads two optional JSON files. They hold the settings that every tool working on the
-same data has to agree on, and are also read by `gtodo`, a companion command-line tool for the
-same files (still in development). **If you don't create them, nothing changes** — the plugin
+same data has to agree on, and are also read by [`gtodo`](#command-line-tool-gtodo).
+**If you don't create them, nothing changes** — the plugin
 never creates them for you, and `setup()` keeps working as before.
 
 Both files are read once, when `setup()` runs. Restart Neovim after editing them.
@@ -239,8 +253,8 @@ sync, gtodo-md treats **the file on disk as the source of truth** for the files 
 (`inbox.md`, `todo.md`, `done.md`, `cancelled.md`, `projects/*.md`). This has two
 consequences you should be aware of:
 
-- **Unsaved edits are discarded when the file changes on disk.** If another instance (or an
-  external tool such as a sync client or `git pull`) writes the file while you have unsaved
+- **Unsaved edits are discarded when the file changes on disk.** If another instance (or
+  `gtodo`, or an external tool such as a sync client or `git pull`) writes the file while you have unsaved
   changes in it, the buffer is reloaded from disk without the usual
   `[O]K, (L)oad File:` prompt. Press `u` to bring your edits back.
 - **Persistent undo (`'undofile'`) is disabled for these buffers.** Undo files are not
