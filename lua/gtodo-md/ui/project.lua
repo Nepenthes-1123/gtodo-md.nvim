@@ -94,6 +94,12 @@ function M.check_new_tag(tag)
 	return false, (fixed ~= "" and fixed or nil)
 end
 
+-- projects/ の中のファイルを指す名前か。パスの区切りや `.`・`..` を含む名前は、すでにあるファイルでも
+-- 扱わない (projects/ の外を指すため)。
+local function stays_in_projects(tag)
+	return type(tag) == "string" and tag ~= "" and not tag:find("[/\\]") and tag ~= "." and tag ~= ".."
+end
+
 -- プロジェクトタグに対応する projects/*.md を、無ければテンプレート付きで作成する。
 -- ジャンプ(jump_to_project)・分割時のプロジェクト昇格(ui/split.lua)・
 -- 新規タスク入力時のプロジェクト作成(ui/prompt.lua)の3箇所から呼ばれる。
@@ -102,20 +108,26 @@ function M.create_project_file(project_tag)
 	local projects_dir = data_dir .. "/projects"
 	local proj_file = string.format("%s/%s.md", projects_dir, project_tag)
 
-	if vim.fn.filereadable(proj_file) == 0 then
-		-- 作るときだけ確かめる。すでにあるファイル (手で作った名前など) はそのまま使えるようにする。
-		local ok, suggestion = M.check_new_tag(project_tag)
-		if not ok then
-			local msg = suggestion
-					and string.format(
-						"[gtodo-md] %q cannot be used as a project file name; use %q instead",
-						project_tag,
-						suggestion
-					)
-				or string.format("[gtodo-md] %q cannot be used as a project file name", tostring(project_tag))
-			vim.notify(msg, vim.log.levels.ERROR)
-			return false
-		end
+	-- 使えない名前を、直した名前 (あれば) を添えて知らせる。
+	local function refuse()
+		local _, suggestion = M.check_new_tag(project_tag)
+		local msg = suggestion
+				and string.format(
+					"[gtodo-md] %q cannot be used as a project file name; use %q instead",
+					project_tag,
+					suggestion
+				)
+			or string.format("[gtodo-md] %q cannot be used as a project file name", tostring(project_tag))
+		vim.notify(msg, vim.log.levels.ERROR)
+		return false
+	end
+
+	if not stays_in_projects(project_tag) then
+		return refuse()
+	end
+	-- 作るときだけ規則で確かめる。すでにあるファイル (手で作った名前など) はそのまま使えるようにする。
+	if vim.fn.filereadable(proj_file) == 0 and not M.check_new_tag(project_tag) then
+		return refuse()
 	end
 	-- mkdir() は失敗時に 0 を返すほか、パス上に同名のファイルがある等では
 	-- E739 を投げる。素通しにすると呼び出し元の処理がそこで止まる。
@@ -165,6 +177,14 @@ function M.jump_to_project()
 	local project_tag = task and task.project
 
 	if not project_tag then
+		return
+	end
+	-- `+../notes` のようなタグで、projects/ の外にあるファイルを開かない。
+	if not stays_in_projects(project_tag) then
+		vim.notify(
+			string.format("[gtodo-md] %q cannot be used as a project file name", project_tag),
+			vim.log.levels.ERROR
+		)
 		return
 	end
 

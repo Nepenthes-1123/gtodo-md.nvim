@@ -44,6 +44,37 @@ describe("ui.project のプロジェクト名", function()
 		assert.is_truthy(notifications[1]:find('use "outside" instead', 1, true), notifications[1])
 	end)
 
+	it("パスの区切りを含む名前は、その場所にファイルがあっても扱わない", function()
+		vim.fn.writefile({ "# メモ" }, data_dir .. "/notes.md")
+		assert.is_false(project_mod.create_project_file("../notes"))
+		assert.is_truthy(notifications[1]:find("cannot be used", 1, true))
+	end)
+
+	it(
+		"プロジェクトへのジャンプは、外を指す名前ではファイルがあっても開かない",
+		function()
+			vim.fn.writefile({ "# メモ" }, data_dir .. "/notes.md")
+			vim.fn.mkdir(data_dir .. "/projects", "p")
+			local buf = vim.api.nvim_create_buf(true, false)
+			vim.api.nvim_set_current_buf(buf)
+			vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "- [ ] 作業 +../notes" })
+			project_mod.jump_to_project()
+			assert.are.equal(buf, vim.api.nvim_get_current_buf(), "no float is opened")
+			assert.is_truthy(notifications[1]:find("cannot be used", 1, true))
+			vim.api.nvim_buf_delete(buf, { force = true })
+		end
+	)
+
+	it("プロジェクトへのジャンプでも、外を指す名前ではファイルを作らない", function()
+		local buf = vim.api.nvim_create_buf(true, false)
+		vim.api.nvim_set_current_buf(buf)
+		vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "- [ ] 作業 +../outside" })
+		project_mod.jump_to_project()
+		assert.are.equal(0, vim.fn.filereadable(data_dir .. "/outside.md"))
+		assert.are.equal(buf, vim.api.nvim_get_current_buf(), "no float is opened")
+		vim.api.nvim_buf_delete(buf, { force = true })
+	end)
+
 	it("すでにあるファイルは、作るときの規則に合わない名前でもそのまま使う", function()
 		vim.fn.mkdir(data_dir .. "/projects", "p")
 		vim.fn.writefile({ "---", "title: メモ", "---" }, data_dir .. "/projects/my notes.md")
