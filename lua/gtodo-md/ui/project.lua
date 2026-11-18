@@ -49,13 +49,86 @@ local function get_done_project_counts(done_path)
 	return counts
 end
 
+-- タグをファイル名として安全な形へ正規化する。前後の `.` を除き、ファイル名に使えない記号と空白を
+-- `-` にし、Windows の予約名には `_proj` を付け、80 文字までにする。正規化の結果が空になることがある。
+-- 分割(ui/split.lua)の入力の正規化と、create_project_file の確かめで同じ規則を使う。
+function M.sanitize_tag(tag)
+	local result = tag:gsub("^%.+", ""):gsub("%.+$", "")
+	result = result:gsub('[<>:"/\\|?*]', "-")
+	result = result:gsub("%s+", "-")
+	result = result:gsub("%-+", "-")
+	result = result:gsub("^%-+", ""):gsub("%-+$", "")
+	local base = result:match("^([^.]+)")
+	if base then
+		local dos_reserved = {
+			CON = true,
+			PRN = true,
+			AUX = true,
+			NUL = true,
+			COM1 = true,
+			COM2 = true,
+			COM3 = true,
+			COM4 = true,
+			LPT1 = true,
+			LPT2 = true,
+			LPT3 = true,
+		}
+		if dos_reserved[base:upper()] then
+			result = result:gsub("^([^.]+)", "%1_proj")
+		end
+	end
+	return vim.fn.strcharpart(result, 0, 80)
+end
+
+-- プロジェクトファイルを作ってよい名前か。正規化 (sanitize_tag) で変わらない名前だけを受け付ける。
+-- 以前は名前を確かめずに作っていたため、`../x` のような名前でデータディレクトリの外にファイルを
+-- 作れてしまった。使えないときは false と、直した名前 (空なら nil) を返す。
+function M.check_new_tag(tag)
+	if type(tag) ~= "string" or tag == "" then
+		return false, nil
+	end
+	local fixed = M.sanitize_tag(tag)
+	if fixed == tag then
+		return true, nil
+	end
+	return false, (fixed ~= "" and fixed or nil)
+end
+
+-- projects/ の中のファイルを指す名前か。パスの区切りや `.`・`..` を含む名前は、すでにあるファイルでも
+-- 扱わない (projects/ の外を指すため)。
+local function stays_in_projects(tag)
+	return type(tag) == "string" and tag ~= "" and not tag:find("[/\\]") and tag ~= "." and tag ~= ".."
+end
+
 -- プロジェクトタグに対応する projects/*.md を、無ければテンプレート付きで作成する。
 -- ジャンプ(jump_to_project)・分割時のプロジェクト昇格(ui/split.lua)・
 -- 新規タスク入力時のプロジェクト作成(ui/prompt.lua)の3箇所から呼ばれる。
 function M.create_project_file(project_tag)
 	local data_dir = config.get("data_dir")
 	local projects_dir = data_dir .. "/projects"
+	local proj_file = string.format("%s/%s.md", projects_dir, project_tag)
 
+	-- 使えない名前を、直した名前 (あれば) を添えて知らせる。
+	local function refuse()
+		local _, suggestion = M.check_new_tag(project_tag)
+		local msg = suggestion
+				and string.format(
+					"[gtodo-md] %q cannot be used as a project file name; use %q instead",
+					project_tag,
+					suggestion
+				)
+			or string.format("[gtodo-md] %q cannot be used as a project file name", tostring(project_tag))
+		vim.notify(msg, vim.log.levels.ERROR)
+		return false
+	end
+
+	if not stays_in_projects(project_tag) then
+		return refuse()
+	end
+	-- 作るときだけ規則で確かめる。すでにあるファイル (手で作った名前など) はそのまま使えるようにする。
+	if vim.fn.filereadable(proj_file) == 0 and not M.check_new_tag(project_tag) then
+		return refuse()
+	end
 	-- mkdir() は失敗時に 0 を返すほか、パス上に同名のファイルがある等では
 	-- E739 を投げる。素通しにすると呼び出し元の処理がそこで止まる。
 	if not utils_mod.ensure_dir(projects_dir) then
@@ -66,7 +139,6 @@ function M.create_project_file(project_tag)
 		return false
 	end
 
-	local proj_file = string.format("%s/%s.md", projects_dir, project_tag)
 	if vim.fn.filereadable(proj_file) == 0 then
 		local today = os.date("%Y-%m-%d")
 		local template = {
@@ -105,6 +177,14 @@ function M.jump_to_project()
 	local project_tag = task and task.project
 
 	if not project_tag then
+		return
+	end
+	-- `+../notes` のようなタグで、projects/ の外にあるファイルを開かない。
+	if not stays_in_projects(project_tag) then
+		vim.notify(
+			string.format("[gtodo-md] %q cannot be used as a project file name", project_tag),
+			vim.log.levels.ERROR
+		)
 		return
 	end
 

@@ -86,37 +86,11 @@ local function escape_lua_pattern(s)
 	return (s:gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1"))
 end
 
--- 入力されたプロジェクトタグを、ファイル名として安全な形へ正規化する。
--- 引数は trim 済みの文字列を想定する。正規化の結果が空文字になる場合(記号のみの
--- 入力など)は空文字を返し、その扱い(処理の中断)は呼び出し元に委ねる。
+-- 入力されたプロジェクトタグを、ファイル名として安全な形へ正規化する。規則の正本は
+-- ui/project.lua の sanitize_tag (プロジェクトファイルを作る経路すべてで同じ規則を使うため)。
+-- 正規化の結果が空文字になる場合の扱い(処理の中断)は呼び出し元に委ねる。
 local function sanitize_project_tag(tag)
-	local result = tag:gsub("^%.+", ""):gsub("%.+$", "")
-	result = result:gsub('[<>:"/\\|?*]', "-")
-	result = result:gsub("%s+", "-")
-	result = result:gsub("%-+", "-")
-	result = result:gsub("^%-+", ""):gsub("%-+$", "")
-
-	local base = result:match("^([^.]+)")
-	if base then
-		local dos_reserved = {
-			CON = true,
-			PRN = true,
-			AUX = true,
-			NUL = true,
-			COM1 = true,
-			COM2 = true,
-			COM3 = true,
-			COM4 = true,
-			LPT1 = true,
-			LPT2 = true,
-			LPT3 = true,
-		}
-		if dos_reserved[base:upper()] then
-			result = result:gsub("^([^.]+)", "%1_proj")
-		end
-	end
-
-	return vim.fn.strcharpart(result, 0, 80)
+	return require("gtodo-md.ui.project").sanitize_tag(tag)
 end
 
 -- `+tag` を「前後が空白か行端であるトークン」として置換・除去する。
@@ -411,36 +385,82 @@ local function resolve_parent_row(source_buf, parent_extmark_id, parent_line)
 	return parent_row, current_parent_line
 end
 
--- 親タスクから子タスクへ引き継いではいけないタグ。`task.lua` の
--- `M.NON_INHERITABLE_TAGS`(id/completed_at/done/cancelled)をそのまま使う。
--- `io.write_todo_file` の重複検知が保存時に解消してくれるが、`inbox.md` は
--- `check_dues` が `inbox_changed` のときしか書き戻さないため、due の無いタスクでは
--- 重複が無期限に残る(`:w` は write_todo_file を通らず dedup されない)。
-local NON_INHERITABLE_TAGS = task_mod.NON_INHERITABLE_TAGS
+-- 親タスクから子タスクへ引き継ぐ項目と、そのタグの書き方 (並びは task.serialize と同じ)。
+-- 優先度・ID・完了とキャンセルの記録は引き継がない。
+--
+-- **親の行の文字列からタグを拾ってはならない。** 以前は `key:value` と `#語` を正規表現で拾って
+-- 子の行へ足していたため、本文中の `ratio:3` や `#memo` までタグとして複製されていた
+-- (タスク行の文法を知ってよいのは task.lua だけ、という不変条件を破っていた)。
+-- 親と子をどちらも task.parse で読み、項目として引き継ぐ。
+local INHERITED_FIELDS = {
+	{
+		key = "project",
+		tag = function(v)
+			return "+" .. v
+		end,
+	},
+	{
+		key = "context",
+		tag = function(v)
+			-- task.parse は context を `@` 付きのまま格納する。
+			return v:match("^@") and v or ("@" .. v)
+		end,
+	},
+	{
+		key = "due",
+		tag = function(v)
+			return "due:" .. v
+		end,
+	},
+	{
+		key = "created",
+		tag = function(v)
+			return "created:" .. v
+		end,
+	},
+	{
+		key = "wait",
+		tag = function(v)
+			return "wait:" .. v
+		end,
+	},
+	{
+		key = "from",
+		tag = function(v)
+			return "from:" .. v
+		end,
+	},
+}
 
-local function extract_metadata(line)
-	local metadata = {}
-	for word in line:gmatch("[%+@#][%w%-_/%.%(%):]+") do
-		table.insert(metadata, word)
+-- 子の行 (`child_text`) に、書かれていない項目を親から足した行を返す。子がタスク行 (チェックボックス行)
+-- でなければそのまま返す。親がタスク行でない (チェックボックスの無いリスト項目など) ときは、
+-- 分割で指定したプロジェクト (`project`。無ければ nil) だけを引き継ぐ。
+local function inherit_tags(parent_text, child_text, project)
+	local child = task_mod.parse(child_text)
+	if not child then
+		return child_text
 	end
-	for word in line:gmatch("[%w%-_]+:[%w%-_/%.%(%):]+") do
-		if not word:match("^https?:") and not NON_INHERITABLE_TAGS[word:match("^([%w%-_]+):")] then
-			table.insert(metadata, word)
+	local parent = task_mod.parse(parent_text) or { project = project }
+	local added = {}
+	for _, field in ipairs(INHERITED_FIELDS) do
+		local value = parent[field.key]
+		local own = child[field.key]
+		if value and value ~= "" and (own == nil or own == "") then
+			table.insert(added, field.tag(value))
 		end
 	end
-	return metadata
+	if #added == 0 then
+		return child_text
+	end
+	return (child_text:gsub("%s*$", "")) .. " " .. table.concat(added, " ")
 end
 
 -- テスト用に公開する(build_injection はバッファ操作を伴い単体テストできないため)
-M._extract_metadata = extract_metadata
-
-local function get_meta_prefix(meta)
-	return meta:match("^([%+@#][^%(%):]+)") or meta:match("^([^:]+:)") or meta
-end
+M._inherit_tags = inherit_tags
 
 -- スクラッチバッファの内容(payload)を、ソースバッファへ差し込む行群へ変換する。
--- インデントを親行に合わせ、親タスクのメタデータを持たないサブタスクへ継承させる。
-local function build_injection(source_buf, payload, bq_prefix, parent_line)
+-- インデントを親行に合わせ、書かれていない項目を親タスクから引き継がせる (inherit_tags)。
+local function build_injection(source_buf, payload, bq_prefix, parent_line, project)
 	local stripped_parent = parent_line:sub(#bq_prefix + 1)
 	local parent_indent = get_visual_indent(stripped_parent)
 	local base_offset = parent_indent -- フラットモデル：親と同じインデント
@@ -451,9 +471,6 @@ local function build_injection(source_buf, payload, bq_prefix, parent_line)
 	if sw == 0 then
 		sw = vim.bo[source_buf].tabstop
 	end
-
-	-- 親タスクからすべてのメタデータを抽出
-	local parent_metadata = extract_metadata(parent_line)
 
 	for _, p_line in ipairs(payload) do
 		if p_line:match("^%s*$") then
@@ -471,28 +488,7 @@ local function build_injection(source_buf, payload, bq_prefix, parent_line)
 				total_indent_str = string.rep(" ", total_indent_num)
 			end
 
-			local text = p_line:match("^%s*(.*)$")
-			local _, l_marker, _ = get_list_marker_info(text)
-
-			if l_marker then
-				local existing_metadata = extract_metadata(text)
-				for _, meta in ipairs(parent_metadata) do
-					local meta_prefix = get_meta_prefix(meta)
-					local has_meta = false
-
-					for _, e_meta in ipairs(existing_metadata) do
-						if get_meta_prefix(e_meta) == meta_prefix then
-							has_meta = true
-							break
-						end
-					end
-
-					if not has_meta then
-						text = text:gsub("%s*$", "") .. " " .. meta
-					end
-				end
-			end
-
+			local text = inherit_tags(stripped_parent, p_line:match("^%s*(.*)$"), project)
 			table.insert(injection, bq_prefix .. total_indent_str .. text)
 		end
 	end
@@ -563,7 +559,7 @@ local function make_commit(split)
 			return
 		end
 
-		local injection = build_injection(source_buf, payload, split.bq_prefix, split.parent_line)
+		local injection = build_injection(source_buf, payload, split.bq_prefix, split.parent_line, split.project)
 
 		pcall(function()
 			vim.cmd("undojoin")
@@ -644,6 +640,8 @@ function M.split_current_task()
 			source_buf = source_buf,
 			entry = entry,
 			parent_line = parent_line,
+			-- 親がタスク行でないときに子へ引き継ぐプロジェクト (inherit_tags)。
+			project = new_tag ~= "" and new_tag or nil,
 			bq_prefix = bq_prefix,
 			parent_extmark_id = parent_extmark_id,
 			lock_extmark_id = lock_extmark_id,

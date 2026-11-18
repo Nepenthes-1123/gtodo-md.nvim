@@ -354,6 +354,31 @@ describe("ui.template", function()
 	-- ユーザー入力をそのまま渡している場合クラッシュ/文字化けする(Luaのgsub置換文字列は
 	-- %1-%9をキャプチャ参照として、%%のみを単一の%として解釈し、それ以外の%Xはエラーになる)。
 	-- 修正後は値に含まれる%が常にそのまま1文字として結果に現れ、エラーも起きてはいけない。
+	describe("プレースホルダーの値 ({{project}}/{{context}})", function()
+		it("頭の + / @ を除いて二重にしない (以前は ++site になっていた)", function()
+			assert.are.same("site", template_mod.normalize_placeholder_value("project", " +site "))
+			assert.are.same("pc", template_mod.normalize_placeholder_value("context", "@pc"))
+			assert.are.same(
+				{ "- [ ] 準備 +site @pc" },
+				template_mod.resolve_placeholders(
+					{ "- [ ] 準備 {{project}} {{context}}" },
+					{ project = "+site", context = "@pc" }
+				)
+			)
+		end)
+
+		it("空白を含む値は断る (後ろが本文へ混ざって別のタスクになるため)", function()
+			local value, err = template_mod.normalize_placeholder_value("project", "my site")
+			assert.is_nil(value)
+			assert.is_truthy(err:find("has spaces", 1, true))
+		end)
+
+		it("予約でないプレースホルダーは前後の空白を除くだけ", function()
+			assert.are.same("田中 さん", template_mod.normalize_placeholder_value("who", " 田中 さん "))
+			assert.are.same("", template_mod.normalize_placeholder_value("project", "  "))
+		end)
+	end)
+
 	describe("resolve_placeholders の値に%が含まれる場合(バグ1)", function()
 		it(
 			"予約プレースホルダー{{project}}の値に%が含まれてもエラーにならず、そのまま1文字として現れる",
