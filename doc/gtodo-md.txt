@@ -103,7 +103,8 @@ SHARED SETTINGS                                     *gtodo-md-shared-settings*
 
 Two optional JSON files hold the settings that every tool working on the same
 data has to agree on. They are also read by `gtodo`, a companion command-line
-tool for the same files (still in development). If you do not create them,
+tool and terminal UI for the same files
+(https://github.com/Nepenthes-1123/gtodo-md). If you do not create them,
 nothing changes: the plugin never creates them, and setup() keeps working as
 before. Both files are read once, when setup() runs.
 
