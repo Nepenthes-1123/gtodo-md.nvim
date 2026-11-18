@@ -144,38 +144,51 @@ end)
 -- 親タスクのメタデータを子タスクへ継承する際、`id:` を引き継いではならない。
 -- id は一意なタスク識別子であり、複製すると editor._find_task_idx が Primary の
 -- 同定キーとして id 完全一致を最優先で使う設計上、別のタスクを操作してしまう。
-describe("split._extract_metadata", function()
-	local extract = split_mod._extract_metadata
+describe("split._inherit_tags", function()
+	local inherit = split_mod._inherit_tags
 
-	it("継承すべきタグは拾う", function()
-		local meta = extract("- [ ] 親 +proj @home due:2026-08-10 created:2026-08-01")
-		assert.is_true(vim.tbl_contains(meta, "+proj"))
-		assert.is_true(vim.tbl_contains(meta, "@home"))
-		assert.is_true(vim.tbl_contains(meta, "due:2026-08-10"))
-		assert.is_true(vim.tbl_contains(meta, "created:2026-08-01"))
+	it("書かれていない項目を親タスクから引き継ぐ", function()
+		assert.are.equal(
+			"- [ ] 資料 +proj @home due:2026-08-10 created:2026-08-01 wait:bob from:mail",
+			inherit("- [ ] 親 +proj @home due:2026-08-10 created:2026-08-01 wait:bob from:mail", "- [ ] 資料", nil)
+		)
 	end)
 
-	it("id: は継承対象に含めない", function()
-		local meta = extract("- [ ] 親 +proj due:2026-08-10 id:a1b2c3")
-		for _, m in ipairs(meta) do
-			assert.is_nil(m:match("^id:"), "id: が継承対象に混入している: " .. m)
-		end
+	it("子に書いた項目が優先する", function()
+		assert.are.equal(
+			"- [ ] 練習 +own due:2026-08-01 @home",
+			inherit("- [ ] 親 +proj @home due:2026-08-10", "- [ ] 練習 +own due:2026-08-01", nil)
+		)
 	end)
 
-	it("完了・キャンセルの記録も継承しない", function()
-		local meta = extract("- [x] 親 +proj completed_at:2026-08-01 done:2026-08-01 cancelled:2026-08-02")
-		for _, m in ipairs(meta) do
-			assert.is_nil(m:match("^completed_at:"), "completed_at: が混入: " .. m)
-			assert.is_nil(m:match("^done:"), "done: が混入: " .. m)
-			assert.is_nil(m:match("^cancelled:"), "cancelled: が混入: " .. m)
+	it(
+		"本文中の key:value や #語 は引き継がない (以前は文字列から拾ってタグとして複製していた)",
+		function()
+			assert.are.equal(
+				"- [ ] 子 +proj",
+				inherit("- [ ] 親 ratio:3 #memo https://example.com/x +proj", "- [ ] 子", nil)
+			)
 		end
+	)
+
+	it("優先度・id・完了とキャンセルの記録は引き継がない", function()
+		assert.are.equal(
+			"- [ ] 子 +proj",
+			inherit(
+				"- [x] (A) 親 +proj completed_at:2026-08-01 done:2026-08-01 cancelled:2026-08-02 id:a1b2c3",
+				"- [ ] 子",
+				nil
+			)
+		)
 	end)
 
-	it("URL は除外したままにする", function()
-		local meta = extract("- [ ] 親 https://example.com/x +proj")
-		for _, m in ipairs(meta) do
-			assert.is_nil(m:match("^https?:"))
-		end
+	it("親がタスク行でなければ、分割で指定したプロジェクトだけを引き継ぐ", function()
+		assert.are.equal("- [ ] 子 +launch", inherit("- メモ @home due:2026-08-10", "- [ ] 子", "launch"))
+		assert.are.equal("- [ ] 子", inherit("- メモ", "- [ ] 子", nil))
+	end)
+
+	it("子がタスク行でなければそのまま", function()
+		assert.are.equal("- ただのメモ", inherit("- [ ] 親 +proj", "- ただのメモ", nil))
 	end)
 end)
 

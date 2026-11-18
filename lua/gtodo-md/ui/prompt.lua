@@ -154,18 +154,34 @@ function M.prompt_task(initial_task, callback)
 
 				-- プロジェクト選択判定
 				if proj_choice == "New Project..." then
-					input({
-						prompt = "New Project Name (e.g. site-renewal): ",
-						default = "",
-					}, function(new_proj)
-						if not new_proj or vim.trim(new_proj) == "" then
-							proceed_with_project(nil)
-						else
+					-- ファイル名にできない名前 (`../x` や空白を含むもの) は作らず、直した名前を初期値にして尋ね直す。
+					local function ask_new_project(default)
+						input({
+							prompt = "New Project Name (e.g. site-renewal): ",
+							default = default,
+						}, function(new_proj)
+							if not new_proj or vim.trim(new_proj) == "" then
+								proceed_with_project(nil)
+								return
+							end
 							new_proj = vim.trim(new_proj):gsub("^%+", "")
+							local ok, suggestion = require("gtodo-md.ui.project").check_new_tag(new_proj)
+							if not ok then
+								vim.notify(
+									string.format(
+										"[gtodo-md] %q cannot be used as a project name (it is also the file name)",
+										new_proj
+									),
+									vim.log.levels.WARN
+								)
+								ask_new_project(suggestion or "")
+								return
+							end
 							create_project_file(new_proj)
 							proceed_with_project(new_proj)
-						end
-					end)
+						end)
+					end
+					ask_new_project("")
 				elseif proj_choice == "[Skip]" then
 					proceed_with_project(nil)
 				else

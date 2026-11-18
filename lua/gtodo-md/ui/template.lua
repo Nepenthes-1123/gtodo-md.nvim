@@ -145,12 +145,34 @@ end
 -- 場合に Lua の置換文字列の仕様(%1-%9はキャプチャ参照、%%のみ単一の%、それ以外は
 -- エラー)に巻き込まれる。関数を渡せば戻り値はパターン解釈されずそのまま挿入される。
 local function resolve_reserved_tag(line, name, prefix, value)
+	-- 値の頭にタグの記号が付いていても二重にしない (`+site` → `+site`。以前は `++site` になっていた)。
+	if value and value:sub(1, 1) == prefix then
+		value = value:sub(2)
+	end
 	if value and value ~= "" then
 		return (line:gsub("{{" .. name .. "}}", function()
 			return prefix .. value
 		end))
 	end
 	return (line:gsub("%s*{{" .. name .. "}}%s*", " "))
+end
+
+-- 挿入するときに尋ねたプレースホルダーの値を整える。前後の空白を除き、{{project}}/{{context}} では
+-- 頭の `+`/`@` も除く。{{project}}/{{context}} の値に空白があると、タグの後ろが本文へ混ざって別の
+-- タスクになるため断る (nil とエラーの文言を返す)。
+function M.normalize_placeholder_value(name, value)
+	local trimmed = vim.trim(value or "")
+	local prefix = RESERVED_PLACEHOLDER_PREFIXES[name]
+	if not prefix then
+		return trimmed
+	end
+	if trimmed:sub(1, 1) == prefix then
+		trimmed = trimmed:sub(2)
+	end
+	if trimmed:find("%s") then
+		return nil, string.format("{{%s}}: %q cannot be a %s tag (it has spaces)", name, trimmed, prefix .. name)
+	end
+	return trimmed
 end
 
 -- {{名前}}トークンを解決する純関数。project/context は上記の予約タグ置換、それ以外は
@@ -502,9 +524,15 @@ function M.insert_template()
 					-- キャンセル(Esc)はbase_date入力時と同じく全体を中断する。
 					return
 				end
-				local trimmed = vim.trim(input)
-				if trimmed ~= "" then
-					values[name] = trimmed
+				local value, err = M.normalize_placeholder_value(name, input)
+				if not value then
+					-- 直せるように、同じプレースホルダーを尋ね直す。
+					vim.notify("[gtodo-md] " .. err, vim.log.levels.WARN)
+					prompt_placeholders(names, index, values)
+					return
+				end
+				if value ~= "" then
+					values[name] = value
 				end
 				prompt_placeholders(names, index + 1, values)
 			end)
