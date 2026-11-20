@@ -222,7 +222,7 @@ values:
 - Archiving the template stops it. The day each template was last checked is kept in `.state.json`.
 
 > [!NOTE]
-> Versions of [`gtodo`](#command-line-tool-gtodo) without recurring tasks ignore the front matter. If such a version runs
+> [`gtodo`](#command-line-tool-gtodo) supports recurring tasks from v0.1.1; earlier versions ignore the front matter. If such a version runs
 > the daily rollover first on some day, the tasks are added by the next rollover Neovim runs, with the same due dates.
 
 ## Command-line tool (`gtodo`)
