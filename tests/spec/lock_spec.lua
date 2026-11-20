@@ -71,6 +71,49 @@ describe("lock.with_automation_lock", function()
 		assert.is_true(called)
 	end)
 
+	it("片付け用のファイルを残さない", function()
+		vim.fn.writefile({ "99999" }, lock_path)
+		local t = os.time() - 61
+		uv.fs_utime(lock_path, t, t)
+
+		assert.is_true(lock_mod.with_automation_lock(data_dir, function() end))
+		assert.are.same(0, vim.fn.filereadable(lock_path .. ".break"))
+	end)
+
+	it("他のプロセスが片付けている間は、古いロックを消さない", function()
+		vim.fn.writefile({ "99999" }, lock_path)
+		local t = os.time() - 61
+		uv.fs_utime(lock_path, t, t)
+		vim.fn.writefile({}, lock_path .. ".break")
+
+		local called = false
+		local acquired = lock_mod.with_automation_lock(data_dir, function()
+			called = true
+		end)
+
+		assert.is_false(acquired)
+		assert.is_false(called)
+		assert.are.same(1, vim.fn.filereadable(lock_path))
+	end)
+
+	it(
+		"片付けている途中で止まったプロセスの片付け用のファイルは消し、次の機会に片付ける",
+		function()
+			vim.fn.writefile({ "99999" }, lock_path)
+			local t = os.time() - 61
+			uv.fs_utime(lock_path, t, t)
+			local break_path = lock_path .. ".break"
+			vim.fn.writefile({}, break_path)
+			local bt = os.time() - 11
+			uv.fs_utime(break_path, bt, bt)
+
+			assert.is_false(lock_mod.with_automation_lock(data_dir, function() end))
+			assert.are.same(0, vim.fn.filereadable(break_path))
+			assert.is_true(lock_mod.with_automation_lock(data_dir, function() end))
+			assert.are.same(0, vim.fn.filereadable(lock_path))
+		end
+	)
+
 	it("60秒以内の新しいロックは無効化されない", function()
 		vim.fn.writefile({ "99999" }, lock_path)
 		local t = os.time() - 10

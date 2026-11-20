@@ -79,13 +79,44 @@ local function release(lock_path, token)
 	end
 end
 
+-- 片付け用のファイルがこれより古ければ、片付けている途中で止まったプロセスの残骸とみなして消す。
+-- 片付けは一瞬で終わるので、ロックより短くする(残ると、その間は誰もロックの残骸を片付けられない)。
+-- CLI も同じ値。
+local BREAK_STALE_SECONDS = 10
+
+local function is_stale(path, seconds)
+	local stat = uv.fs_stat(path)
+	return stat ~= nil and (os.time() - stat.mtime.sec) > seconds
+end
+
 -- クラッシュ等でロックが残留した場合の安全弁。
--- STALE_SECONDS を超えて存在するロックは、保持プロセスが終了したとみなして強制削除する。
+-- STALE_SECONDS を超えて存在するロックは、保持プロセスが終了したとみなして削除する。
+--
+-- 片付けは片付け用のファイル(ロックファイルの名前に `.break` を足したもの)を排他的に作れた
+-- プロセスだけが行い、作れたら古いかを確かめ直してから消す(CLI も同じ手順)。確かめずに消すと、
+-- 2つのプロセスがほぼ同時に古いと判断したとき、先に片付けて新しいロックを作ったプロセスのロックを、
+-- 後のプロセスが消して排他を崩す(古いロックに8つが同時に取りに行くと、約1%の回で2つとも取れていた)。
+-- 片付けを1つずつにすれば、後のプロセスが確かめ直すときには新しいロックが見え、消さない。
+-- 残る隙間: 60秒を超えて持っていたプロセスが、確かめ直してから消すまでの一瞬に解放し、さらに別の
+-- プロセスがその一瞬に取ると、その新しいロックを消す。止まったプロセスの残骸(ふつうの場合)では起きない。
 local function cleanup_stale(lock_path)
-	local stat = uv.fs_stat(lock_path)
-	if stat and (os.time() - stat.mtime.sec) > STALE_SECONDS then
+	if not is_stale(lock_path, STALE_SECONDS) then
+		return
+	end
+	local break_path = lock_path .. ".break"
+	local fd = uv.fs_open(break_path, "wx", 384) -- 0o600
+	if not fd then
+		-- 他のプロセスが片付けている。止まったプロセスの残骸なら消し、今回は任せる。
+		if is_stale(break_path, BREAK_STALE_SECONDS) then
+			uv.fs_unlink(break_path)
+		end
+		return
+	end
+	uv.fs_close(fd)
+	if is_stale(lock_path, STALE_SECONDS) then
 		uv.fs_unlink(lock_path)
 	end
+	uv.fs_unlink(break_path)
 end
 
 -- 自動処理全般(dueチェック・ソート・日次ロールオーバー等)で共有する排他ロック。
