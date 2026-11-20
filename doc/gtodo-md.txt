@@ -181,6 +181,17 @@ The following user commands are provided:
         Opens the Queue view, displaying uncompleted tasks grouped by their
         due dates (Overdue, Next 7 Days, Later).
 
+:GtodoEditTemplate
+        Edits a template, or creates a new one. See |gtodo-md-templates|.
+
+:GtodoInsertTemplate
+        Inserts the tasks of a template into `inbox.md`.
+
+:GtodoArchiveTemplate
+:GtodoRestoreTemplate
+        Archives a template (moves it to `templates/archive/`) or restores
+        it. An archived recurring template no longer adds tasks.
+
 ==============================================================================
 4. Keymaps                                                 *gtodo-md-mappings*
 
@@ -236,6 +247,38 @@ You can display task counts on your statusline: >lua
 Integration with `snacks.dashboard` and `alpha-nvim` is provided: >lua
     require('gtodo-md.integrations.dashboard').snacks_section()
 <
+
+*Templates and recurring tasks*                          *gtodo-md-templates*
+A template is a file `<data_dir>/templates/<name>.md` holding task lines to
+add to `inbox.md` in one go. Relative due dates (`due:+3d`, `due:mon`) count
+from a base date chosen when inserting. `{{project}}` / `{{context}}` become a
+`+project` / `@context` tag and any other `{{name}}` is replaced as is; their
+values are asked for when inserting.
+
+                                                         *gtodo-md-recurring*
+A front matter at the very top of a template adds its tasks automatically on
+the given days: >markdown
+    ---
+    type: recurring
+    repeat: mon, thu
+    values:
+      project: site
+    ---
+    - [ ] Write the weekly report {{project}} due:+1d
+<
+`repeat:` is a comma-separated list; the tasks are added on every day that
+matches one item: `mon`..`sun` (weekday), `1`..`31` (day of the month; the
+last day in a month without it), `end` (last day of the month), `1st tue`..
+`4th tue` and `last fri` (weekday in a given week), `04-01` (every year;
+`02-29` is Feb 28 in other years).
+
+The tasks are added by the daily rollover and a task due today moves to
+`Today` right away. Relative due dates count from the day the tasks were due
+to be added. After a while without running, only the latest missed
+occurrence is added; a new or restored template does not catch up on earlier
+days. `values:` fills the placeholders when adding automatically and is the
+default answer when inserting by hand. The day each template was last checked
+is kept in `.state.json`.
 
 *Virtual Text & Highlights*
 Task priorities `(A)`, `(B)`, and tags like `+project` and `@context` are
