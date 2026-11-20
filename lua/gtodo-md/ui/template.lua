@@ -3,6 +3,7 @@ local config = require("gtodo-md.config")
 local io_mod = require("gtodo-md.io")
 local task_mod = require("gtodo-md.task")
 local utils_mod = require("gtodo-md.utils")
+local recurring_logic = require("gtodo-md.logic.recurring")
 
 -- テンプレート関連のパス組み立てをここへ集約する。
 local function templates_dir(data_dir)
@@ -40,6 +41,23 @@ for k, v in pairs(task_mod.NON_INHERITABLE_TAGS) do
 	TEMPLATE_NON_INHERITABLE_TAGS[k] = v
 end
 TEMPLATE_NON_INHERITABLE_TAGS.created = true
+
+-- テンプレートファイルのパス(定期タスクを作る recurring.lua が使う)。
+function M.path(name)
+	return template_path(config.get("data_dir"), name)
+end
+
+-- 一覧に出す名前。定期タスクなら作る日を、定期タスクとして読めなければその理由を添える。
+function M.label(name)
+	local def = recurring_logic.read_definition(io_mod.read_lines(template_path(config.get("data_dir"), name)))
+	if def.error then
+		return string.format("%s  (recurring: %s)", name, def.error)
+	end
+	if def.recurring then
+		return string.format("%s  (repeat: %s)", name, def.repeat_text)
+	end
+	return name
+end
 
 -- 既存テンプレート一覧の取得(最近更新された順)。ui/prompt.lua の get_projects と同じ方式。
 function M.list_templates()
@@ -100,6 +118,18 @@ function M.ensure_template_file(name)
 			"+project/@context の代わりに {{project}}/{{context}} と書くと、挿入時に値を尋ねられます(複数プロジェクトで使い回すテンプレート向け)",
 			"優先度は内容の先頭に (A) のように付与 (例: - [ ] (A) 重要なタスク)",
 			"このコメント行は挿入時に自動で無視されます",
+			"",
+			"定期タスクにするには、ファイルの先頭 (このコメントより前) に次のように書きます:",
+			"  ---",
+			"  type: recurring",
+			"  repeat: mon, thu",
+			"  values:",
+			"    project: site",
+			"  ---",
+			"repeat には mon〜sun (曜日)、1〜31 (日。その月に無い日は月末)、end (月末)、",
+			"2nd tue / last fri (何週目かの曜日)、04-01 (毎年の月日) を , で区切って並べます",
+			"当たる日の日次の整理で inbox.md へ足し、due:+3d はその日から数えます",
+			"values: には {{名前}} に入れる値を書きます (手で挿入するときは初期値になります)",
 			"-->",
 			"",
 		}
@@ -434,7 +464,10 @@ function M.edit_template()
 	local options = { sentinel }
 	vim.list_extend(options, M.list_templates())
 
-	vim.ui.select(options, { prompt = "Select Template:" }, function(choice)
+	local function format_item(item)
+		return item == sentinel and item or M.label(item)
+	end
+	vim.ui.select(options, { prompt = "Select Template:", format_item = format_item }, function(choice)
 		if not choice then
 			return
 		end
@@ -469,7 +502,7 @@ function M.insert_template()
 		return
 	end
 
-	vim.ui.select(templates, { prompt = "Select Template:" }, function(choice)
+	vim.ui.select(templates, { prompt = "Select Template:", format_item = M.label }, function(choice)
 		if not choice then
 			return
 		end
@@ -478,6 +511,8 @@ function M.insert_template()
 		local path = template_path(data_dir, choice)
 		local lines = io_mod.read_lines(path)
 		local placeholder_names = M.list_placeholder_names(lines)
+		-- フロントマターの values: に書いた値を、尋ねるときの初期値にする(定期タスクが自動で作るときに使う値)。
+		local defaults = recurring_logic.read_definition(lines).values
 
 		-- テンプレートは繰り返し使い回すため、due:の相対指定を「挿入した瞬間の実日付」
 		-- ではなくユーザーが選んだ基準日から解決したい。この入力自体は常に実際の今日を
@@ -519,7 +554,10 @@ function M.insert_template()
 				prompt_base_date(values)
 				return
 			end
-			vim.ui.input({ prompt = "Value for {{" .. name .. "}} (blank to omit): " }, function(input)
+			vim.ui.input({
+				prompt = "Value for {{" .. name .. "}} (blank to omit): ",
+				default = defaults[name],
+			}, function(input)
 				if input == nil then
 					-- キャンセル(Esc)はbase_date入力時と同じく全体を中断する。
 					return

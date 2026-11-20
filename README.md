@@ -148,6 +148,8 @@ If `use_default_keymaps = true`, the prefix is `<Leader>t`.
 | `<Leader>ta` | Normal | Add/Edit task interactively (via UI prompts) |
 | `<Leader>t/` | Normal | Search tasks (Tags, Contexts) using your picker |
 | `<Leader>tq` | Normal | Open the Queue view (due dates grouped) |
+| `<Leader>tT` | Normal | Edit or create a template (see [Templates and recurring tasks](#templates-and-recurring-tasks)) |
+| `<Leader>tA` | Normal | Insert the tasks of a template into `inbox.md` |
 
 ### Buffer-local keymaps (available inside `todo.md` / `inbox.md`)
 
@@ -174,6 +176,54 @@ If `use_default_keymaps = true`, the prefix is `<Leader>t`.
 - `:GtodoCancelled` - Open `cancelled.md`
 - `:GtodoSort` - Manually sort tasks by due date and priority
 - `:GtodoQueue` - Open Queue view
+- `:GtodoEditTemplate` / `:GtodoInsertTemplate` - Edit or create a template / insert its tasks into `inbox.md`
+- `:GtodoArchiveTemplate` / `:GtodoRestoreTemplate` - Archive a template (moves it to `templates/archive/`) / restore it
+
+## Templates and recurring tasks
+
+A template is a file `<data_dir>/templates/<name>.md` holding task lines that you add to `inbox.md` in one go.
+Create or edit one with `:GtodoEditTemplate` (`<Leader>tT`) and insert it with `:GtodoInsertTemplate` (`<Leader>tA`).
+
+- Relative due dates such as `due:+3d` or `due:mon` count from a base date you choose when inserting.
+- `{{project}}` / `{{context}}` become a `+project` / `@context` tag, and any other `{{name}}` is replaced as is. You are
+  asked for each value when inserting (leave it blank to omit it).
+
+### Recurring tasks
+
+Put a front matter at the very top of a template to have its tasks added automatically on given days:
+
+```markdown
+---
+type: recurring
+repeat: mon, thu
+values:
+  project: site
+---
+- [ ] Write the weekly report {{project}} due:+1d
+```
+
+`repeat:` is a comma-separated list. The tasks are added on every day that matches one of the items:
+
+| Item | Days |
+| --- | --- |
+| `mon` … `sun` | That weekday |
+| `1` … `31` | That day of the month (in a month without that day, its last day) |
+| `end` | The last day of the month |
+| `1st tue` … `4th tue`, `last fri` | That weekday in the given week of the month |
+| `04-01` | That date every year (`02-29` is Feb 28 in other years) |
+
+- The tasks are added to `inbox.md` by the daily rollover (the first time gtodo-md runs on a new day), and a task due
+  today is moved to `Today` right away. Relative due dates count from the day the tasks were due to be added, so adding
+  them late does not shift them.
+- If neither Neovim nor `gtodo` ran for a while, only the latest missed occurrence is added.
+- A new or restored template does not catch up on days before the rollover first sees it.
+- `values:` fills the `{{name}}` placeholders when the tasks are added automatically, and is the default answer when you
+  insert the template by hand. A recurring template with a placeholder that has no value is skipped with a warning.
+- Archiving the template stops it. The day each template was last checked is kept in `.state.json`.
+
+> [!NOTE]
+> [`gtodo`](#command-line-tool-gtodo) supports recurring tasks from v0.1.1; earlier versions ignore the front matter. If such a version runs
+> the daily rollover first on some day, the tasks are added by the next rollover Neovim runs, with the same due dates.
 
 ## Command-line tool (`gtodo`)
 

@@ -1,6 +1,7 @@
 -- data_dir/.state.json の読み書き。日次ロールオーバーのゲート(last_opened)、
 -- セクション名カスタマイズの前回名記憶(last_sections)、due通知のクールダウン
--- 状態(last_notify_*)といった、アプリケーション状態の永続化を一手に引き受ける。
+-- 状態(last_notify_*)、定期タスクをどの日まで確かめたか(recurring)といった、
+-- アプリケーション状態の永続化を一手に引き受ける。
 local M = {}
 
 local function get_state_path()
@@ -45,7 +46,7 @@ local function write_state(data)
 	-- 初期化がそこで止まる(しかもユーザーには原因が読み取れない)。
 	if not require("gtodo-md.utils").ensure_dir(dir) then
 		vim.notify(string.format("[gtodo-md] failed to create data directory: %s", dir), vim.log.levels.ERROR)
-		return
+		return false
 	end
 	local ok, content = pcall(vim.json.encode, data)
 	if not ok then
@@ -53,7 +54,7 @@ local function write_state(data)
 		-- 「設定したはずの内容が次回起動時に消えている」形で表面化する。
 		-- すぐ下の atomic_write 失敗と同じく通知する。
 		vim.notify(string.format("[gtodo-md] failed to encode %s: %s", path, tostring(content)), vim.log.levels.ERROR)
-		return
+		return false
 	end
 	-- config.lua がこのモジュールを require するため、io.lua はここで遅延requireする
 	-- (io.lua は config.lua を require しており、トップレベルで書くと循環参照になる)。
@@ -61,9 +62,10 @@ local function write_state(data)
 	local written, err = io_mod.atomic_write(path, content)
 	if not written then
 		vim.notify(string.format("[gtodo-md] failed to write %s: %s", path, err), vim.log.levels.ERROR)
-		return
+		return false
 	end
 	reported_broken[path] = nil
+	return true
 end
 
 -- 読んで fn で書き換え、書き戻す。
@@ -72,6 +74,7 @@ end
 -- 中身(CLI など他のツールが書いた知らないキーを含む)が消え、壊れていたことにも
 -- 誰も気づけなかった。読む側は空として扱い続けるので、処理は止まらない
 -- (日次ロールオーバーは記録できないが、同じセッションの中では1日1回に保たれる)。
+-- 返り値: 書き戻せたか(書けなかった理由は通知済み)。
 local function update_state(fn)
 	local data, broken = read_state()
 	if broken then
@@ -87,10 +90,10 @@ local function update_state(fn)
 				vim.log.levels.ERROR
 			)
 		end
-		return
+		return false
 	end
 	fn(data)
-	write_state(data)
+	return write_state(data)
 end
 
 function M.read_last_opened()
@@ -118,6 +121,34 @@ end
 function M.write_last_sections(sections)
 	update_state(function(state)
 		state.last_sections = sections
+	end)
+end
+
+-- 定期タスクのテンプレートごとに、どの日まで確かめたか ("YYYY-MM-DD"。その日の分は作った)。
+-- gtodo (CLI) も同じキーを読み書きする。壊れたファイルなら nil と理由を返す — 記録できないまま
+-- 作ると、日次の整理をやり直すたびに同じタスクを作ってしまうため、呼び出し元は作らずに止める。
+-- 文字列でない値は読み飛ばす(無かったものとして、その日の分から確かめ直す)。
+function M.read_recurring()
+	local state, broken = read_state()
+	if broken then
+		return nil, broken
+	end
+	local result = {}
+	if type(state.recurring) == "table" then
+		for name, date in pairs(state.recurring) do
+			if type(name) == "string" and type(date) == "string" then
+				result[name] = date
+			end
+		end
+	end
+	return result
+end
+
+-- 定期タスクの記録を丸ごと置き換える。返り値: 書き戻せたか。
+-- 空なら キーごと消す (vim.json.encode は空のテーブルを [] と書き、オブジェクトとして読めなくなるため)。
+function M.write_recurring(records)
+	return update_state(function(state)
+		state.recurring = next(records) ~= nil and records or nil
 	end)
 end
 

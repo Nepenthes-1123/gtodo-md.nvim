@@ -193,6 +193,8 @@ function M.check_daily_rollover()
 		local rollover_ok = false
 		local acquired = lock_mod.with_automation_lock(data_dir, function()
 			local move_changed = logic_mod.move_completed_tasks(inbox_path, todo_path, done_path)
+			-- 定期タスクは期日の確認より前に足す(期日が今日以前のタスクを、この整理の中で Today へ移すため)。
+			require("gtodo-md.recurring").create_due_tasks(today)
 			-- move_completed_tasks が変化していれば、check_dues自体に変化が無くても
 			-- sort_todo_fileを呼ぶ(always_sortとして渡す)。
 			logic_mod.check_dues_and_maybe_sort(inbox_path, todo_path, move_changed)
